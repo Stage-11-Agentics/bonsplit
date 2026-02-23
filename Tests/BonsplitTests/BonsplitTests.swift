@@ -412,4 +412,66 @@ final class BonsplitTests: XCTestCase {
         let resolved = TabItemStyling.resolvedFaviconImage(existing: existing, incomingData: nil)
         XCTAssertNil(resolved)
     }
+
+    func testTabControlShortcutHintPolicyRequiresCommandOrControlOnly() {
+        XCTAssertNotNil(TabControlShortcutHintPolicy.hintModifier(for: [.control]))
+        XCTAssertNotNil(TabControlShortcutHintPolicy.hintModifier(for: [.command]))
+        XCTAssertNil(TabControlShortcutHintPolicy.hintModifier(for: []))
+        XCTAssertNil(TabControlShortcutHintPolicy.hintModifier(for: [.control, .shift]))
+        XCTAssertNil(TabControlShortcutHintPolicy.hintModifier(for: [.command, .option]))
+    }
+
+    func testTabControlShortcutHintsAreScopedToCurrentKeyWindow() {
+        XCTAssertTrue(
+            TabControlShortcutHintPolicy.shouldShowHints(
+                for: [.command],
+                hostWindowNumber: 42,
+                hostWindowIsKey: true,
+                eventWindowNumber: 42,
+                keyWindowNumber: 42
+            )
+        )
+
+        XCTAssertFalse(
+            TabControlShortcutHintPolicy.shouldShowHints(
+                for: [.command],
+                hostWindowNumber: 42,
+                hostWindowIsKey: true,
+                eventWindowNumber: 7,
+                keyWindowNumber: 42
+            )
+        )
+
+        XCTAssertFalse(
+            TabControlShortcutHintPolicy.shouldShowHints(
+                for: [.command],
+                hostWindowNumber: 42,
+                hostWindowIsKey: false,
+                eventWindowNumber: 42,
+                keyWindowNumber: 42
+            )
+        )
+    }
+
+    func testTabControlShortcutHintsFallbackToKeyWindowWhenEventWindowMissing() {
+        XCTAssertTrue(
+            TabControlShortcutHintPolicy.shouldShowHints(
+                for: [.control],
+                hostWindowNumber: 42,
+                hostWindowIsKey: true,
+                eventWindowNumber: nil,
+                keyWindowNumber: 42
+            )
+        )
+
+        XCTAssertFalse(
+            TabControlShortcutHintPolicy.shouldShowHints(
+                for: [.control],
+                hostWindowNumber: 42,
+                hostWindowIsKey: true,
+                eventWindowNumber: nil,
+                keyWindowNumber: 7
+            )
+        )
+    }
 }

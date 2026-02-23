@@ -143,6 +143,12 @@ struct TabBarView: View {
         .frame(height: TabBarMetrics.barHeight)
         .contentShape(Rectangle())
         .background(tabBarBackground)
+        .background(
+            TabBarHostWindowReader { window in
+                controlKeyMonitor.setHostWindow(window)
+            }
+            .frame(width: 0, height: 0)
+        )
         // Clear drop state when drag ends elsewhere (cancelled, dropped in another pane, etc.)
         .onChange(of: splitViewController.draggingTab) { _, newValue in
 #if DEBUG
@@ -480,7 +486,7 @@ private struct SplitActionButtonStyle: ButtonStyle {
     }
 }
 
-private enum TabControlShortcutModifier: Equatable {
+enum TabControlShortcutModifier: Equatable {
     case control
     case command
 
@@ -495,7 +501,7 @@ private enum TabControlShortcutModifier: Equatable {
     }
 }
 
-private enum TabControlShortcutHintPolicy {
+enum TabControlShortcutHintPolicy {
     static let intentionalHoldDelay: TimeInterval = 0.30
 
     static func hintModifier(for modifierFlags: NSEvent.ModifierFlags) -> TabControlShortcutModifier? {
@@ -504,6 +510,53 @@ private enum TabControlShortcutHintPolicy {
         if flags == [.command] { return .command }
         return nil
     }
+
+    static func isCurrentWindow(
+        hostWindowNumber: Int?,
+        hostWindowIsKey: Bool,
+        eventWindowNumber: Int?,
+        keyWindowNumber: Int?
+    ) -> Bool {
+        guard let hostWindowNumber, hostWindowIsKey else { return false }
+        if let eventWindowNumber {
+            return eventWindowNumber == hostWindowNumber
+        }
+        return keyWindowNumber == hostWindowNumber
+    }
+
+    static func shouldShowHints(
+        for modifierFlags: NSEvent.ModifierFlags,
+        hostWindowNumber: Int?,
+        hostWindowIsKey: Bool,
+        eventWindowNumber: Int?,
+        keyWindowNumber: Int?
+    ) -> Bool {
+        hintModifier(for: modifierFlags) != nil &&
+            isCurrentWindow(
+                hostWindowNumber: hostWindowNumber,
+                hostWindowIsKey: hostWindowIsKey,
+                eventWindowNumber: eventWindowNumber,
+                keyWindowNumber: keyWindowNumber
+            )
+    }
+}
+
+private struct TabBarHostWindowReader: NSViewRepresentable {
+    let onResolve: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { [weak view] in
+            onResolve(view?.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { [weak nsView] in
+            onResolve(nsView?.window)
+        }
+    }
 }
 
 @MainActor
@@ -511,24 +564,60 @@ private final class TabControlShortcutKeyMonitor: ObservableObject {
     @Published private(set) var isShortcutHintVisible = false
     @Published private(set) var shortcutModifierSymbol = "⌃"
 
+    private weak var hostWindow: NSWindow?
+    private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
+    private var hostWindowDidResignKeyObserver: NSObjectProtocol?
     private var flagsMonitor: Any?
     private var keyDownMonitor: Any?
     private var resignObserver: NSObjectProtocol?
     private var pendingShowWorkItem: DispatchWorkItem?
     private var pendingModifier: TabControlShortcutModifier?
 
+    func setHostWindow(_ window: NSWindow?) {
+        guard hostWindow !== window else { return }
+        removeHostWindowObservers()
+        hostWindow = window
+        guard let window else {
+            cancelPendingHintShow(resetVisible: true)
+            return
+        }
+
+        hostWindowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.update(from: NSEvent.modifierFlags, eventWindow: nil)
+            }
+        }
+
+        hostWindowDidResignKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.cancelPendingHintShow(resetVisible: true)
+            }
+        }
+
+        update(from: NSEvent.modifierFlags, eventWindow: nil)
+    }
+
     func start() {
         guard flagsMonitor == nil else {
-            update(from: NSEvent.modifierFlags)
+            update(from: NSEvent.modifierFlags, eventWindow: nil)
             return
         }
 
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.update(from: event.modifierFlags)
+            self?.update(from: event.modifierFlags, eventWindow: event.window)
             return event
         }
 
         keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard self?.isCurrentWindow(eventWindow: event.window) == true else { return event }
             self?.cancelPendingHintShow(resetVisible: true)
             return event
         }
@@ -543,7 +632,7 @@ private final class TabControlShortcutKeyMonitor: ObservableObject {
             }
         }
 
-        update(from: NSEvent.modifierFlags)
+        update(from: NSEvent.modifierFlags, eventWindow: nil)
     }
 
     func stop() {
@@ -559,10 +648,31 @@ private final class TabControlShortcutKeyMonitor: ObservableObject {
             NotificationCenter.default.removeObserver(resignObserver)
             self.resignObserver = nil
         }
+        removeHostWindowObservers()
         cancelPendingHintShow(resetVisible: true)
     }
 
-    private func update(from modifierFlags: NSEvent.ModifierFlags) {
+    private func isCurrentWindow(eventWindow: NSWindow?) -> Bool {
+        TabControlShortcutHintPolicy.isCurrentWindow(
+            hostWindowNumber: hostWindow?.windowNumber,
+            hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
+            eventWindowNumber: eventWindow?.windowNumber,
+            keyWindowNumber: NSApp.keyWindow?.windowNumber
+        )
+    }
+
+    private func update(from modifierFlags: NSEvent.ModifierFlags, eventWindow: NSWindow?) {
+        guard TabControlShortcutHintPolicy.shouldShowHints(
+            for: modifierFlags,
+            hostWindowNumber: hostWindow?.windowNumber,
+            hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
+            eventWindowNumber: eventWindow?.windowNumber,
+            keyWindowNumber: NSApp.keyWindow?.windowNumber
+        ) else {
+            cancelPendingHintShow(resetVisible: true)
+            return
+        }
+
         guard let modifier = TabControlShortcutHintPolicy.hintModifier(for: modifierFlags) else {
             cancelPendingHintShow(resetVisible: true)
             return
@@ -587,6 +697,13 @@ private final class TabControlShortcutKeyMonitor: ObservableObject {
             guard let self else { return }
             self.pendingShowWorkItem = nil
             self.pendingModifier = nil
+            guard TabControlShortcutHintPolicy.shouldShowHints(
+                for: NSEvent.modifierFlags,
+                hostWindowNumber: self.hostWindow?.windowNumber,
+                hostWindowIsKey: self.hostWindow?.isKeyWindow ?? false,
+                eventWindowNumber: nil,
+                keyWindowNumber: NSApp.keyWindow?.windowNumber
+            ) else { return }
             guard let currentModifier = TabControlShortcutHintPolicy.hintModifier(for: NSEvent.modifierFlags) else { return }
             self.shortcutModifierSymbol = currentModifier.symbol
             withAnimation(.easeInOut(duration: 0.14)) {
@@ -607,6 +724,17 @@ private final class TabControlShortcutKeyMonitor: ObservableObject {
             withAnimation(.easeInOut(duration: 0.14)) {
                 isShortcutHintVisible = false
             }
+        }
+    }
+
+    private func removeHostWindowObservers() {
+        if let hostWindowDidBecomeKeyObserver {
+            NotificationCenter.default.removeObserver(hostWindowDidBecomeKeyObserver)
+            self.hostWindowDidBecomeKeyObserver = nil
+        }
+        if let hostWindowDidResignKeyObserver {
+            NotificationCenter.default.removeObserver(hostWindowDidResignKeyObserver)
+            self.hostWindowDidResignKeyObserver = nil
         }
     }
 }
