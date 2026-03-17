@@ -66,6 +66,16 @@ final class BonsplitTests: XCTestCase {
         }
     }
 
+    private final class NewTabRequestDelegateSpy: BonsplitDelegate {
+        var requestedKind: String?
+        var requestedPaneId: PaneID?
+
+        func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
+            requestedKind = kind
+            requestedPaneId = pane
+        }
+    }
+
     @MainActor
     func testControllerCreation() {
         let controller = BonsplitController()
@@ -495,6 +505,52 @@ final class BonsplitTests: XCTestCase {
         XCTAssertEqual(spy.action, .markAsRead)
         XCTAssertEqual(spy.tabId, tabId)
         XCTAssertEqual(spy.paneId, pane)
+    }
+
+    @MainActor
+    func testDoubleClickingEmptyTrailingTabBarSpaceRequestsNewTerminalTab() {
+        let appearance = BonsplitConfiguration.Appearance(showSplitButtons: false)
+        let configuration = BonsplitConfiguration(appearance: appearance)
+        let controller = BonsplitController(configuration: configuration)
+        let pane = controller.internalController.rootNode.allPanes.first!
+        let spy = NewTabRequestDelegateSpy()
+        controller.delegate = spy
+
+        let hostingView = NSHostingView(
+            rootView: TabBarView(pane: pane, isFocused: true, showSplitButtons: false)
+                .environment(controller)
+                .environment(controller.internalController)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 60),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        contentView.layoutSubtreeIfNeeded()
+
+        let clickPoint = NSPoint(x: hostingView.bounds.maxX - 12, y: hostingView.bounds.midY)
+        guard let event = try? makeLeftMouseDownEvent(in: hostingView, at: clickPoint, clickCount: 2) else {
+            XCTFail("Expected mouse event")
+            return
+        }
+        NSApp.sendEvent(event)
+
+        XCTAssertEqual(spy.requestedKind, "terminal")
+        XCTAssertEqual(spy.requestedPaneId, pane.id)
     }
 
     func testIconSaturationKeepsRasterFaviconInColorWhenInactive() {
@@ -936,5 +992,31 @@ final class BonsplitTests: XCTestCase {
               x < bitmap.pixelsWide,
               y < bitmap.pixelsHigh else { return nil }
         return bitmap.colorAt(x: x, y: y)
+    }
+
+    @MainActor
+    private func makeLeftMouseDownEvent(
+        in view: NSView,
+        at point: NSPoint,
+        clickCount: Int
+    ) throws -> NSEvent {
+        guard let window = view.window else {
+            throw NSError(domain: "BonsplitTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing window"])
+        }
+        let pointInWindow = view.convert(point, to: nil)
+        guard let event = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: pointInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: clickCount,
+            pressure: 1
+        ) else {
+            throw NSError(domain: "BonsplitTests", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to create mouse event"])
+        }
+        return event
     }
 }
