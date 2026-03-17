@@ -45,7 +45,9 @@ struct SplitNodeView<Content: View, EmptyContent: View>: View {
 }
 
 /// Container NSView for a pane inside SinglePaneWrapper.
-class PaneDragContainerView: NSView {}
+class PaneDragContainerView: NSView {
+    override var isOpaque: Bool { false }
+}
 
 /// Wrapper that uses NSHostingController for proper AppKit layout constraints
 struct SinglePaneWrapper<Content: View, EmptyContent: View>: NSViewRepresentable {
@@ -71,6 +73,8 @@ struct SinglePaneWrapper<Content: View, EmptyContent: View>: NSViewRepresentable
 
         let containerView = PaneDragContainerView()
         containerView.wantsLayer = true
+        containerView.layer?.backgroundColor = NSColor.clear.cgColor
+        containerView.layer?.isOpaque = false
         containerView.layer?.masksToBounds = true
         containerView.addSubview(hostingController.view)
 
@@ -92,6 +96,8 @@ struct SinglePaneWrapper<Content: View, EmptyContent: View>: NSViewRepresentable
         // drag sessions to views belonging to background workspaces.
         nsView.isHidden = !controller.isInteractive
         nsView.wantsLayer = true
+        nsView.layer?.backgroundColor = NSColor.clear.cgColor
+        nsView.layer?.isOpaque = false
         nsView.layer?.masksToBounds = true
 
         let paneView = PaneContainerView(
