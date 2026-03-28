@@ -66,7 +66,6 @@ struct TabBarView: View {
     var showSplitButtons: Bool = true
 
     @AppStorage("workspacePresentationMode") private var presentationMode = "standard"
-    @AppStorage("debugSplitButtonBgStyle") private var splitButtonBgStyle = 0
     @State private var isHoveringTabBar = false
     @State private var dropTargetIndex: Int?
     @State private var dropLifecycle: TabDropLifecycle = .idle
@@ -108,7 +107,8 @@ struct TabBarView: View {
 
 
     /// Width of the floating split buttons area (used for scroll view trailing padding).
-    @State private var splitButtonsWidth: CGFloat = 0
+    /// Default to a reasonable estimate so first render has correct padding.
+    @State private var splitButtonsWidth: CGFloat = 120
 
     var body: some View {
         // Full-width scroll view with split buttons floating on top.
@@ -188,11 +188,18 @@ struct TabBarView: View {
             }
             .frame(height: TabBarMetrics.barHeight)
             .overlay(fadeOverlays)
-            // Floating split buttons on the trailing edge
+            // Floating split buttons on the trailing edge. No separate
+            // background needed: tabBarBackground already covers this area,
+            // and .padding(.trailing, splitButtonsWidth) on the scroll
+            // content prevents tabs from scrolling behind the buttons.
             .overlay(alignment: .trailing) {
                 if showSplitButtons {
                     let shouldShow = presentationMode != "minimal" || isHoveringTabBar
-                    splitButtonsWithBackground(shouldShow: shouldShow)
+                    splitButtons
+                        .saturation(tabBarSaturation)
+                        .opacity(shouldShow ? 1 : 0)
+                        .allowsHitTesting(shouldShow)
+                        .animation(.easeInOut(duration: 0.14), value: shouldShow)
                         .background(
                             GeometryReader { geo in
                                 Color.clear.onAppear { splitButtonsWidth = geo.size.width }
@@ -518,72 +525,6 @@ struct TabBarView: View {
         .padding(.trailing, 8)
     }
 
-    // MARK: - Split Button Background (debug: `defaults write ... debugSplitButtonBgStyle N`)
-
-    @ViewBuilder
-    private func splitButtonsWithBackground(shouldShow: Bool) -> some View {
-        let bg = TabBarColors.barBackground(for: appearance)
-
-        switch splitButtonBgStyle {
-        case 1:
-            // Style 1: Solid barFill (full opacity)
-            splitButtons
-                .frame(maxHeight: .infinity)
-                .padding(.bottom, 1)
-                .background(bg)
-                .saturation(tabBarSaturation)
-                .opacity(shouldShow ? 1 : 0)
-                .allowsHitTesting(shouldShow)
-                .animation(.easeInOut(duration: 0.14), value: shouldShow)
-
-        case 2:
-            // Style 2: Left fade gradient + solid barFill
-            HStack(spacing: 0) {
-                LinearGradient(colors: [bg.opacity(0), bg], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: 24)
-                splitButtons.background(bg)
-            }
-            .frame(maxHeight: .infinity)
-            .padding(.bottom, 1)
-            .saturation(tabBarSaturation)
-            .opacity(shouldShow ? 1 : 0)
-            .allowsHitTesting(shouldShow)
-            .animation(.easeInOut(duration: 0.14), value: shouldShow)
-
-        case 3:
-            // Style 3: ultraThinMaterial
-            splitButtons
-                .frame(maxHeight: .infinity)
-                .padding(.bottom, 1)
-                .background(.ultraThinMaterial)
-                .saturation(tabBarSaturation)
-                .opacity(shouldShow ? 1 : 0)
-                .allowsHitTesting(shouldShow)
-                .animation(.easeInOut(duration: 0.14), value: shouldShow)
-
-        case 4:
-            // Style 4: windowBackgroundColor + fade
-            HStack(spacing: 0) {
-                LinearGradient(colors: [.clear, Color(nsColor: .windowBackgroundColor)], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: 24)
-                splitButtons.background(Color(nsColor: .windowBackgroundColor))
-            }
-            .frame(maxHeight: .infinity)
-            .padding(.bottom, 1)
-            .saturation(tabBarSaturation)
-            .opacity(shouldShow ? 1 : 0)
-            .allowsHitTesting(shouldShow)
-            .animation(.easeInOut(duration: 0.14), value: shouldShow)
-
-        default:
-            // Style 0: No background (transparent)
-            splitButtons
-                .saturation(tabBarSaturation)
-                .opacity(shouldShow ? 1 : 0)
-                .allowsHitTesting(shouldShow)
-                .animation(.easeInOut(duration: 0.14), value: shouldShow)
-        }
-    }
 
     // MARK: - Fade Overlays
 
