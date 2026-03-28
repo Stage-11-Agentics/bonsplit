@@ -586,10 +586,17 @@ struct TabBarView: View {
 
 private struct SplitActionButtonStyle: ButtonStyle {
     let appearance: BonsplitConfiguration.Appearance
+    @State private var isHovered = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(TabBarColors.splitActionIcon(for: appearance, isPressed: configuration.isPressed))
+            .frame(width: 24, height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovered || configuration.isPressed ? 0.6 : 0))
+            )
+            .onHover { isHovered = $0 }
     }
 }
 
