@@ -2,6 +2,51 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+public enum BonsplitTabBarHitRegionRegistry {
+    private static let lock = NSLock()
+    private static let registeredViews = NSHashTable<NSView>.weakObjects()
+
+    static func register(_ view: NSView) {
+        lock.lock()
+        registeredViews.add(view)
+        lock.unlock()
+    }
+
+    static func unregister(_ view: NSView) {
+        lock.lock()
+        registeredViews.remove(view)
+        lock.unlock()
+    }
+
+    private static func snapshot() -> [NSView] {
+        lock.lock()
+        let views = registeredViews.allObjects
+        lock.unlock()
+        return views
+    }
+
+    private static func isVisibleInHierarchy(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let candidate = current {
+            guard !candidate.isHidden, candidate.alphaValue > 0 else { return false }
+            current = candidate.superview
+        }
+        return true
+    }
+
+    public static func containsWindowPoint(_ windowPoint: CGPoint, in window: NSWindow) -> Bool {
+        let epsilon = max(0.5, 1.0 / max(1.0, window.backingScaleFactor))
+        for view in snapshot() {
+            guard view.window === window, isVisibleInHierarchy(view) else { continue }
+            let frameInWindow = view.convert(view.bounds, to: nil).insetBy(dx: -epsilon, dy: -epsilon)
+            if frameInWindow.contains(windowPoint) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
 private struct SelectedTabFramePreferenceKey: PreferenceKey {
     static let defaultValue: CGRect? = nil
 
@@ -12,7 +57,122 @@ private struct SelectedTabFramePreferenceKey: PreferenceKey {
     }
 }
 
+@MainActor
+private final class TabBarScrollViewBridge: ObservableObject {
+    private struct ScrollMetrics {
+        let offset: CGFloat
+        let documentWidth: CGFloat
+        let viewportWidth: CGFloat
+    }
+
+    weak var scrollView: NSScrollView?
+
+    func attach(_ scrollView: NSScrollView?) {
+        self.scrollView = scrollView
+        enforceLeadingEdgeIfContentFits(reason: "attach")
+    }
+
+    private func currentMetrics() -> ScrollMetrics? {
+        guard let scrollView else { return nil }
+
+        let clipView = scrollView.contentView
+        let documentWidth = max(
+            scrollView.documentView?.frame.width ?? 0,
+            scrollView.documentView?.bounds.width ?? 0
+        )
+        let viewportWidth = clipView.bounds.width
+        return ScrollMetrics(
+            offset: clipView.bounds.origin.x,
+            documentWidth: documentWidth,
+            viewportWidth: viewportWidth
+        )
+    }
+
+    func shouldPreferLeadingTarget(
+        selectedTabId: UUID?,
+        fallbackContentWidth: CGFloat,
+        fallbackContainerWidth: CGFloat
+    ) -> Bool {
+        guard selectedTabId != nil else { return true }
+
+        if let metrics = currentMetrics(), metrics.viewportWidth > 0 {
+            return TabBarStyling.shouldKeepLeadingAligned(
+                contentWidth: metrics.documentWidth,
+                containerWidth: metrics.viewportWidth
+            )
+        }
+
+        return TabBarStyling.shouldKeepLeadingAligned(
+            contentWidth: fallbackContentWidth,
+            containerWidth: fallbackContainerWidth
+        )
+    }
+
+    func enforceLeadingEdgeIfContentFits(reason: String) {
+        guard let metrics = currentMetrics(), metrics.viewportWidth > 0 else { return }
+        guard TabBarStyling.shouldKeepLeadingAligned(
+            contentWidth: metrics.documentWidth,
+            containerWidth: metrics.viewportWidth
+        ) else {
+            return
+        }
+
+        resetToLeadingEdgeIfNeeded(reason: reason)
+    }
+
+    func resetToLeadingEdgeIfNeeded(reason: String) {
+        guard let metrics = currentMetrics() else { return }
+
+        let currentOffset = metrics.offset
+        guard abs(currentOffset) > 0.5 else { return }
+
+        guard let scrollView else { return }
+        #if DEBUG
+        dlog(
+            "tab.bar.resetLeading reason=\(reason) " +
+            "offset=\(Int(currentOffset.rounded())) " +
+            "doc=\(Int(metrics.documentWidth.rounded())) " +
+            "viewport=\(Int(metrics.viewportWidth.rounded()))"
+        )
+#endif
+        let clipView = scrollView.contentView
+        clipView.scroll(to: NSPoint(x: 0, y: clipView.bounds.origin.y))
+        scrollView.reflectScrolledClipView(clipView)
+
+        // SwiftUI's ScrollView can briefly restore the stale offset during the same
+        // layout cycle. Re-apply the correction on the next turn to keep split-pane
+        // tab bars pinned to the leading edge once they stop overflowing.
+        DispatchQueue.main.async { [weak scrollView] in
+            guard let scrollView else { return }
+            let clipView = scrollView.contentView
+            let asyncOffset = clipView.bounds.origin.x
+            guard abs(asyncOffset) > 0.5 else { return }
+#if DEBUG
+            let documentWidth = max(
+                scrollView.documentView?.frame.width ?? 0,
+                scrollView.documentView?.bounds.width ?? 0
+            )
+            dlog(
+                "tab.bar.resetLeading.async reason=\(reason) " +
+                "offset=\(Int(asyncOffset.rounded())) " +
+                "doc=\(Int(documentWidth.rounded())) " +
+                "viewport=\(Int(clipView.bounds.width.rounded()))"
+            )
+#endif
+            clipView.scroll(to: NSPoint(x: 0, y: clipView.bounds.origin.y))
+            scrollView.reflectScrolledClipView(clipView)
+        }
+    }
+}
+
 enum TabBarStyling {
+    static let splitButtonsBackdropWidth: CGFloat = 114
+
+    enum ScrollTarget: Equatable {
+        case leading
+        case selectedTab(UUID)
+    }
+
     static func separatorSegments(
         totalWidth: CGFloat,
         gap: ClosedRange<CGFloat>?
@@ -29,6 +189,56 @@ enum TabBarStyling {
         let left = max(0, normalizedStart)
         let right = max(0, clampedTotal - normalizedEnd)
         return (left: left, right: right)
+    }
+
+    static func trailingTabContentInset(
+        showSplitButtons: Bool,
+        isMinimalMode: Bool
+    ) -> CGFloat {
+        guard showSplitButtons else { return 0 }
+
+        // In minimal mode the split buttons fade in on hover as an overlay. Reserving that
+        // width in the scroll content leaves a dead NSClipView strip when the buttons are
+        // hidden, so clicks there never reach the tab-bar chrome.
+        return isMinimalMode ? 0 : splitButtonsBackdropWidth
+    }
+
+    static func preferredScrollTarget(
+        selectedTabId: UUID?,
+        contentWidth: CGFloat,
+        containerWidth: CGFloat
+    ) -> ScrollTarget {
+        guard let selectedTabId else { return .leading }
+
+        // When the tab strip fits without horizontal scrolling, centering the selected tab
+        // can strand empty NSClipView space at the leading edge in split panes. Keep the
+        // content snapped to the leading edge until it actually overflows.
+        guard !shouldKeepLeadingAligned(contentWidth: contentWidth, containerWidth: containerWidth) else {
+            return .leading
+        }
+
+        return .selectedTab(selectedTabId)
+    }
+
+    static func shouldKeepLeadingAligned(
+        contentWidth: CGFloat,
+        containerWidth: CGFloat
+    ) -> Bool {
+        let overflowThreshold: CGFloat = 1
+        return contentWidth <= containerWidth + overflowThreshold
+    }
+
+    static func shouldForceResetToLeading(
+        scrollOffset: CGFloat,
+        contentWidth: CGFloat,
+        containerWidth: CGFloat
+    ) -> Bool {
+        guard shouldKeepLeadingAligned(contentWidth: contentWidth, containerWidth: containerWidth) else {
+            return false
+        }
+
+        let overflowThreshold: CGFloat = 1
+        return abs(scrollOffset) > overflowThreshold
     }
 }
 
@@ -75,6 +285,7 @@ struct TabBarView: View {
     @State private var containerWidth: CGFloat = 0
     @State private var selectedTabFrameInBar: CGRect?
     @StateObject private var controlKeyMonitor = TabControlShortcutKeyMonitor()
+    @StateObject private var scrollViewBridge = TabBarScrollViewBridge()
 
     private var canScrollLeft: Bool {
         scrollOffset > 1
@@ -104,11 +315,73 @@ struct TabBarView: View {
         isFocused && controlKeyMonitor.isShortcutHintVisible
     }
 
+    private var isMinimalMode: Bool {
+        presentationMode == "minimal"
+    }
+
+    private var trailingTabContentInset: CGFloat {
+        TabBarStyling.trailingTabContentInset(
+            showSplitButtons: showSplitButtons,
+            isMinimalMode: isMinimalMode
+        )
+    }
+
+    private var leadingScrollAnchorId: String {
+        "tab-bar-leading-\(pane.id.id.uuidString)"
+    }
+
+    private func focusPaneFromTabBarChrome() -> Bool {
+        guard !isFocused else { return false }
+        withTransaction(Transaction(animation: nil)) {
+            controller.focusPane(pane.id)
+        }
+        return true
+    }
+
+    private func scrollToPreferredTarget(_ proxy: ScrollViewProxy, selectedTabId: UUID?) {
+        let target: TabBarStyling.ScrollTarget
+        if scrollViewBridge.shouldPreferLeadingTarget(
+            selectedTabId: selectedTabId,
+            fallbackContentWidth: contentWidth,
+            fallbackContainerWidth: containerWidth
+        ) {
+            target = .leading
+        } else if let selectedTabId {
+            target = .selectedTab(selectedTabId)
+        } else {
+            target = .leading
+        }
+
+        withTransaction(Transaction(animation: nil)) {
+            switch target {
+            case .leading:
+                proxy.scrollTo(leadingScrollAnchorId, anchor: .leading)
+            case .selectedTab(let tabId):
+                proxy.scrollTo(tabId, anchor: .center)
+            }
+        }
+
+        if target == .leading,
+           TabBarStyling.shouldForceResetToLeading(
+                scrollOffset: scrollOffset,
+                contentWidth: contentWidth,
+                containerWidth: containerWidth
+           ) {
+            scrollViewBridge.resetToLeadingEdgeIfNeeded(reason: "scrollToPreferredTarget")
+        } else if target == .leading {
+            scrollViewBridge.enforceLeadingEdgeIfContentFits(reason: "scrollToPreferredTarget")
+        }
+    }
+
 
     var body: some View {
         HStack(spacing: 0) {
             if appearance.tabBarLeadingInset > 0 && controller.internalController.rootNode.allPaneIds.first == pane.id {
-                TabBarDragZoneView { return false }
+                TabBarDragZoneView(
+                    isMinimalMode: isMinimalMode,
+                    isFocusedPane: isFocused,
+                    onSingleClick: focusPaneFromTabBarChrome
+                ) { return false }
                     .frame(width: appearance.tabBarLeadingInset)
             }
             // Scrollable tabs with fade overlays
@@ -116,6 +389,10 @@ struct TabBarView: View {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: TabBarMetrics.tabSpacing) {
+                            Color.clear
+                                .frame(width: 0, height: TabBarMetrics.tabHeight)
+                                .id(leadingScrollAnchorId)
+
                             ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
                                 tabItem(for: tab, at: index)
                                     .id(tab.id)
@@ -125,7 +402,7 @@ struct TabBarView: View {
                             dropZoneAfterTabs
                         }
                         .padding(.horizontal, TabBarMetrics.barPadding)
-                        .padding(.trailing, showSplitButtons ? 114 : 0)
+                        .padding(.trailing, trailingTabContentInset)
                         .animation(nil, value: pane.tabs.map(\.id))
                         .background(
                             GeometryReader { contentGeo in
@@ -142,12 +419,22 @@ struct TabBarView: View {
                             }
                         )
                     }
+                    .background(
+                        TabBarScrollViewResolver { scrollView in
+                            scrollViewBridge.attach(scrollView)
+                        }
+                        .frame(width: 0, height: 0)
+                    )
                     // When the tab strip is shorter than the visible area, allow dropping in the
                     // empty trailing space without forcing tabs to stretch.
                     .overlay(alignment: .trailing) {
                         let trailing = max(0, containerGeo.size.width - contentWidth)
                         if trailing >= 1 {
-                            TabBarDragZoneView {
+                            TabBarDragZoneView(
+                                isMinimalMode: isMinimalMode,
+                                isFocusedPane: isFocused,
+                                onSingleClick: focusPaneFromTabBarChrome
+                            ) {
                                 guard splitViewController.isInteractive else { return false }
                                 controller.requestNewTab(kind: "terminal", inPane: pane.id)
                                 return true
@@ -166,19 +453,17 @@ struct TabBarView: View {
                     .coordinateSpace(name: "tabScroll")
                     .onAppear {
                         containerWidth = containerGeo.size.width
-                        if let tabId = pane.selectedTabId {
-                            proxy.scrollTo(tabId, anchor: .center)
-                        }
+                        scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId)
                     }
                     .onChange(of: containerGeo.size.width) { _, newWidth in
                         containerWidth = newWidth
+                        scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId)
+                    }
+                    .onChange(of: contentWidth) { _, _ in
+                        scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId)
                     }
                     .onChange(of: pane.selectedTabId) { _, newTabId in
-                        if let tabId = newTabId {
-                            withTransaction(Transaction(animation: nil)) {
-                                proxy.scrollTo(tabId, anchor: .center)
-                            }
-                        }
+                        scrollToPreferredTarget(proxy, selectedTabId: newTabId)
                     }
                 }
                 .frame(height: TabBarMetrics.barHeight)
@@ -192,7 +477,7 @@ struct TabBarView: View {
                 // window drag in minimal mode).
                 .overlay(alignment: .trailing) {
                     if showSplitButtons {
-                        let shouldShow = presentationMode != "minimal" || isHoveringTabBar
+                        let shouldShow = !isMinimalMode || isHoveringTabBar
                         let backdropColor = Color(nsColor: Self.buttonBackdropColor(
                             for: appearance,
                             focused: isFocused,
@@ -208,7 +493,7 @@ struct TabBarView: View {
                                 .frame(width: 24)
                                 Rectangle().fill(backdropColor)
                             }
-                            .frame(width: 114)
+                            .frame(width: TabBarStyling.splitButtonsBackdropWidth)
 
                             splitButtons
                                 .saturation(tabBarSaturation)
@@ -225,7 +510,7 @@ struct TabBarView: View {
         .coordinateSpace(name: "tabBar")
         .background(tabBarBackground)
         .background(TabBarDragAndHoverView(
-            isMinimalMode: presentationMode == "minimal",
+            isMinimalMode: isMinimalMode,
             onHoverChanged: { isHoveringTabBar = $0 }
         ))
         .background(
@@ -457,7 +742,11 @@ struct TabBarView: View {
 
     @ViewBuilder
     private var dropZoneAfterTabs: some View {
-        TabBarDragZoneView {
+        TabBarDragZoneView(
+            isMinimalMode: isMinimalMode,
+            isFocusedPane: isFocused,
+            onSingleClick: focusPaneFromTabBarChrome
+        ) {
             guard splitViewController.isInteractive else { return false }
             controller.requestNewTab(kind: "terminal", inPane: pane.id)
             return true
@@ -711,6 +1000,25 @@ private struct TabBarDragAndHoverView: NSViewRepresentable {
 
         override var mouseDownCanMoveWindow: Bool { false }
 
+        deinit {
+            BonsplitTabBarHitRegionRegistry.unregister(self)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            BonsplitTabBarHitRegionRegistry.unregister(self)
+            if window != nil {
+                BonsplitTabBarHitRegionRegistry.register(self)
+            }
+        }
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            if superview == nil {
+                BonsplitTabBarHitRegionRegistry.unregister(self)
+            }
+        }
+
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
             if let existing = hoverTrackingArea {
@@ -757,11 +1065,17 @@ private struct TabBarDragAndHoverView: NSViewRepresentable {
     }
 }
 
-private struct TabBarDragZoneView: NSViewRepresentable {
+struct TabBarDragZoneView: NSViewRepresentable {
+    let isMinimalMode: Bool
+    let isFocusedPane: Bool
+    let onSingleClick: () -> Bool
     let onDoubleClick: () -> Bool
 
     func makeNSView(context: Context) -> DragNSView {
         let view = DragNSView()
+        view.isMinimalMode = isMinimalMode
+        view.isFocusedPane = isFocusedPane
+        view.onSingleClick = onSingleClick
         view.onDoubleClick = onDoubleClick
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.clear.cgColor
@@ -769,14 +1083,21 @@ private struct TabBarDragZoneView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: DragNSView, context: Context) {
+        nsView.isMinimalMode = isMinimalMode
+        nsView.isFocusedPane = isFocusedPane
+        nsView.onSingleClick = onSingleClick
         nsView.onDoubleClick = onDoubleClick
     }
 
     final class DragNSView: NSView {
+        var isMinimalMode = false
+        var isFocusedPane = false
+        var onSingleClick: (() -> Bool)?
         var onDoubleClick: (() -> Bool)?
+        var performWindowDrag: ((NSEvent) -> Bool)?
 
         override var mouseDownCanMoveWindow: Bool {
-            return UserDefaults.standard.string(forKey: "workspacePresentationMode") == "minimal"
+            isMinimalMode && isFocusedPane
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
@@ -785,8 +1106,10 @@ private struct TabBarDragZoneView: NSViewRepresentable {
 
         override func mouseDown(with event: NSEvent) {
 #if DEBUG
-            let isMinimal = UserDefaults.standard.string(forKey: "workspacePresentationMode") == "minimal"
-            dlog("tab.bar.dragZone.mouseDown isMinimal=\(isMinimal ? 1 : 0) clickCount=\(event.clickCount)")
+            dlog(
+                "tab.bar.dragZone.mouseDown isMinimal=\(isMinimalMode ? 1 : 0) " +
+                "focused=\(isFocusedPane ? 1 : 0) clickCount=\(event.clickCount)"
+            )
 #endif
             guard let window = self.window else {
                 super.mouseDown(with: event)
@@ -794,7 +1117,7 @@ private struct TabBarDragZoneView: NSViewRepresentable {
             }
 
             if event.clickCount >= 2 {
-                if UserDefaults.standard.string(forKey: "workspacePresentationMode") == "minimal" {
+                if isMinimalMode {
                     let action = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain)?["AppleActionOnDoubleClick"] as? String
                     switch action {
                     case "Minimize": window.miniaturize(nil)
@@ -808,13 +1131,64 @@ private struct TabBarDragZoneView: NSViewRepresentable {
                 }
             }
 
-            if UserDefaults.standard.string(forKey: "workspacePresentationMode") == "minimal" {
+            if isMinimalMode, !isFocusedPane, onSingleClick?() == true {
+#if DEBUG
+                dlog("tab.bar.dragZone.focusPane")
+#endif
+                return
+            }
+
+            if isMinimalMode {
+                if let performWindowDrag, performWindowDrag(event) {
+                    return
+                }
                 let wasMovable = window.isMovable
                 window.isMovable = true
                 window.performDrag(with: event)
                 window.isMovable = wasMovable
             } else {
                 super.mouseDown(with: event)
+            }
+        }
+    }
+}
+
+private struct TabBarScrollViewResolver: NSViewRepresentable {
+    let onResolve: (NSScrollView?) -> Void
+
+    func makeNSView(context: Context) -> ResolverView {
+        let view = ResolverView()
+        view.onResolve = onResolve
+        return view
+    }
+
+    func updateNSView(_ nsView: ResolverView, context: Context) {
+        nsView.onResolve = onResolve
+        nsView.resolveScrollView()
+    }
+
+    final class ResolverView: NSView {
+        var onResolve: ((NSScrollView?) -> Void)?
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            resolveScrollView()
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            resolveScrollView()
+        }
+
+        override func layout() {
+            super.layout()
+            resolveScrollView()
+        }
+
+        func resolveScrollView() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                onResolve?(self.enclosingScrollView)
             }
         }
     }

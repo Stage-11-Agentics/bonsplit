@@ -5,6 +5,28 @@ import SwiftUI
 
 final class BonsplitTests: XCTestCase {
     @MainActor
+    private final class FakeTabBarHitRegionView: NSView {
+        deinit {
+            BonsplitTabBarHitRegionRegistry.unregister(self)
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            BonsplitTabBarHitRegionRegistry.unregister(self)
+            if window != nil {
+                BonsplitTabBarHitRegionRegistry.register(self)
+            }
+        }
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            if superview == nil {
+                BonsplitTabBarHitRegionRegistry.unregister(self)
+            }
+        }
+    }
+
+    @MainActor
     private final class LayoutProbeView: NSView {
         private(set) var sizeChangeCount = 0
         private(set) var originChangeCount = 0
@@ -182,6 +204,149 @@ final class BonsplitTests: XCTestCase {
         XCTAssertEqual(defaults.newBrowser, "New Browser")
         XCTAssertEqual(defaults.splitRight, "Split Right")
         XCTAssertEqual(defaults.splitDown, "Split Down")
+    }
+
+    func testMinimalModeDoesNotReserveHiddenSplitButtonStrip() {
+        XCTAssertEqual(
+            TabBarStyling.trailingTabContentInset(showSplitButtons: true, isMinimalMode: true),
+            0,
+            "Minimal mode should let the tab strip fill the full width until the hover-only split buttons are actually shown"
+        )
+        XCTAssertEqual(
+            TabBarStyling.trailingTabContentInset(showSplitButtons: true, isMinimalMode: false),
+            TabBarStyling.splitButtonsBackdropWidth,
+            "Standard mode should keep reserving space for the always-visible split buttons"
+        )
+        XCTAssertEqual(
+            TabBarStyling.trailingTabContentInset(showSplitButtons: false, isMinimalMode: false),
+            0,
+            "No split-button strip should be reserved when split buttons are disabled"
+        )
+    }
+
+    func testTabBarKeepsNonOverflowingTabsLeadingAligned() {
+        let tabId = UUID()
+
+        XCTAssertEqual(
+            TabBarStyling.preferredScrollTarget(
+                selectedTabId: tabId,
+                contentWidth: 132,
+                containerWidth: 349
+            ),
+            .leading,
+            "When the tab strip fits in the pane, it should stay leading-aligned instead of creating a dead leading clip-view band"
+        )
+
+        XCTAssertEqual(
+            TabBarStyling.preferredScrollTarget(
+                selectedTabId: tabId,
+                contentWidth: 420,
+                containerWidth: 349
+            ),
+            .selectedTab(tabId),
+            "Overflowing tab strips should still auto-scroll the selected tab into view"
+        )
+    }
+
+    func testTabBarForcesLeadingResetWhenNonOverflowingStripStaysScrolled() {
+        XCTAssertTrue(
+            TabBarStyling.shouldForceResetToLeading(
+                scrollOffset: 28,
+                contentWidth: 180,
+                containerWidth: 349
+            ),
+            "A non-overflowing tab strip with a stale horizontal offset should be snapped back to x=0"
+        )
+
+        XCTAssertTrue(
+            TabBarStyling.shouldForceResetToLeading(
+                scrollOffset: -30,
+                contentWidth: 180,
+                containerWidth: 349
+            ),
+            "The leading reset must correct both left and right stale offsets"
+        )
+
+        XCTAssertFalse(
+            TabBarStyling.shouldForceResetToLeading(
+                scrollOffset: 0.2,
+                contentWidth: 180,
+                containerWidth: 349
+            ),
+            "Tiny floating-point drift should not trigger redundant clip-view resets"
+        )
+
+        XCTAssertFalse(
+            TabBarStyling.shouldForceResetToLeading(
+                scrollOffset: 28,
+                contentWidth: 420,
+                containerWidth: 349
+            ),
+            "Overflowing tab strips are allowed to stay horizontally scrolled"
+        )
+    }
+
+    @MainActor
+    func testTabBarHitRegionRegistryTracksVisibleWindowPoint() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let tabBar = FakeTabBarHitRegionView(frame: NSRect(x: 20, y: 132, width: 180, height: 30))
+        contentView.addSubview(tabBar)
+
+        let hitPoint = tabBar.convert(NSPoint(x: 24, y: 12), to: nil)
+        XCTAssertTrue(
+            BonsplitTabBarHitRegionRegistry.containsWindowPoint(hitPoint, in: window),
+            "The registry should expose visible tab-bar hit regions in window coordinates"
+        )
+
+        let missPoint = tabBar.convert(NSPoint(x: 24, y: -18), to: nil)
+        XCTAssertFalse(
+            BonsplitTabBarHitRegionRegistry.containsWindowPoint(missPoint, in: window),
+            "The registry should ignore points outside the registered tab-bar region"
+        )
+    }
+
+    @MainActor
+    func testTabBarHitRegionRegistryIgnoresViewsHiddenByAncestors() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let container = NSView(frame: contentView.bounds)
+        contentView.addSubview(container)
+
+        let tabBar = FakeTabBarHitRegionView(frame: NSRect(x: 32, y: contentView.bounds.maxY + 6, width: 180, height: 30))
+        container.addSubview(tabBar)
+
+        let hitPoint = tabBar.convert(NSPoint(x: 20, y: 14), to: nil)
+        XCTAssertTrue(
+            BonsplitTabBarHitRegionRegistry.containsWindowPoint(hitPoint, in: window),
+            "The registry should use the actual registered tab-bar frame even when it extends outside its immediate container bounds"
+        )
+
+        container.isHidden = true
+        XCTAssertFalse(
+            BonsplitTabBarHitRegionRegistry.containsWindowPoint(hitPoint, in: window),
+            "Ancestor-hidden tab-bar regions must not keep stealing portal hit testing"
+        )
     }
 
     @MainActor
@@ -936,6 +1101,84 @@ final class BonsplitTests: XCTestCase {
             accuracy: 0.03,
             "Split mode should render the same content alpha as single-pane mode"
         )
+    }
+
+    @MainActor
+    func testTabBarDragZoneFocusesInactivePaneInMinimalMode() throws {
+        let view = TabBarDragZoneView.DragNSView(frame: NSRect(x: 0, y: 0, width: 160, height: 30))
+        view.isMinimalMode = true
+        view.isFocusedPane = false
+
+        var focused = false
+        var dragged = false
+        view.onSingleClick = {
+            focused = true
+            return true
+        }
+        view.performWindowDrag = { _ in
+            dragged = true
+            return true
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 60),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        contentView.addSubview(view)
+        window.makeKeyAndOrderFront(nil)
+        let event = try makeLeftMouseDownEvent(in: view, at: NSPoint(x: 20, y: 15), clickCount: 1)
+        view.mouseDown(with: event)
+
+        XCTAssertTrue(focused, "Inactive-pane drag zone should focus the pane before starting a window drag")
+        XCTAssertFalse(dragged, "Inactive-pane focus click should not immediately begin a window drag")
+        XCTAssertFalse(view.mouseDownCanMoveWindow, "Inactive-pane drag zone should not advertise window dragging to AppKit")
+    }
+
+    @MainActor
+    func testTabBarDragZoneKeepsFocusedPaneWindowDragInMinimalMode() throws {
+        let view = TabBarDragZoneView.DragNSView(frame: NSRect(x: 0, y: 0, width: 160, height: 30))
+        view.isMinimalMode = true
+        view.isFocusedPane = true
+
+        var focused = false
+        var dragged = false
+        view.onSingleClick = {
+            focused = true
+            return true
+        }
+        view.performWindowDrag = { _ in
+            dragged = true
+            return true
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 60),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        contentView.addSubview(view)
+        window.makeKeyAndOrderFront(nil)
+        let event = try makeLeftMouseDownEvent(in: view, at: NSPoint(x: 20, y: 15), clickCount: 1)
+        view.mouseDown(with: event)
+
+        XCTAssertFalse(focused, "Focused-pane drag zone should not bounce through first-click focus")
+        XCTAssertTrue(dragged, "Focused-pane drag zone should continue to start window drags in minimal mode")
+        XCTAssertTrue(view.mouseDownCanMoveWindow, "Focused-pane drag zone should continue advertising window dragging to AppKit")
     }
 
     private func withShortcutHintDefaultsSuite(_ body: (UserDefaults) -> Void) {
