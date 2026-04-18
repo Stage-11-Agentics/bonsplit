@@ -161,6 +161,9 @@ extension BonsplitConfiguration {
         /// Maximum width of a tab
         public var tabMaxWidth: CGFloat
 
+        /// Font size for tab titles in the surface tab bar
+        public var tabTitleFontSize: CGFloat
+
         /// Spacing between tabs
         public var tabSpacing: CGFloat
 
@@ -174,6 +177,12 @@ extension BonsplitConfiguration {
 
         /// Whether to show split buttons in the tab bar
         public var showSplitButtons: Bool
+
+        /// When true, split buttons are only visible on hover
+        public var splitButtonsOnHover: Bool
+
+        /// Extra leading inset for the tab bar (e.g. for traffic light buttons when sidebar is collapsed)
+        public var tabBarLeadingInset: CGFloat
 
         /// Tooltip text for the tab bar's right-side action buttons
         public var splitButtonTooltips: SplitButtonTooltips
@@ -198,13 +207,15 @@ extension BonsplitConfiguration {
         public static let compact = Appearance(
             tabBarHeight: 28,
             tabMinWidth: 100,
-            tabMaxWidth: 160
+            tabMaxWidth: 160,
+            tabTitleFontSize: 11
         )
 
         public static let spacious = Appearance(
             tabBarHeight: 38,
             tabMinWidth: 160,
             tabMaxWidth: 280,
+            tabTitleFontSize: 11,
             tabSpacing: 2
         )
 
@@ -214,10 +225,13 @@ extension BonsplitConfiguration {
             tabBarHeight: CGFloat = 33,
             tabMinWidth: CGFloat = 140,
             tabMaxWidth: CGFloat = 220,
+            tabTitleFontSize: CGFloat = 11,
             tabSpacing: CGFloat = 0,
             minimumPaneWidth: CGFloat = 100,
             minimumPaneHeight: CGFloat = 100,
             showSplitButtons: Bool = true,
+            splitButtonsOnHover: Bool = false,
+            tabBarLeadingInset: CGFloat = 0,
             splitButtonTooltips: SplitButtonTooltips = .default,
             animationDuration: Double = 0.15,
             enableAnimations: Bool = true,
@@ -226,10 +240,13 @@ extension BonsplitConfiguration {
             self.tabBarHeight = tabBarHeight
             self.tabMinWidth = tabMinWidth
             self.tabMaxWidth = tabMaxWidth
+            self.tabTitleFontSize = tabTitleFontSize
             self.tabSpacing = tabSpacing
             self.minimumPaneWidth = minimumPaneWidth
             self.minimumPaneHeight = minimumPaneHeight
             self.showSplitButtons = showSplitButtons
+            self.splitButtonsOnHover = splitButtonsOnHover
+            self.tabBarLeadingInset = tabBarLeadingInset
             self.splitButtonTooltips = splitButtonTooltips
             self.animationDuration = animationDuration
             self.enableAnimations = enableAnimations
