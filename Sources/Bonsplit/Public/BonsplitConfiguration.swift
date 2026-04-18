@@ -105,21 +105,27 @@ extension BonsplitConfiguration {
     public struct SplitButtonTooltips: Sendable, Equatable {
         public var newTerminal: String
         public var newBrowser: String
+        public var newMarkdown: String
         public var splitRight: String
         public var splitDown: String
+        public var newTab: String
 
         public static let `default` = SplitButtonTooltips()
 
         public init(
             newTerminal: String = "New Terminal",
             newBrowser: String = "New Browser",
+            newMarkdown: String = "New Markdown",
             splitRight: String = "Split Right",
-            splitDown: String = "Split Down"
+            splitDown: String = "Split Down",
+            newTab: String = "New Tab"
         ) {
             self.newTerminal = newTerminal
             self.newBrowser = newBrowser
+            self.newMarkdown = newMarkdown
             self.splitRight = splitRight
             self.splitDown = splitDown
+            self.newTab = newTab
         }
     }
 

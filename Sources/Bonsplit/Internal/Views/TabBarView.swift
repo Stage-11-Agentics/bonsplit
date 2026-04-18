@@ -783,49 +783,70 @@ struct TabBarView: View {
     @ViewBuilder
     private var splitButtons: some View {
         let tooltips = controller.configuration.appearance.splitButtonTooltips
-        HStack(spacing: 4) {
-            Button {
+        HStack(spacing: 2) {
+            SplitToolbarButton(
+                systemImage: "terminal",
+                tooltip: tooltips.newTerminal,
+                appearance: appearance
+            ) {
                 controller.requestNewTab(kind: "terminal", inPane: pane.id)
-            } label: {
-                Image(systemName: "terminal")
-                    .font(.system(size: 12))
             }
-            .buttonStyle(SplitActionButtonStyle(appearance: appearance))
-            .safeHelp(tooltips.newTerminal)
 
-            Button {
+            SplitToolbarButton(
+                systemImage: "globe",
+                tooltip: tooltips.newBrowser,
+                appearance: appearance
+            ) {
                 controller.requestNewTab(kind: "browser", inPane: pane.id)
-            } label: {
-                Image(systemName: "globe")
-                    .font(.system(size: 12))
             }
-            .buttonStyle(SplitActionButtonStyle(appearance: appearance))
-            .safeHelp(tooltips.newBrowser)
 
-            Button {
+            SplitToolbarButton(
+                systemImage: "doc.text",
+                tooltip: tooltips.newMarkdown,
+                appearance: appearance
+            ) {
+                controller.requestNewTab(kind: "markdown", inPane: pane.id)
+            }
+
+            splitButtonsGroupSeparator
+
+            SplitToolbarButton(
+                systemImage: "square.split.2x1",
+                tooltip: tooltips.splitRight,
+                appearance: appearance
+            ) {
                 // 120fps animation handled by SplitAnimator
                 controller.splitPane(pane.id, orientation: .horizontal)
-            } label: {
-                Image(systemName: "square.split.2x1")
-                    .font(.system(size: 12))
             }
-            .buttonStyle(SplitActionButtonStyle(appearance: appearance))
-            .safeHelp(tooltips.splitRight)
 
-            Button {
+            SplitToolbarButton(
+                systemImage: "square.split.1x2",
+                tooltip: tooltips.splitDown,
+                appearance: appearance
+            ) {
                 // 120fps animation handled by SplitAnimator
                 controller.splitPane(pane.id, orientation: .vertical)
-            } label: {
-                Image(systemName: "square.split.1x2")
-                    .font(.system(size: 12))
             }
-            .buttonStyle(SplitActionButtonStyle(appearance: appearance))
-            .safeHelp(tooltips.splitDown)
+
+            SplitToolbarButton(
+                systemImage: "plus",
+                tooltip: tooltips.newTab,
+                appearance: appearance
+            ) {
+                controller.requestNewTab(kind: "newTab", inPane: pane.id)
+            }
         }
         .padding(.leading, 6)
         .padding(.trailing, 8)
     }
 
+    @ViewBuilder
+    private var splitButtonsGroupSeparator: some View {
+        Rectangle()
+            .fill(TabBarColors.separator(for: appearance))
+            .frame(width: 1, height: 18)
+            .padding(.horizontal, 8)
+    }
 
     private static func buttonBackdropColor(
         for appearance: BonsplitConfiguration.Appearance,
@@ -970,6 +991,34 @@ private struct SplitActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(TabBarColors.splitActionIcon(for: appearance, isPressed: configuration.isPressed))
+    }
+}
+
+/// Tab-bar action button with a hover highlight. Wraps the Button + style so
+/// each button owns its own @State for hover tracking without leaking it into
+/// TabBarView's body (where it would cause spurious invalidations during
+/// typing).
+private struct SplitToolbarButton: View {
+    let systemImage: String
+    let tooltip: String
+    let appearance: BonsplitConfiguration.Appearance
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12))
+                .frame(width: 22, height: 22)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.primary.opacity(isHovered ? 0.09 : 0))
+                )
+        }
+        .buttonStyle(SplitActionButtonStyle(appearance: appearance))
+        .safeHelp(tooltip)
+        .onHover { isHovered = $0 }
     }
 }
 
