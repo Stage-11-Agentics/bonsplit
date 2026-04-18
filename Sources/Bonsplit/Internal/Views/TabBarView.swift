@@ -484,6 +484,17 @@ struct TabBarView: View {
             .safeHelp(tooltips.newBrowser)
 
             Button {
+                controller.requestNewTab(kind: "markdown", inPane: pane.id)
+            } label: {
+                Image(systemName: "doc.richtext")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(SplitActionButtonStyle(appearance: appearance))
+            .safeHelp(tooltips.newMarkdown)
+
+            splitButtonsTightSeparator
+
+            Button {
                 // 120fps animation handled by SplitAnimator
                 controller.splitPane(pane.id, orientation: .horizontal)
             } label: {
@@ -502,8 +513,25 @@ struct TabBarView: View {
             }
             .buttonStyle(SplitActionButtonStyle(appearance: appearance))
             .safeHelp(tooltips.splitDown)
+
+            Button {
+                controller.requestNewTab(kind: "newTab", inPane: pane.id)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(SplitActionButtonStyle(appearance: appearance))
+            .safeHelp(tooltips.newTab)
         }
         .padding(.trailing, 8)
+    }
+
+    @ViewBuilder
+    private var splitButtonsTightSeparator: some View {
+        Rectangle()
+            .fill(TabBarColors.separator(for: appearance))
+            .frame(width: 1, height: 10)
+            .padding(.horizontal, 1)
     }
 
     // MARK: - Fade Overlays
