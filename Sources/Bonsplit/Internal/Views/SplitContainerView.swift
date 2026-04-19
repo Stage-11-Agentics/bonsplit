@@ -87,12 +87,13 @@ private final class DebugSplitView: ThemedSplitView {
 #endif
 
 /// SwiftUI wrapper around NSSplitView for native split behavior
-struct SplitContainerView<Content: View, EmptyContent: View>: NSViewRepresentable {
+struct SplitContainerView<Content: View, EmptyContent: View, TrailingAccessory: View>: NSViewRepresentable {
     @Bindable var splitState: SplitState
     let controller: SplitViewController
     let appearance: BonsplitConfiguration.Appearance
     let contentBuilder: (TabItem, PaneID) -> Content
     let emptyPaneBuilder: (PaneID) -> EmptyContent
+    let trailingAccessoryBuilder: (PaneID, Double) -> TrailingAccessory
     var showSplitButtons: Bool = true
     var contentViewLifecycle: ContentViewLifecycle = .recreateOnSwitch
     /// Callback when geometry changes. Bool indicates if change is during active divider drag.
@@ -441,6 +442,7 @@ struct SplitContainerView<Content: View, EmptyContent: View>: NSViewRepresentabl
                 controller: controller,
                 contentBuilder: contentBuilder,
                 emptyPaneBuilder: emptyPaneBuilder,
+                trailingAccessoryBuilder: trailingAccessoryBuilder,
                 showSplitButtons: showSplitButtons,
                 contentViewLifecycle: contentViewLifecycle
             )
@@ -451,6 +453,7 @@ struct SplitContainerView<Content: View, EmptyContent: View>: NSViewRepresentabl
                 appearance: appearance,
                 contentBuilder: contentBuilder,
                 emptyPaneBuilder: emptyPaneBuilder,
+                trailingAccessoryBuilder: trailingAccessoryBuilder,
                 showSplitButtons: showSplitButtons,
                 contentViewLifecycle: contentViewLifecycle,
                 onGeometryChange: onGeometryChange,

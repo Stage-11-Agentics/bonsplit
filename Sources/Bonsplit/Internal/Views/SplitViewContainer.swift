@@ -1,11 +1,12 @@
 import SwiftUI
 
 /// Main container view that renders the entire split tree (internal implementation)
-struct SplitViewContainer<Content: View, EmptyContent: View>: View {
+struct SplitViewContainer<Content: View, EmptyContent: View, TrailingAccessory: View>: View {
     @Environment(SplitViewController.self) private var controller
 
     let contentBuilder: (TabItem, PaneID) -> Content
     let emptyPaneBuilder: (PaneID) -> EmptyContent
+    let trailingAccessoryBuilder: (PaneID, Double) -> TrailingAccessory
     let appearance: BonsplitConfiguration.Appearance
     var showSplitButtons: Bool = true
     var contentViewLifecycle: ContentViewLifecycle = .recreateOnSwitch
@@ -43,6 +44,7 @@ struct SplitViewContainer<Content: View, EmptyContent: View>: View {
             node: nodeToRender,
             contentBuilder: contentBuilder,
             emptyPaneBuilder: emptyPaneBuilder,
+            trailingAccessoryBuilder: trailingAccessoryBuilder,
             appearance: appearance,
             showSplitButtons: showSplitButtons,
             contentViewLifecycle: contentViewLifecycle,

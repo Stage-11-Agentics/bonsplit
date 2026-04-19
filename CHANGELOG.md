@@ -7,11 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `BonsplitView` initializer parameter `trailingAccessory: (PaneID, Double) -> View` — host-provided trailing-edge accessory rendered inside the tab bar alongside the internal default chrome. The builder receives the pane ID and a `chromeSaturation` scalar (matching bonsplit's internal `tabBarSaturation`, including drag-source nuance).
+- `@Environment(\.bonsplitTabBarHover)` — boolean value published by the tab bar indicating whether the pointer is currently over the tab-bar region. Consumers can read this from a `trailingAccessory` to replicate hover-fade behavior in minimal-mode presentations.
+
+### Changed
+- Trailing chrome width is now measured per-layout via a new `TrailingAccessoryWidthKey` / `SplitButtonsIntrinsicWidthKey` PreferenceKey pair. The static `TabBarStyling.splitButtonsBackdropWidth` constant becomes an initial-render fallback and will be removed in a future release.
+- Backdrop frame sizing now includes the 24pt leading fade width in addition to the measured chrome width, eliminating the fade/backdrop misalignment that could allow bright tabs to bleed under the leftmost portion of the chrome row.
+- Moved `splitButtonsBackdropWidth` from `TabBarStyling` (in `TabBarView.swift`) to `TabBarMetrics` (in `TabBarMetrics.swift`) to live alongside its sibling sizing constants.
+
 ### Fixed
 - Tab close-X on the rightmost tab no longer gets intercepted by the trailing split-buttons cluster in standard mode. The reserved trailing inset (`TabBarMetrics.splitButtonsBackdropWidth`) was sized for an older 3-button row and overhung by ~61pt after the row grew to 6 buttons + a separator. Bumped to 184pt to cover the current ~175pt intrinsic width with 9pt headroom. (Stage 11 CMUX-22.)
 
-### Changed
-- Moved `splitButtonsBackdropWidth` from `TabBarStyling` (in `TabBarView.swift`) to `TabBarMetrics` (in `TabBarMetrics.swift`) to live alongside its sibling sizing constants.
+### Preserved
+- All existing `BonsplitView` initializers continue to compile and render identically. The new `trailingAccessory:` parameter is opt-in; callers that do not supply one receive the built-in `splitButtons` row exactly as today.
 
 ## [1.1.1] - 2025-01-29
 

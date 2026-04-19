@@ -63,6 +63,11 @@ final class BonsplitTests: XCTestCase {
     }
 
     @MainActor
+    private final class TabBarLayoutMetricsProbe {
+        var latest: TabBarLayoutMetrics?
+    }
+
+    @MainActor
     private struct PaneDropInteractionHarness: View {
         @ObservedObject var model: DropZoneModel
         let probeView: LayoutProbeView
@@ -208,17 +213,23 @@ final class BonsplitTests: XCTestCase {
 
     func testMinimalModeDoesNotReserveHiddenSplitButtonStrip() {
         XCTAssertEqual(
-            TabBarStyling.trailingTabContentInset(showSplitButtons: true, isMinimalMode: true),
+            TabBarStyling.trailingTabContentInset(
+                effectiveChromeWidth: TabBarStyling.splitButtonsBackdropWidth,
+                isMinimalMode: true
+            ),
             0,
             "Minimal mode should let the tab strip fill the full width until the hover-only split buttons are actually shown"
         )
         XCTAssertEqual(
-            TabBarStyling.trailingTabContentInset(showSplitButtons: true, isMinimalMode: false),
+            TabBarStyling.trailingTabContentInset(
+                effectiveChromeWidth: TabBarStyling.splitButtonsBackdropWidth,
+                isMinimalMode: false
+            ),
             TabBarStyling.splitButtonsBackdropWidth,
             "Standard mode should keep reserving space for the always-visible split buttons"
         )
         XCTAssertEqual(
-            TabBarStyling.trailingTabContentInset(showSplitButtons: false, isMinimalMode: false),
+            TabBarStyling.trailingTabContentInset(effectiveChromeWidth: 0, isMinimalMode: false),
             0,
             "No split-button strip should be reserved when split buttons are disabled"
         )
@@ -716,6 +727,159 @@ final class BonsplitTests: XCTestCase {
 
         XCTAssertEqual(spy.requestedKind, "terminal")
         XCTAssertEqual(spy.requestedPaneId, pane.id)
+    }
+
+    @MainActor
+    func testDefaultAccessoryPreservesSplitButtonsChrome() throws {
+        let controller = BonsplitController()
+        let pane = controller.internalController.rootNode.allPanes.first!
+        var closedTabId: TabID?
+        var closedPaneId: PaneID?
+        let newTabSpy = NewTabRequestDelegateSpy()
+        let metricsProbe = TabBarLayoutMetricsProbe()
+
+        controller.delegate = newTabSpy
+        controller.onTabCloseRequest = { tabId, paneId in
+            closedTabId = tabId
+            closedPaneId = paneId
+        }
+
+        var lastTabId: TabID?
+        for index in 0..<12 {
+            lastTabId = controller.createTab(
+                title: "Tab \(index)",
+                icon: "terminal",
+                kind: "terminal"
+            )
+        }
+
+        guard let lastTabId else {
+            XCTFail("Expected a selected trailing tab")
+            return
+        }
+
+        let hostingView = NSHostingView(
+            rootView: BonsplitView(controller: controller) { _, _ in
+                Color.clear
+            } emptyPane: { _ in
+                Color.clear
+            }
+            .environment(\.bonsplitTabBarLayoutMetricsHandler) { metrics in
+                metricsProbe.latest = metrics
+            }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+
+        pumpLayout(contentView) {
+            metricsProbe.latest?.selectedTabFrameInBar != nil &&
+                (metricsProbe.latest?.effectiveChromeWidth ?? 0) > 0
+        }
+
+        guard let tabBarView = firstDescendant(
+            in: hostingView,
+            where: { NSStringFromClass(type(of: $0)).contains("TabBarBackgroundNSView") }
+        ) else {
+            XCTFail("Expected tab bar backing view")
+            return
+        }
+        guard let metrics = metricsProbe.latest,
+              let selectedFrame = metrics.selectedTabFrameInBar else {
+            XCTFail("Expected measured tab-bar metrics")
+            return
+        }
+
+        let terminalButtonPoint = tabBarView.convert(
+            NSPoint(
+                x: tabBarView.bounds.maxX - metrics.effectiveChromeWidth + 17,
+                y: tabBarView.bounds.midY
+            ),
+            to: hostingView
+        )
+        try sendLeftMouseClick(in: hostingView, at: terminalButtonPoint)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(newTabSpy.requestedKind, "terminal")
+        XCTAssertEqual(newTabSpy.requestedPaneId, pane.id)
+
+        let closeButtonPoint = tabBarView.convert(
+            NSPoint(
+                x: selectedFrame.maxX - TabBarMetrics.tabHorizontalPadding - (TabBarMetrics.closeButtonSize / 2),
+                y: tabBarView.bounds.midY
+            ),
+            to: hostingView
+        )
+        try sendLeftMouseClick(in: hostingView, at: closeButtonPoint)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(closedTabId, lastTabId)
+        XCTAssertEqual(closedPaneId, pane.id)
+    }
+
+    @MainActor
+    func testHostAccessoryReservesMeasuredWidth() {
+        let appearance = BonsplitConfiguration.Appearance(showSplitButtons: false)
+        let configuration = BonsplitConfiguration(
+            allowSplits: false,
+            appearance: appearance
+        )
+        let controller = BonsplitController(configuration: configuration)
+        let metricsProbe = TabBarLayoutMetricsProbe()
+        _ = controller.createTab(title: "Accessory", icon: "doc.text")
+
+        let hostingView = NSHostingView(
+            rootView: BonsplitView(controller: controller) { _, _ in
+                Color.clear
+            } emptyPane: { _ in
+                Color.clear
+            } trailingAccessory: { _, _ in
+                Rectangle()
+                    .frame(width: 100, height: 24)
+            }
+            .environment(\.bonsplitTabBarLayoutMetricsHandler) { metrics in
+                metricsProbe.latest = metrics
+            }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+
+        pumpLayout(contentView) {
+            (metricsProbe.latest?.trailingContentInset ?? 0) >= 98
+        }
+
+        guard let inset = metricsProbe.latest?.trailingContentInset else {
+            XCTFail("Expected measured trailing content inset")
+            return
+        }
+        XCTAssertEqual(inset, 100, accuracy: 2)
     }
 
     func testIconSaturationKeepsRasterFaviconInColorWhenInactive() {
@@ -1223,6 +1387,37 @@ final class BonsplitTests: XCTestCase {
     }
 
     @MainActor
+    private func firstDescendant(
+        in root: NSView,
+        where predicate: (NSView) -> Bool
+    ) -> NSView? {
+        if predicate(root) {
+            return root
+        }
+        for subview in root.subviews {
+            if let match = firstDescendant(in: subview, where: predicate) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    @MainActor
+    private func pumpLayout(
+        _ root: NSView,
+        timeout: TimeInterval = 0.6,
+        until condition: () -> Bool
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            root.layoutSubtreeIfNeeded()
+            if condition() { return }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+        } while Date() < deadline
+        root.layoutSubtreeIfNeeded()
+    }
+
+    @MainActor
     private func renderedAlpha(
         for controller: BonsplitController,
         samplePoint: NSPoint,
@@ -1282,12 +1477,32 @@ final class BonsplitTests: XCTestCase {
         at point: NSPoint,
         clickCount: Int
     ) throws -> NSEvent {
+        try makeMouseEvent(type: .leftMouseDown, in: view, at: point, clickCount: clickCount)
+    }
+
+    @MainActor
+    private func sendLeftMouseClick(
+        in view: NSView,
+        at point: NSPoint,
+        clickCount: Int = 1
+    ) throws {
+        NSApp.sendEvent(try makeMouseEvent(type: .leftMouseDown, in: view, at: point, clickCount: clickCount))
+        NSApp.sendEvent(try makeMouseEvent(type: .leftMouseUp, in: view, at: point, clickCount: clickCount))
+    }
+
+    @MainActor
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        in view: NSView,
+        at point: NSPoint,
+        clickCount: Int
+    ) throws -> NSEvent {
         guard let window = view.window else {
             throw NSError(domain: "BonsplitTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing window"])
         }
         let pointInWindow = view.convert(point, to: nil)
         guard let event = NSEvent.mouseEvent(
-            with: .leftMouseDown,
+            with: type,
             location: pointInWindow,
             modifierFlags: [],
             timestamp: ProcessInfo.processInfo.systemUptime,

@@ -57,6 +57,42 @@ private struct SelectedTabFramePreferenceKey: PreferenceKey {
     }
 }
 
+private struct TrailingAccessoryWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct SplitButtonsIntrinsicWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+struct TabBarLayoutMetrics: Equatable {
+    let paneId: PaneID
+    let trailingContentInset: CGFloat
+    let effectiveChromeWidth: CGFloat
+    let selectedTabFrameInBar: CGRect?
+}
+
+// test-only: lets behavioral tests observe the runtime tab-bar layout after
+// SwiftUI PreferenceKey measurements settle, without asserting on source shape.
+private struct TabBarLayoutMetricsHandlerKey: EnvironmentKey {
+    static let defaultValue: ((TabBarLayoutMetrics) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var bonsplitTabBarLayoutMetricsHandler: ((TabBarLayoutMetrics) -> Void)? {
+        get { self[TabBarLayoutMetricsHandlerKey.self] }
+        set { self[TabBarLayoutMetricsHandlerKey.self] = newValue }
+    }
+}
+
 @MainActor
 private final class TabBarScrollViewBridge: ObservableObject {
     private struct ScrollMetrics {
@@ -166,10 +202,10 @@ private final class TabBarScrollViewBridge: ObservableObject {
 }
 
 enum TabBarStyling {
-    /// Backdrop width for the trailing split-buttons cluster. Lives in `TabBarMetrics`
-    /// alongside its sibling sizing constants; aliased here for callers that already
-    /// scope sizing reads through `TabBarStyling`.
+    /// Initial fallback for the trailing split-buttons cluster before the measured
+    /// width lands. Lives in `TabBarMetrics` alongside its sibling sizing constants.
     static let splitButtonsBackdropWidth: CGFloat = TabBarMetrics.splitButtonsBackdropWidth
+    static let trailingChromeFadeWidth: CGFloat = 24
 
     enum ScrollTarget: Equatable {
         case leading
@@ -195,15 +231,13 @@ enum TabBarStyling {
     }
 
     static func trailingTabContentInset(
-        showSplitButtons: Bool,
+        effectiveChromeWidth: CGFloat,
         isMinimalMode: Bool
     ) -> CGFloat {
-        guard showSplitButtons else { return 0 }
-
         // In minimal mode the split buttons fade in on hover as an overlay. Reserving that
         // width in the scroll content leaves a dead NSClipView strip when the buttons are
         // hidden, so clicks there never reach the tab-bar chrome.
-        return isMinimalMode ? 0 : splitButtonsBackdropWidth
+        return isMinimalMode ? 0 : max(0, effectiveChromeWidth)
     }
 
     static func preferredScrollTarget(
@@ -270,13 +304,15 @@ struct TabContextMenuState {
 }
 
 /// Tab bar view with scrollable tabs, drag/drop support, and split buttons
-struct TabBarView: View {
+struct TabBarView<TrailingAccessory: View>: View {
     @Environment(BonsplitController.self) private var controller
     @Environment(SplitViewController.self) private var splitViewController
+    @Environment(\.bonsplitTabBarLayoutMetricsHandler) private var layoutMetricsHandler
     
     @Bindable var pane: PaneState
     let isFocused: Bool
     var showSplitButtons: Bool = true
+    let trailingAccessoryBuilder: (PaneID, Double) -> TrailingAccessory
 
     @AppStorage("workspacePresentationMode") private var presentationMode = "standard"
     @AppStorage("debugFadeColorStyle") private var fadeColorStyle = 0
@@ -287,8 +323,23 @@ struct TabBarView: View {
     @State private var contentWidth: CGFloat = 0
     @State private var containerWidth: CGFloat = 0
     @State private var selectedTabFrameInBar: CGRect?
+    @State private var trailingAccessoryWidth: CGFloat = 0
+    @State private var splitButtonsIntrinsicWidth: CGFloat = 0
+    @State private var effectiveChromeWidth: CGFloat = TabBarStyling.splitButtonsBackdropWidth
     @StateObject private var controlKeyMonitor = TabControlShortcutKeyMonitor()
     @StateObject private var scrollViewBridge = TabBarScrollViewBridge()
+
+    init(
+        pane: PaneState,
+        isFocused: Bool,
+        showSplitButtons: Bool = true,
+        @ViewBuilder trailingAccessory: @escaping (PaneID, Double) -> TrailingAccessory
+    ) {
+        self.pane = pane
+        self.isFocused = isFocused
+        self.showSplitButtons = showSplitButtons
+        self.trailingAccessoryBuilder = trailingAccessory
+    }
 
     private var canScrollLeft: Bool {
         scrollOffset > 1
@@ -324,9 +375,37 @@ struct TabBarView: View {
 
     private var trailingTabContentInset: CGFloat {
         TabBarStyling.trailingTabContentInset(
-            showSplitButtons: showSplitButtons,
+            effectiveChromeWidth: currentEffectiveChromeWidth,
             isMinimalMode: isMinimalMode
         )
+    }
+
+    private var currentEffectiveChromeWidth: CGFloat {
+        resolvedEffectiveChromeWidth(
+            trailingAccessoryWidth: trailingAccessoryWidth,
+            splitButtonsIntrinsicWidth: splitButtonsIntrinsicWidth
+        )
+    }
+
+    private var currentLayoutMetrics: TabBarLayoutMetrics {
+        TabBarLayoutMetrics(
+            paneId: pane.id,
+            trailingContentInset: trailingTabContentInset,
+            effectiveChromeWidth: currentEffectiveChromeWidth,
+            selectedTabFrameInBar: selectedTabFrameInBar
+        )
+    }
+
+    private func resolvedEffectiveChromeWidth(
+        trailingAccessoryWidth: CGFloat,
+        splitButtonsIntrinsicWidth: CGFloat
+    ) -> CGFloat {
+        let internalSplitButtonsWidth = showSplitButtons ? splitButtonsIntrinsicWidth : 0
+        let measuredWidth = max(max(0, trailingAccessoryWidth), max(0, internalSplitButtonsWidth))
+        guard measuredWidth > 0 else {
+            return showSplitButtons ? max(0, effectiveChromeWidth) : 0
+        }
+        return measuredWidth
     }
 
     private var leadingScrollAnchorId: String {
@@ -471,41 +550,66 @@ struct TabBarView: View {
                 }
                 .frame(height: TabBarMetrics.barHeight)
                 .mask(combinedMask)
-                // Split buttons sit on top of the tab strip in their own opaque backdrop.
-                // The backdrop visually obscures any tabs that scroll under the buttons,
+                // Trailing chrome sits on top of the tab strip in its own opaque backdrop.
+                // The backdrop visually obscures any tabs that scroll under the chrome,
                 // and (critically) does not break hit testing on tabs outside the backdrop —
                 // unlike the prior approach of using a `Color.clear` region in `combinedMask`,
                 // which silently blocked SwiftUI hit tests in the masked-out area and let
                 // tab clicks fall through to `TabBarDragAndHoverView` (which performs a
                 // window drag in minimal mode).
                 .overlay(alignment: .trailing) {
-                    if showSplitButtons {
-                        let shouldShow = !isMinimalMode || isHoveringTabBar
-                        let backdropColor = Color(nsColor: Self.buttonBackdropColor(
-                            for: appearance,
-                            focused: isFocused,
-                            style: fadeColorStyle
-                        ))
-                        ZStack(alignment: .trailing) {
-                            HStack(spacing: 0) {
-                                LinearGradient(
-                                    colors: [backdropColor.opacity(0), backdropColor],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                                .frame(width: 24)
-                                Rectangle().fill(backdropColor)
-                            }
-                            .frame(width: TabBarStyling.splitButtonsBackdropWidth)
-
-                            splitButtons
-                                .saturation(tabBarSaturation)
+                    let shouldShow = !isMinimalMode || isHoveringTabBar
+                    let backdropColor = Color(nsColor: Self.buttonBackdropColor(
+                        for: appearance,
+                        focused: isFocused,
+                        style: fadeColorStyle
+                    ))
+                    let chromeWidth = currentEffectiveChromeWidth
+                    ZStack(alignment: .trailing) {
+                        HStack(spacing: 0) {
+                            LinearGradient(
+                                colors: [backdropColor.opacity(0), backdropColor],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: TabBarStyling.trailingChromeFadeWidth)
+                            Rectangle().fill(backdropColor)
                         }
-                        .padding(.bottom, 1)
-                        .opacity(shouldShow ? 1 : 0)
-                        .allowsHitTesting(shouldShow)
-                        .animation(.easeInOut(duration: 0.14), value: shouldShow)
+                        .frame(width: chromeWidth > 0 ? chromeWidth + TabBarStyling.trailingChromeFadeWidth : 0)
+
+                        // During the staged CMUX-30 migration, host-supplied chrome is
+                        // rendered to the left of the internal split-buttons row. Phase 3
+                        // removes the internal row after c11mux owns this accessory.
+                        HStack(spacing: 0) {
+                            trailingAccessoryBuilder(pane.id, tabBarSaturation)
+                                .environment(\.bonsplitTabBarHover, isHoveringTabBar)
+                                .background(
+                                    GeometryReader { geometry in
+                                        Color.clear.preference(
+                                            key: TrailingAccessoryWidthKey.self,
+                                            value: geometry.size.width
+                                        )
+                                    }
+                                )
+
+                            if showSplitButtons {
+                                splitButtons
+                                    .saturation(tabBarSaturation)
+                                    .background(
+                                        GeometryReader { geometry in
+                                            Color.clear.preference(
+                                                key: SplitButtonsIntrinsicWidthKey.self,
+                                                value: geometry.size.width
+                                            )
+                                        }
+                                    )
+                            }
+                        }
                     }
+                    .padding(.bottom, 1)
+                    .opacity(shouldShow ? 1 : 0)
+                    .allowsHitTesting(shouldShow)
+                    .animation(.easeInOut(duration: 0.14), value: shouldShow)
                 }
             }
         }
@@ -538,9 +642,29 @@ struct TabBarView: View {
         }
         .onAppear {
             controlKeyMonitor.start()
+            layoutMetricsHandler?(currentLayoutMetrics)
         }
         .onPreferenceChange(SelectedTabFramePreferenceKey.self) { frame in
             selectedTabFrameInBar = frame
+        }
+        .onPreferenceChange(TrailingAccessoryWidthKey.self) { width in
+            let normalizedWidth = max(0, width)
+            trailingAccessoryWidth = normalizedWidth
+            effectiveChromeWidth = resolvedEffectiveChromeWidth(
+                trailingAccessoryWidth: normalizedWidth,
+                splitButtonsIntrinsicWidth: splitButtonsIntrinsicWidth
+            )
+        }
+        .onPreferenceChange(SplitButtonsIntrinsicWidthKey.self) { width in
+            let normalizedWidth = max(0, width)
+            splitButtonsIntrinsicWidth = normalizedWidth
+            effectiveChromeWidth = resolvedEffectiveChromeWidth(
+                trailingAccessoryWidth: trailingAccessoryWidth,
+                splitButtonsIntrinsicWidth: normalizedWidth
+            )
+        }
+        .onChange(of: currentLayoutMetrics) { _, metrics in
+            layoutMetricsHandler?(metrics)
         }
         .onDisappear {
             controlKeyMonitor.stop()
@@ -985,6 +1109,21 @@ struct TabBarView: View {
                 }
                 .frame(height: 1)
             }
+    }
+}
+
+extension TabBarView where TrailingAccessory == EmptyView {
+    init(
+        pane: PaneState,
+        isFocused: Bool,
+        showSplitButtons: Bool = true
+    ) {
+        self.init(
+            pane: pane,
+            isFocused: isFocused,
+            showSplitButtons: showSplitButtons,
+            trailingAccessory: { _, _ in EmptyView() }
+        )
     }
 }
 
