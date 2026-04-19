@@ -5,6 +5,14 @@ All notable changes to Bonsplit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Tab close-X on the rightmost tab no longer gets intercepted by the trailing split-buttons cluster in standard mode. The reserved trailing inset (`TabBarMetrics.splitButtonsBackdropWidth`) was sized for an older 3-button row and overhung by ~61pt after the row grew to 6 buttons + a separator. Bumped to 184pt to cover the current ~175pt intrinsic width with 9pt headroom. (Stage 11 CMUX-22.)
+
+### Changed
+- Moved `splitButtonsBackdropWidth` from `TabBarStyling` (in `TabBarView.swift`) to `TabBarMetrics` (in `TabBarMetrics.swift`) to live alongside its sibling sizing constants.
+
 ## [1.1.1] - 2025-01-29
 
 ### Fixed

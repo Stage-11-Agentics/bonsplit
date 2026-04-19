@@ -7,6 +7,16 @@ enum TabBarMetrics {
     static let barHeight: CGFloat = 30
     static let barPadding: CGFloat = 0
 
+    /// Width reserved at the trailing edge of the tab strip in **standard mode** for the
+    /// split-buttons cluster (terminal/browser/markdown/separator/splitH/splitV/+).
+    /// Drives both the opaque backdrop frame and `TabBarStyling.trailingTabContentInset`,
+    /// which keeps tab close-X targets clear of the buttons. Must be ≥ the intrinsic width
+    /// of `TabBarView.splitButtons`. Today: 6 × 22pt + 12pt spacing + 17pt separator + 14pt
+    /// padding = 175pt; 184pt leaves 9pt headroom. Recompute when the button row changes.
+    /// Note: minimal mode intentionally returns 0 from `trailingTabContentInset` (buttons
+    /// are hover-only); the matching minimal-mode hit-test variant is tracked separately.
+    static let splitButtonsBackdropWidth: CGFloat = 184
+
     // MARK: - Individual Tabs
 
     static let tabHeight: CGFloat = 30
