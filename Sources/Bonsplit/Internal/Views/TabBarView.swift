@@ -166,7 +166,9 @@ private final class TabBarScrollViewBridge: ObservableObject {
 }
 
 enum TabBarStyling {
-    static let splitButtonsBackdropWidth: CGFloat = 114
+    // Must cover `splitButtons`' intrinsic width or close-X targets get occluded.
+    // Today: 6 × 22pt buttons + 12pt spacing + 17pt separator + 14pt padding = 175pt.
+    static let splitButtonsBackdropWidth: CGFloat = 184
 
     enum ScrollTarget: Equatable {
         case leading
