@@ -146,13 +146,14 @@ struct PaneDropInteractionContainer<Content: View, DropLayer: View>: View {
 }
 
 /// Container for a single pane with its tab bar and content area
-struct PaneContainerView<Content: View, EmptyContent: View>: View {
+struct PaneContainerView<Content: View, EmptyContent: View, TrailingAccessory: View>: View {
     @Environment(BonsplitController.self) private var bonsplitController
 
     @Bindable var pane: PaneState
     @Bindable var controller: SplitViewController
     let contentBuilder: (TabItem, PaneID) -> Content
     let emptyPaneBuilder: (PaneID) -> EmptyContent
+    let trailingAccessoryBuilder: (PaneID, Double) -> TrailingAccessory
     var showSplitButtons: Bool = true
     var contentViewLifecycle: ContentViewLifecycle = .recreateOnSwitch
 
@@ -173,7 +174,8 @@ struct PaneContainerView<Content: View, EmptyContent: View>: View {
             TabBarView(
                 pane: pane,
                 isFocused: isFocused,
-                showSplitButtons: showSplitButtons
+                showSplitButtons: showSplitButtons,
+                trailingAccessory: trailingAccessoryBuilder
             )
 
             // Content area with drop zones

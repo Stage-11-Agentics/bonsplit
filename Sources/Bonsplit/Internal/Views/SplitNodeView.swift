@@ -2,12 +2,13 @@ import SwiftUI
 import AppKit
 
 /// Recursively renders a split node (pane or split)
-struct SplitNodeView<Content: View, EmptyContent: View>: View {
+struct SplitNodeView<Content: View, EmptyContent: View, TrailingAccessory: View>: View {
     @Environment(SplitViewController.self) private var controller
 
     let node: SplitNode
     let contentBuilder: (TabItem, PaneID) -> Content
     let emptyPaneBuilder: (PaneID) -> EmptyContent
+    let trailingAccessoryBuilder: (PaneID, Double) -> TrailingAccessory
     let appearance: BonsplitConfiguration.Appearance
     var showSplitButtons: Bool = true
     var contentViewLifecycle: ContentViewLifecycle = .recreateOnSwitch
@@ -23,6 +24,7 @@ struct SplitNodeView<Content: View, EmptyContent: View>: View {
                 pane: paneState,
                 contentBuilder: contentBuilder,
                 emptyPaneBuilder: emptyPaneBuilder,
+                trailingAccessoryBuilder: trailingAccessoryBuilder,
                 showSplitButtons: showSplitButtons,
                 contentViewLifecycle: contentViewLifecycle
             )
@@ -34,6 +36,7 @@ struct SplitNodeView<Content: View, EmptyContent: View>: View {
                 appearance: appearance,
                 contentBuilder: contentBuilder,
                 emptyPaneBuilder: emptyPaneBuilder,
+                trailingAccessoryBuilder: trailingAccessoryBuilder,
                 showSplitButtons: showSplitButtons,
                 contentViewLifecycle: contentViewLifecycle,
                 onGeometryChange: onGeometryChange,
@@ -87,12 +90,13 @@ final class SplitArrangedContainerView: NSView {
 }
 
 /// Wrapper that uses NSHostingController for proper AppKit layout constraints
-struct SinglePaneWrapper<Content: View, EmptyContent: View>: NSViewRepresentable {
+struct SinglePaneWrapper<Content: View, EmptyContent: View, TrailingAccessory: View>: NSViewRepresentable {
     @Environment(SplitViewController.self) private var controller
     
     let pane: PaneState
     let contentBuilder: (TabItem, PaneID) -> Content
     let emptyPaneBuilder: (PaneID) -> EmptyContent
+    let trailingAccessoryBuilder: (PaneID, Double) -> TrailingAccessory
     var showSplitButtons: Bool = true
     var contentViewLifecycle: ContentViewLifecycle = .recreateOnSwitch
 
@@ -102,6 +106,7 @@ struct SinglePaneWrapper<Content: View, EmptyContent: View>: NSViewRepresentable
             controller: controller,
             contentBuilder: contentBuilder,
             emptyPaneBuilder: emptyPaneBuilder,
+            trailingAccessoryBuilder: trailingAccessoryBuilder,
             showSplitButtons: showSplitButtons,
             contentViewLifecycle: contentViewLifecycle
         )
@@ -142,6 +147,7 @@ struct SinglePaneWrapper<Content: View, EmptyContent: View>: NSViewRepresentable
             controller: controller,
             contentBuilder: contentBuilder,
             emptyPaneBuilder: emptyPaneBuilder,
+            trailingAccessoryBuilder: trailingAccessoryBuilder,
             showSplitButtons: showSplitButtons,
             contentViewLifecycle: contentViewLifecycle
         )
@@ -153,6 +159,6 @@ struct SinglePaneWrapper<Content: View, EmptyContent: View>: NSViewRepresentable
     }
 
     class Coordinator {
-        var hostingController: NonDraggableHostingController<PaneContainerView<Content, EmptyContent>>?
+        var hostingController: NonDraggableHostingController<PaneContainerView<Content, EmptyContent, TrailingAccessory>>?
     }
 }
