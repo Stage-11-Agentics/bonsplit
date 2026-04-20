@@ -148,6 +148,22 @@ extension BonsplitConfiguration {
             }
         }
 
+        /// Style knobs for pane dividers (the horizontal/vertical splitters rendered by
+        /// `NSSplitView`). Sibling to `ChromeColors` so future additions (insets, opacity,
+        /// dashed/solid style) can land without breaking the colors-only struct.
+        public struct DividerStyle: Sendable {
+            /// Optional override for pane divider thickness in points.
+            /// When nil, Bonsplit uses NSSplitView's `.thin` default (~1pt).
+            ///
+            /// The structural `dividerStyle = .thin` hint is preserved so AppKit's
+            /// hit-test region stays reasonable; only the rendered thickness is customized.
+            public var thicknessPt: CGFloat?
+
+            public init(thicknessPt: CGFloat? = nil) {
+                self.thicknessPt = thicknessPt
+            }
+        }
+
         // MARK: - Tab Bar
 
         /// Height of the tab bar
@@ -200,6 +216,9 @@ extension BonsplitConfiguration {
         /// Optional color overrides for tab/pane chrome.
         public var chromeColors: ChromeColors
 
+        /// Style knobs for pane dividers.
+        public var dividerStyle: DividerStyle
+
         // MARK: - Presets
 
         public static let `default` = Appearance()
@@ -235,7 +254,8 @@ extension BonsplitConfiguration {
             splitButtonTooltips: SplitButtonTooltips = .default,
             animationDuration: Double = 0.15,
             enableAnimations: Bool = true,
-            chromeColors: ChromeColors = .init()
+            chromeColors: ChromeColors = .init(),
+            dividerStyle: DividerStyle = .init()
         ) {
             self.tabBarHeight = tabBarHeight
             self.tabMinWidth = tabMinWidth
@@ -251,6 +271,7 @@ extension BonsplitConfiguration {
             self.animationDuration = animationDuration
             self.enableAnimations = enableAnimations
             self.chromeColors = chromeColors
+            self.dividerStyle = dividerStyle
         }
     }
 }
