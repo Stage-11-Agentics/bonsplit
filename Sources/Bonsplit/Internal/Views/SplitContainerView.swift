@@ -3,28 +3,6 @@ import AppKit
 
 private var splitContainerProgrammaticSyncDepth = 0
 
-private class ThemedSplitView: NSSplitView {
-    var customDividerColor: NSColor?
-
-    override var dividerColor: NSColor {
-        customDividerColor ?? super.dividerColor
-    }
-
-    override var isOpaque: Bool { false }
-
-    // NSSplitView's default `mouseDownCanMoveWindow` reports `true` whenever it
-    // appears opaque to AppKit, and even with `isOpaque=false` AppKit can
-    // promote it back to draggable when nested inside a non-titlebar window.
-    // In `presentationMode == "minimal"` (no titlebar drag region), AppKit was
-    // treating mouseDowns inside the LEFT pane of a horizontal split as window
-    // drag intents and consuming the mouseUp before SwiftUI's tap gesture
-    // could fire on tab items. Forcing `false` here keeps the entire pane
-    // hosting chain non-draggable so SwiftUI gestures get every click.
-    // See `NonDraggableHostingView` in SplitNodeView.swift for the rest of
-    // the chain.
-    override var mouseDownCanMoveWindow: Bool { false }
-}
-
 #if DEBUG
 private func debugPointString(_ point: NSPoint) -> String {
     let x = Int(point.x.rounded())
@@ -122,6 +100,7 @@ struct SplitContainerView<Content: View, EmptyContent: View, TrailingAccessory: 
         let splitView = ThemedSplitView()
 #endif
         splitView.customDividerColor = TabBarColors.nsColorSeparator(for: appearance)
+        splitView.overrideThickness = appearance.dividerStyle.thicknessPt
         splitView.isVertical = splitState.orientation == .horizontal
         splitView.dividerStyle = .thin
         splitView.delegate = context.coordinator
@@ -324,7 +303,15 @@ struct SplitContainerView<Content: View, EmptyContent: View, TrailingAccessory: 
         splitView.wantsLayer = true
         splitView.layer?.backgroundColor = NSColor.clear.cgColor
         splitView.layer?.isOpaque = false
-        (splitView as? ThemedSplitView)?.customDividerColor = TabBarColors.nsColorSeparator(for: appearance)
+        if let themedSplitView = splitView as? ThemedSplitView {
+            themedSplitView.customDividerColor = TabBarColors.nsColorSeparator(for: appearance)
+            let newThickness = appearance.dividerStyle.thicknessPt
+            if themedSplitView.overrideThickness != newThickness {
+                themedSplitView.overrideThickness = newThickness
+                splitView.needsLayout = true
+                splitView.needsDisplay = true
+            }
+        }
 
         // Update orientation if changed
         splitView.isVertical = splitState.orientation == .horizontal

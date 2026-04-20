@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `BonsplitConfiguration.Appearance.DividerStyle` — sibling struct on `Appearance` that carries optional overrides for pane divider rendering. Ships with `thicknessPt: CGFloat?`; when non-nil, `ThemedSplitView` overrides `NSSplitView.dividerThickness` so the visible divider thickness can be customized independently of the structural `.thin` hint (which is preserved for AppKit's hit-test region sizing). Additive: `Appearance.init` gains a `dividerStyle:` parameter with a default value, and all existing callers continue to render identically.
 - `BonsplitView` initializer parameter `trailingAccessory: (PaneID, Double) -> View` — host-provided trailing-edge accessory rendered inside the tab bar alongside the internal default chrome. The builder receives the pane ID and a `chromeSaturation` scalar (matching bonsplit's internal `tabBarSaturation`, including drag-source nuance).
 - `@Environment(\.bonsplitTabBarHover)` — boolean value published by the tab bar indicating whether the pointer is currently over the tab-bar region. Consumers can read this from a `trailingAccessory` to replicate hover-fade behavior in minimal-mode presentations.
 

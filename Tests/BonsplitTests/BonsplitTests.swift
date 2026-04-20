@@ -482,6 +482,43 @@ final class BonsplitTests: XCTestCase {
         XCTAssertGreaterThan(alpha, 0.6)
     }
 
+    // MARK: - Divider Style
+
+    func testDividerStyleDefaultsToNilThickness() {
+        let appearance = BonsplitConfiguration.Appearance()
+        XCTAssertNil(appearance.dividerStyle.thicknessPt)
+    }
+
+    func testDividerStyleThicknessPropagatesThroughAppearance() {
+        let appearance = BonsplitConfiguration.Appearance(
+            dividerStyle: .init(thicknessPt: 3)
+        )
+        XCTAssertEqual(appearance.dividerStyle.thicknessPt, 3)
+    }
+
+    @MainActor
+    func testThemedSplitViewOverrideThicknessReplacesDefault() {
+        let splitView = ThemedSplitView()
+        splitView.dividerStyle = .thin
+        let defaultThickness = splitView.dividerThickness
+
+        splitView.overrideThickness = 5
+        XCTAssertEqual(splitView.dividerThickness, 5)
+
+        splitView.overrideThickness = nil
+        XCTAssertEqual(splitView.dividerThickness, defaultThickness)
+    }
+
+    @MainActor
+    func testThemedSplitViewDividerColorOverrideReplacesSystemColor() {
+        let splitView = ThemedSplitView()
+        splitView.customDividerColor = NSColor.red
+        XCTAssertEqual(splitView.dividerColor, NSColor.red)
+
+        splitView.customDividerColor = nil
+        XCTAssertNotEqual(splitView.dividerColor, NSColor.red)
+    }
+
     func testSplitActionPressedStateUsesHigherContrast() {
         let appearance = BonsplitConfiguration.Appearance(
             chromeColors: .init(backgroundHex: "#272822")
