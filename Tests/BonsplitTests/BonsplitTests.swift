@@ -1105,6 +1105,30 @@ final class BonsplitTests: XCTestCase {
         )
     }
 
+    func testTabWidthRangeUsesConfiguredAppearance() {
+        let appearance = BonsplitConfiguration.Appearance(
+            tabMinWidth: 112,
+            tabMaxWidth: 216
+        )
+
+        let range = TabItemStyling.widthRange(for: appearance)
+
+        XCTAssertEqual(range.lowerBound, 112)
+        XCTAssertEqual(range.upperBound, 216)
+    }
+
+    func testTabWidthRangeKeepsMaximumAtLeastMinimum() {
+        let appearance = BonsplitConfiguration.Appearance(
+            tabMinWidth: 112,
+            tabMaxWidth: 64
+        )
+
+        let range = TabItemStyling.widthRange(for: appearance)
+
+        XCTAssertEqual(range.lowerBound, 112)
+        XCTAssertEqual(range.upperBound, 112)
+    }
+
     func testTabBarSeparatorSegmentsClampGapIntoBounds() {
         var segments = TabBarStyling.separatorSegments(totalWidth: 100, gap: -20...40)
         XCTAssertEqual(segments.left, 0, accuracy: 0.0001)

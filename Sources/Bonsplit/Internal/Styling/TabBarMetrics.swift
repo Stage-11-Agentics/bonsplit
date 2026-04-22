@@ -20,7 +20,7 @@ enum TabBarMetrics {
     static let tabCornerRadius: CGFloat = 0
     static let tabHorizontalPadding: CGFloat = 6
     static let tabSpacing: CGFloat = 0
-    static let activeIndicatorHeight: CGFloat = 2
+    static let activeIndicatorHeight: CGFloat = 3
 
     // MARK: - Tab Content
 
