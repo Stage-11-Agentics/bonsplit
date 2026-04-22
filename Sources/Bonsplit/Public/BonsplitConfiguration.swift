@@ -139,12 +139,18 @@ extension BonsplitConfiguration {
             /// When unset, Bonsplit derives separators from the chrome background.
             public var borderHex: String?
 
+            /// Optional hex color (`#RRGGBB` or `#RRGGBBAA`) for the selected tab's
+            /// active indicator. When unset, Bonsplit uses the system accent color.
+            public var activeIndicatorHex: String?
+
             public init(
                 backgroundHex: String? = nil,
-                borderHex: String? = nil
+                borderHex: String? = nil,
+                activeIndicatorHex: String? = nil
             ) {
                 self.backgroundHex = backgroundHex
                 self.borderHex = borderHex
+                self.activeIndicatorHex = activeIndicatorHex
             }
         }
 

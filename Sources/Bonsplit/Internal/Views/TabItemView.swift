@@ -446,7 +446,7 @@ struct TabItemView: View {
             // Top accent indicator for selected tab
             if isSelected {
                 Rectangle()
-                    .fill(Color.accentColor)
+                    .fill(TabBarColors.activeIndicator(for: appearance))
                     .frame(height: TabBarMetrics.activeIndicatorHeight)
             }
 

@@ -203,6 +203,19 @@ final class BonsplitTests: XCTestCase {
         XCTAssertTrue(controller.configuration.allowCloseTabs)
     }
 
+    func testChromeActiveIndicatorColorUsesAppearanceOverride() {
+        let appearance = BonsplitConfiguration.Appearance(
+            chromeColors: .init(activeIndicatorHex: "#12AB34")
+        )
+
+        let color = TabBarColors.nsColorActiveIndicator(for: appearance).usingColorSpace(.sRGB)
+
+        XCTAssertEqual(color?.redComponent, CGFloat(0x12) / 255.0, accuracy: 0.0001)
+        XCTAssertEqual(color?.greenComponent, CGFloat(0xAB) / 255.0, accuracy: 0.0001)
+        XCTAssertEqual(color?.blueComponent, CGFloat(0x34) / 255.0, accuracy: 0.0001)
+        XCTAssertEqual(color?.alphaComponent, 1.0, accuracy: 0.0001)
+    }
+
     func testDefaultSplitButtonTooltips() {
         let defaults = BonsplitConfiguration.SplitButtonTooltips.default
         XCTAssertEqual(defaults.newTerminal, "New Terminal")

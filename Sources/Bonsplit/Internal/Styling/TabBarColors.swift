@@ -24,6 +24,13 @@ enum TabBarColors {
         return NSColor(bonsplitHex: value)
     }
 
+    private static func chromeActiveIndicatorColor(
+        for appearance: BonsplitConfiguration.Appearance
+    ) -> NSColor? {
+        guard let value = appearance.chromeColors.activeIndicatorHex else { return nil }
+        return NSColor(bonsplitHex: value)
+    }
+
     private static func effectiveBackgroundColor(
         for appearance: BonsplitConfiguration.Appearance,
         fallback fallbackColor: NSColor
@@ -164,6 +171,14 @@ enum TabBarColors {
             ? custom.bonsplitDarken(by: 0.12)
             : custom.bonsplitLighten(by: 0.16)
         return tone.withAlphaComponent(alpha)
+    }
+
+    static func activeIndicator(for appearance: BonsplitConfiguration.Appearance) -> Color {
+        Color(nsColor: nsColorActiveIndicator(for: appearance))
+    }
+
+    static func nsColorActiveIndicator(for appearance: BonsplitConfiguration.Appearance) -> NSColor {
+        chromeActiveIndicatorColor(for: appearance) ?? .controlAccentColor
     }
 
     static var dropIndicator: Color {
