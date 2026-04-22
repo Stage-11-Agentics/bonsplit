@@ -1117,6 +1117,13 @@ final class BonsplitTests: XCTestCase {
         XCTAssertEqual(range.upperBound, 216)
     }
 
+    func testDefaultAppearanceUsesCompactMinimumTabWidth() {
+        let range = TabItemStyling.widthRange(for: .default)
+
+        XCTAssertEqual(range.lowerBound, 112)
+        XCTAssertEqual(range.upperBound, 220)
+    }
+
     func testTabWidthRangeKeepsMaximumAtLeastMinimum() {
         let appearance = BonsplitConfiguration.Appearance(
             tabMinWidth: 112,
