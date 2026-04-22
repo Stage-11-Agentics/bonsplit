@@ -24,6 +24,12 @@ enum TabItemStyling {
         isHovered && !isSelected
     }
 
+    static func widthRange(for appearance: BonsplitConfiguration.Appearance) -> ClosedRange<CGFloat> {
+        let minWidth = max(1, appearance.tabMinWidth)
+        let maxWidth = max(minWidth, appearance.tabMaxWidth)
+        return minWidth...maxWidth
+    }
+
     static func resolvedFaviconImage(existing: NSImage?, incomingData: Data?) -> NSImage? {
         guard let incomingData else { return nil }
         if let decoded = NSImage(data: incomingData) {
@@ -119,7 +125,7 @@ struct TabItemView: View {
                 .onChange(of: tab.icon) { _ in updateGlobeFallback() }
 
                 Text(tab.title)
-                    .font(.system(size: appearance.tabTitleFontSize))
+                    .font(.system(size: appearance.tabTitleFontSize, weight: isSelected ? .semibold : .regular))
                     .lineLimit(1)
                     .foregroundStyle(
                         isSelected
@@ -165,6 +171,168 @@ struct TabItemView: View {
         }
         .padding(.horizontal, TabBarMetrics.tabHorizontalPadding)
         .offset(y: isSelected ? 0.5 : 0)
+        .tabItemWidth(appearance: appearance)
+        .padding(.bottom, isSelected ? 1 : 0)
+        .background(tabBackground.saturation(saturation))
+        .animation(.easeInOut(duration: 0.14), value: showsShortcutHint)
+        .contentShape(Rectangle())
+        // Middle click to close (macOS convention).
+        // Uses an AppKit event monitor so it doesn't interfere with left click selection or drag/reorder.
+        .background(MiddleClickMonitorView(onMiddleClick: {
+            guard !tab.isPinned else { return }
+            onClose()
+        }))
+        .onTapGesture {
+            onSelect()
+        }
+        .onHover { hovering in
+            // Keep icon rendering stable while hovering; only accessory/background elements animate.
+            isHovered = hovering
+        }
+        .contextMenu {
+            contextMenuContent
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(tab.title)
+        .accessibilityValue(accessibilityValue)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private func glyphSize(for iconName: String) -> CGFloat {
+        // `terminal.fill` reads visually heavier than most symbols at the same point size.
+        // Hardcode sizes to avoid cross-glyph layout shifts.
+        if iconName == "terminal.fill" || iconName == "terminal" || iconName == "globe" {
+            return max(10, TabBarMetrics.iconSize - 2.5)
+        }
+        return TabBarMetrics.iconSize
+    }
+
+    private var shortcutHintLabel: String? {
+        guard let controlShortcutDigit else { return nil }
+        return "\(shortcutModifierSymbol)\(controlShortcutDigit)"
+    }
+
+    private var showsShortcutHint: Bool {
+        (showsControlShortcutHint || alwaysShowShortcutHints) && shortcutHintLabel != nil
+    }
+
+    private var shortcutHintSlotWidth: CGFloat {
+        guard let label = shortcutHintLabel else {
+            return accessorySlotSize
+        }
+        let positiveDebugInset = max(0, CGFloat(TabControlShortcutHintDebugSettings.clamped(controlShortcutHintXOffset))) + 2
+        return max(accessorySlotSize, shortcutHintWidth(for: label) + positiveDebugInset)
+    }
+
+    private var accessoryFontSize: CGFloat {
+        max(8, appearance.tabTitleFontSize - 2)
+    }
+
+    private var accessorySlotSize: CGFloat {
+        // Keep accessory affordances readable when the tab title font is increased.
+        min(TabBarMetrics.tabHeight, max(TabBarMetrics.closeButtonSize, ceil(accessoryFontSize + 4)))
+    }
+
+    private func shortcutHintWidth(for label: String) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: accessoryFontSize, weight: .semibold)
+        let textWidth = (label as NSString).size(withAttributes: [.font: font]).width
+        return ceil(textWidth) + 8
+    }
+
+    @ViewBuilder
+    private var trailingAccessory: some View {
+        ZStack(alignment: .center) {
+            if let shortcutHintLabel {
+                Text(shortcutHintLabel)
+                    .font(.system(size: accessoryFontSize, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .foregroundStyle(
+                        isSelected
+                            ? TabBarColors.activeText(for: appearance)
+                            : TabBarColors.inactiveText(for: appearance)
+                    )
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(.regularMaterial)
+                            .overlay(
+                                Capsule(style: .continuous)
+                                    .stroke(Color.white.opacity(0.30), lineWidth: 0.8)
+                            )
+                            .shadow(color: Color.black.opacity(0.22), radius: 2, x: 0, y: 1)
+                    )
+                    .offset(
+                        x: TabControlShortcutHintDebugSettings.clamped(controlShortcutHintXOffset),
+                        y: TabControlShortcutHintDebugSettings.clamped(controlShortcutHintYOffset)
+                    )
+                    .opacity(showsShortcutHint ? 1 : 0)
+                    .allowsHitTesting(false)
+            }
+
+            closeOrDirtyIndicator
+                .opacity(showsShortcutHint ? 0 : 1)
+                .allowsHitTesting(!showsShortcutHint)
+        }
+        .frame(width: shortcutHintSlotWidth, height: accessorySlotSize, alignment: .center)
+        .animation(.easeInOut(duration: 0.14), value: showsShortcutHint)
+    }
+
+    private func updateGlobeFallback() {
+        // Track load transitions so we can avoid an "empty placeholder -> globe" flash on brand-new tabs.
+        if lastIsLoadingObserved && !tab.isLoading {
+            lastLoadingStoppedAt = Date()
+        }
+        lastIsLoadingObserved = tab.isLoading
+
+        globeFallbackWorkItem?.cancel()
+        globeFallbackWorkItem = nil
+
+        // Only delay the globe fallback right after a navigation completes, when a favicon is likely to
+        // arrive soon. Otherwise (e.g. a brand-new tab), show the globe immediately.
+        let recentlyStoppedLoading: Bool = {
+            guard let t = lastLoadingStoppedAt else { return false }
+            return Date().timeIntervalSince(t) < 1.5
+        }()
+        let shouldDelayGlobe = (tab.icon == "globe") && (tab.iconImageData == nil) && !tab.isLoading && recentlyStoppedLoading
+        if !shouldDelayGlobe {
+            showGlobeFallback = true
+            return
+        }
+
+        showGlobeFallback = false
+        let work = DispatchWorkItem {
+            showGlobeFallback = true
+        }
+        globeFallbackWorkItem = work
+        // Give favicon fetches a little longer before showing the globe fallback to reduce brief flashes.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.90, execute: work)
+    }
+
+    private func updateRenderedFaviconImage() {
+        guard renderedFaviconData != tab.iconImageData ||
+                (renderedFaviconImage == nil && tab.iconImageData != nil) else { return }
+        renderedFaviconData = tab.iconImageData
+        renderedFaviconImage = TabItemStyling.resolvedFaviconImage(
+            existing: renderedFaviconImage,
+            incomingData: tab.iconImageData
+        )
+    }
+}
+
+private extension View {
+    func tabItemWidth(appearance: BonsplitConfiguration.Appearance) -> some View {
+        let widthRange = TabItemStyling.widthRange(for: appearance)
+        return frame(
+            minWidth: widthRange.lowerBound,
+            maxWidth: widthRange.upperBound,
+            minHeight: TabBarMetrics.tabHeight,
+            maxHeight: TabBarMetrics.tabHeight
+        )
+    }
+}
         .frame(
             minWidth: TabBarMetrics.tabMinWidth,
             maxWidth: TabBarMetrics.tabMaxWidth,
