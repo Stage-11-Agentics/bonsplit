@@ -206,6 +206,10 @@ extension BonsplitConfiguration {
         /// Extra leading inset for the tab bar (e.g. for traffic light buttons when sidebar is collapsed)
         public var tabBarLeadingInset: CGFloat
 
+        /// When false, the tab bar is not rendered and its height collapses to zero.
+        /// Use to recover vertical space; combine with an external handle for navigation.
+        public var showsTabBar: Bool
+
         /// Tooltip text for the tab bar's right-side action buttons
         public var splitButtonTooltips: SplitButtonTooltips
 
@@ -257,6 +261,7 @@ extension BonsplitConfiguration {
             showSplitButtons: Bool = true,
             splitButtonsOnHover: Bool = false,
             tabBarLeadingInset: CGFloat = 0,
+            showsTabBar: Bool = true,
             splitButtonTooltips: SplitButtonTooltips = .default,
             animationDuration: Double = 0.15,
             enableAnimations: Bool = true,
@@ -273,6 +278,7 @@ extension BonsplitConfiguration {
             self.showSplitButtons = showSplitButtons
             self.splitButtonsOnHover = splitButtonsOnHover
             self.tabBarLeadingInset = tabBarLeadingInset
+            self.showsTabBar = showsTabBar
             self.splitButtonTooltips = splitButtonTooltips
             self.animationDuration = animationDuration
             self.enableAnimations = enableAnimations

@@ -171,12 +171,14 @@ struct PaneContainerView<Content: View, EmptyContent: View, TrailingAccessory: V
     var body: some View {
         VStack(spacing: 0) {
             // Tab bar
-            TabBarView(
-                pane: pane,
-                isFocused: isFocused,
-                showSplitButtons: showSplitButtons,
-                trailingAccessory: trailingAccessoryBuilder
-            )
+            if bonsplitController.configuration.appearance.showsTabBar {
+                TabBarView(
+                    pane: pane,
+                    isFocused: isFocused,
+                    showSplitButtons: showSplitButtons,
+                    trailingAccessory: trailingAccessoryBuilder
+                )
+            }
 
             // Content area with drop zones
             contentAreaWithDropZones
