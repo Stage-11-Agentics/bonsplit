@@ -55,6 +55,12 @@ public protocol BonsplitDelegate: AnyObject {
     /// The `kind` string identifies the type of tab (e.g. "terminal", "browser").
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID)
 
+    /// Called when the user clicks a "close pane" action in the tab bar.
+    /// The delegate is responsible for any confirmation UI before calling
+    /// `controller.closePane(_:)`; this hook is intentionally separate from
+    /// the synchronous `shouldClosePane` veto so async confirmation works.
+    func splitTabBar(_ controller: BonsplitController, didRequestClosePane pane: PaneID)
+
     /// Called when the user triggers an action from a tab's context menu.
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Tab, inPane pane: PaneID)
 
@@ -82,6 +88,7 @@ public extension BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {}
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {}
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {}
+    func splitTabBar(_ controller: BonsplitController, didRequestClosePane pane: PaneID) {}
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Tab, inPane pane: PaneID) {}
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {}
     func splitTabBar(_ controller: BonsplitController, shouldNotifyDuringDrag: Bool) -> Bool { false }

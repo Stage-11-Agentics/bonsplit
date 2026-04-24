@@ -159,6 +159,14 @@ public final class BonsplitController {
         delegate?.splitTabBar(self, didRequestNewTab: kind, inPane: pane)
     }
 
+    /// Request the delegate to close a pane. The delegate is responsible for
+    /// any confirmation UI before invoking `closePane(_:)`. This is separate
+    /// from the synchronous `shouldClosePane` veto so delegates can show an
+    /// async confirmation dialog.
+    public func requestClosePane(_ pane: PaneID) {
+        delegate?.splitTabBar(self, didRequestClosePane: pane)
+    }
+
     /// Request the delegate to handle a tab context-menu action.
     public func requestTabContextAction(_ action: TabContextAction, for tabId: TabID, inPane pane: PaneID) {
         guard let tab = tab(tabId) else { return }

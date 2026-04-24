@@ -910,7 +910,17 @@ struct TabBarView<TrailingAccessory: View>: View {
     @ViewBuilder
     private var splitButtons: some View {
         let tooltips = controller.configuration.appearance.splitButtonTooltips
+        let canClosePane = controller.allPaneIds.count > 1
         HStack(spacing: 2) {
+            SplitToolbarButton(
+                systemImage: "",
+                labelText: "A",
+                tooltip: tooltips.newAgent,
+                appearance: appearance
+            ) {
+                controller.requestNewTab(kind: "agent", inPane: pane.id)
+            }
+
             SplitToolbarButton(
                 systemImage: "terminal",
                 tooltip: tooltips.newTerminal,
@@ -961,6 +971,15 @@ struct TabBarView<TrailingAccessory: View>: View {
                 appearance: appearance
             ) {
                 controller.requestNewTab(kind: "newTab", inPane: pane.id)
+            }
+
+            SplitToolbarButton(
+                systemImage: "xmark",
+                tooltip: tooltips.closePane,
+                appearance: appearance,
+                isEnabled: canClosePane
+            ) {
+                controller.requestClosePane(pane.id)
             }
         }
         .padding(.leading, 6)
@@ -1142,23 +1161,50 @@ private struct SplitActionButtonStyle: ButtonStyle {
 /// typing).
 private struct SplitToolbarButton: View {
     let systemImage: String
+    let labelText: String?
     let tooltip: String
     let appearance: BonsplitConfiguration.Appearance
+    let isEnabled: Bool
     let action: () -> Void
 
     @State private var isHovered = false
 
+    init(
+        systemImage: String,
+        labelText: String? = nil,
+        tooltip: String,
+        appearance: BonsplitConfiguration.Appearance,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) {
+        self.systemImage = systemImage
+        self.labelText = labelText
+        self.tooltip = tooltip
+        self.appearance = appearance
+        self.isEnabled = isEnabled
+        self.action = action
+    }
+
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: 12))
-                .frame(width: 22, height: 22)
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.primary.opacity(isHovered ? 0.09 : 0))
-                )
+            Group {
+                if let labelText {
+                    Text(labelText)
+                        .font(.system(size: 12, weight: .semibold))
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 12))
+                }
+            }
+            .frame(width: 22, height: 22)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.primary.opacity(isHovered && isEnabled ? 0.09 : 0))
+            )
         }
         .buttonStyle(SplitActionButtonStyle(appearance: appearance))
+        .disabled(!isEnabled)
+        .opacity(isEnabled ? 1.0 : 0.35)
         .safeHelp(tooltip)
         .onHover { isHovered = $0 }
     }
