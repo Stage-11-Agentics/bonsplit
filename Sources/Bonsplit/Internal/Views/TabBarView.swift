@@ -920,6 +920,20 @@ struct TabBarView<TrailingAccessory: View>: View {
             ) {
                 controller.requestNewTab(kind: "agent", inPane: pane.id)
             }
+            .contextMenu {
+                let items = controller.menuItemsForNewTab(kind: "agent", inPane: pane.id)
+                ForEach(items) { item in
+                    Button {
+                        controller.selectNewTabMenuItem(item.id, forKind: "agent", inPane: pane.id)
+                    } label: {
+                        if item.isCurrent {
+                            Label(item.label, systemImage: "checkmark")
+                        } else {
+                            Text(item.label)
+                        }
+                    }
+                }
+            }
 
             SplitToolbarButton(
                 systemImage: "terminal",

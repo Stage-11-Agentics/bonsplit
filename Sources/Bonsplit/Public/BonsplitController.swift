@@ -167,6 +167,19 @@ public final class BonsplitController {
         delegate?.splitTabBar(self, didRequestClosePane: pane)
     }
 
+    /// Fetch fresh context-menu items for a "new tab" toolbar button.
+    /// Called each time the menu opens so hosts can reflect live state
+    /// (e.g., a checkmark on the current default agent).
+    public func menuItemsForNewTab(kind: String, inPane pane: PaneID) -> [BonsplitNewTabMenuItem] {
+        delegate?.splitTabBar(self, menuItemsForNewTabKind: kind, inPane: pane) ?? []
+    }
+
+    /// Notify the delegate that the user picked `itemId` from a "new tab"
+    /// button's context menu.
+    public func selectNewTabMenuItem(_ itemId: String, forKind kind: String, inPane pane: PaneID) {
+        delegate?.splitTabBar(self, didSelectNewTabMenuItem: itemId, forKind: kind, inPane: pane)
+    }
+
     /// Request the delegate to handle a tab context-menu action.
     public func requestTabContextAction(_ action: TabContextAction, for tabId: TabID, inPane pane: PaneID) {
         guard let tab = tab(tabId) else { return }

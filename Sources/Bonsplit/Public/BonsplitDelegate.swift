@@ -1,5 +1,22 @@
 import Foundation
 
+/// A single item in a context menu attached to one of the tab bar's
+/// "new tab" toolbar buttons. Hosts describe menu content via
+/// `BonsplitDelegate.splitTabBar(_:menuItemsForNewTabKind:inPane:)` and
+/// handle selections via
+/// `splitTabBar(_:didSelectNewTabMenuItem:forKind:inPane:)`.
+public struct BonsplitNewTabMenuItem: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let label: String
+    public let isCurrent: Bool
+
+    public init(id: String, label: String, isCurrent: Bool = false) {
+        self.id = id
+        self.label = label
+        self.isCurrent = isCurrent
+    }
+}
+
 /// Protocol for receiving callbacks about tab bar events
 public protocol BonsplitDelegate: AnyObject {
     // MARK: - Tab Lifecycle (Veto Operations)
@@ -61,6 +78,16 @@ public protocol BonsplitDelegate: AnyObject {
     /// the synchronous `shouldClosePane` veto so async confirmation works.
     func splitTabBar(_ controller: BonsplitController, didRequestClosePane pane: PaneID)
 
+    /// Queried when a user right-clicks a "new tab" toolbar button to build
+    /// its context menu. Return an empty array to suppress the menu. Called
+    /// every time the menu is shown so items can reflect live state
+    /// (e.g. a checkmark on the current default).
+    func splitTabBar(_ controller: BonsplitController, menuItemsForNewTabKind kind: String, inPane pane: PaneID) -> [BonsplitNewTabMenuItem]
+
+    /// Called when the user picks an item from a "new tab" button's context
+    /// menu. `itemId` matches a `BonsplitNewTabMenuItem.id` returned earlier.
+    func splitTabBar(_ controller: BonsplitController, didSelectNewTabMenuItem itemId: String, forKind kind: String, inPane pane: PaneID)
+
     /// Called when the user triggers an action from a tab's context menu.
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Tab, inPane pane: PaneID)
 
@@ -89,6 +116,8 @@ public extension BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {}
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {}
     func splitTabBar(_ controller: BonsplitController, didRequestClosePane pane: PaneID) {}
+    func splitTabBar(_ controller: BonsplitController, menuItemsForNewTabKind kind: String, inPane pane: PaneID) -> [BonsplitNewTabMenuItem] { [] }
+    func splitTabBar(_ controller: BonsplitController, didSelectNewTabMenuItem itemId: String, forKind kind: String, inPane pane: PaneID) {}
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Tab, inPane pane: PaneID) {}
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {}
     func splitTabBar(_ controller: BonsplitController, shouldNotifyDuringDrag: Bool) -> Bool { false }
