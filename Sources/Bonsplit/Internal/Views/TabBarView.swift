@@ -1208,12 +1208,13 @@ private struct SplitToolbarButton: View {
     }
 
     var body: some View {
-        // Apply the disabled-state opacity ONLY when disabled. Attaching
-        // `.opacity(1.0)` to enabled buttons (as a no-op) keeps a SwiftUI
-        // compositing layer around them that rendered at the wrong bounds
-        // and painted a phantom outline into the tab bar area. Conditional
-        // modifier = enabled buttons get no `.opacity` at all.
-        let button = Button {
+        // Dimming of the disabled state happens via the ButtonStyle's
+        // foreground color. No view-level `.opacity()` / `.disabled()` /
+        // `_ConditionalContent` in this body — any of those keep a SwiftUI
+        // compositing layer around the button that rendered at the wrong
+        // bounds on some displays and painted a phantom outline into the
+        // tab bar area.
+        Button {
             guard isEnabled else { return }
             action()
         } label: {
@@ -1235,12 +1236,6 @@ private struct SplitToolbarButton: View {
         .buttonStyle(SplitActionButtonStyle(appearance: appearance))
         .safeHelp(tooltip)
         .onHover { isHovered = $0 }
-
-        if isEnabled {
-            button
-        } else {
-            button.opacity(0.35)
-        }
     }
 }
 
