@@ -926,11 +926,14 @@ struct TabBarView<TrailingAccessory: View>: View {
                     Button {
                         controller.selectNewTabMenuItem(item.id, forKind: "agent", inPane: pane.id)
                     } label: {
-                        if item.isCurrent {
-                            Label(item.label, systemImage: "checkmark")
-                        } else {
-                            Text(item.label)
-                        }
+                        // Prefix with a leading checkmark glyph for the
+                        // currently-selected item (or a matching-width space so
+                        // non-current rows align). Using a single Text instead
+                        // of `Label(..., systemImage:)` prevents macOS's menu
+                        // layout from truncating the label to the SF Symbol
+                        // slot width.
+                        Text((item.isCurrent ? "✓  " : "    ") + item.label)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                 }
             }
