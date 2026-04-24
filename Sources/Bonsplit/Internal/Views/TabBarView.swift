@@ -1208,7 +1208,10 @@ private struct SplitToolbarButton: View {
     }
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            guard isEnabled else { return }
+            action()
+        } label: {
             Group {
                 if let labelText {
                     Text(labelText)
@@ -1225,8 +1228,6 @@ private struct SplitToolbarButton: View {
             )
         }
         .buttonStyle(SplitActionButtonStyle(appearance: appearance))
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1.0 : 0.35)
         .safeHelp(tooltip)
         .onHover { isHovered = $0 }
     }
