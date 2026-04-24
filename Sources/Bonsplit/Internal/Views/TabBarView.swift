@@ -912,6 +912,11 @@ struct TabBarView<TrailingAccessory: View>: View {
         let tooltips = controller.configuration.appearance.splitButtonTooltips
         let canClosePane = controller.allPaneIds.count > 1
         HStack(spacing: 2) {
+            // Separator between the tabs and the surface-spawn toolbar. Keeps
+            // the rightmost tab's close (×) glyph from crowding into the A
+            // button and makes the two regions visually distinct.
+            splitButtonsGroupSeparator
+
             SplitToolbarButton(
                 systemImage: "",
                 labelText: "A",
