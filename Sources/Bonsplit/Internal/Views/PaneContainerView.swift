@@ -42,6 +42,27 @@ public extension EnvironmentValues {
     }
 }
 
+// MARK: - Pane overlay builder
+
+/// SwiftUI environment value letting the host inject a per-pane overlay that
+/// covers the full pane (tab bar + content). Used by c11 to render a pane-close
+/// confirmation card that explicitly spans the tab strip — the visual cue that
+/// closing the pane closes every tab inside it.
+///
+/// The builder is invoked for every visible pane on every render; return
+/// `AnyView(EmptyView())` for panes that have no overlay. The overlay sits
+/// above the tab bar, content area, and split-drop placeholder.
+private struct PaneOverlayBuilderKey: EnvironmentKey {
+    static let defaultValue: ((PaneID) -> AnyView)? = nil
+}
+
+public extension EnvironmentValues {
+    var paneOverlayBuilder: ((PaneID) -> AnyView)? {
+        get { self[PaneOverlayBuilderKey.self] }
+        set { self[PaneOverlayBuilderKey.self] = newValue }
+    }
+}
+
 /// Drop lifecycle state to prevent dropUpdated from re-setting state after performDrop
 enum PaneDropLifecycle {
     case idle
@@ -148,6 +169,7 @@ struct PaneDropInteractionContainer<Content: View, DropLayer: View>: View {
 /// Container for a single pane with its tab bar and content area
 struct PaneContainerView<Content: View, EmptyContent: View, TrailingAccessory: View>: View {
     @Environment(BonsplitController.self) private var bonsplitController
+    @Environment(\.paneOverlayBuilder) private var paneOverlayBuilder
 
     @Bindable var pane: PaneState
     @Bindable var controller: SplitViewController
@@ -184,6 +206,14 @@ struct PaneContainerView<Content: View, EmptyContent: View, TrailingAccessory: V
             contentAreaWithDropZones
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Host-injected overlay (e.g. pane-close confirmation). Applied above the
+        // VStack so it covers the tab bar AND the content together — making the
+        // scope of any pane-level action visually unambiguous.
+        .overlay {
+            if let paneOverlayBuilder {
+                paneOverlayBuilder(pane.id)
+            }
+        }
         // Clear drop state when drag ends elsewhere (cancelled, dropped in another pane, etc.)
         .onChange(of: controller.draggingTab) { _, newValue in
 #if DEBUG

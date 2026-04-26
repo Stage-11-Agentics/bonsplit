@@ -910,7 +910,12 @@ struct TabBarView<TrailingAccessory: View>: View {
     @ViewBuilder
     private var splitButtons: some View {
         let tooltips = controller.configuration.appearance.splitButtonTooltips
+        // Honour `allowCloseLastPane` so hosts can take over the only-pane
+        // case (e.g. c11 routes the click through its own confirmation +
+        // pane-reset flow). Without this, the button stays disabled when
+        // paneCount==1 and the host never gets the request.
         let canClosePane = controller.allPaneIds.count > 1
+            || controller.configuration.allowCloseLastPane
         HStack(spacing: 2) {
             // Separator between the tabs and the surface-spawn toolbar. Keeps
             // the rightmost tab's close (×) glyph from crowding into the A
