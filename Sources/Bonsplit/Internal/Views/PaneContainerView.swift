@@ -206,12 +206,21 @@ struct PaneContainerView<Content: View, EmptyContent: View, TrailingAccessory: V
             contentAreaWithDropZones
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Host-injected overlay (e.g. pane-close confirmation). Applied above the
-        // VStack so it covers the tab bar AND the content together — making the
-        // scope of any pane-level action visually unambiguous.
-        .overlay {
+        // Host-injected pane overlay. Mounted as `.background` (NOT `.overlay`)
+        // so the host's view never sits above the tab bar in SwiftUI z-order —
+        // an `.overlay` here intercepts clicks on the per-tab close (×) and
+        // pane-close (×) buttons even when the host returns a hit-test-
+        // transparent view, because the implicit overlay container layer
+        // captures pointer routing first. SwiftUI gives `.background` the
+        // same layout frame as the modified view, so a host that wants to
+        // read the pane bounds (e.g. c11's pane-close confirmation anchor)
+        // still gets the full pane geometry. Hosts that draw visible chrome
+        // here would render behind opaque pane content; the only current
+        // consumer is c11's invisible anchor view, which is fine.
+        .background {
             if let paneOverlayBuilder {
                 paneOverlayBuilder(pane.id)
+                    .allowsHitTesting(false)
             }
         }
         // Clear drop state when drag ends elsewhere (cancelled, dropped in another pane, etc.)
