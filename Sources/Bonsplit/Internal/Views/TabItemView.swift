@@ -15,15 +15,16 @@ private enum TabControlShortcutHintDebugSettings {
     }
 }
 
-/// Brief, two-pulse opacity envelope used by the per-tab flash overlay.
+/// Fade-in / hold / fade-out opacity envelope used by the per-tab flash overlay.
 ///
-/// Mirrors the host's pane flash envelope by construction so a single
-/// flash event reads as one coordinated animation across pane content,
-/// tab strip, and any host-side affordances.
+/// Total duration ~2s (0.5s fade-in, 1.0s hold, 0.5s fade-out). Long enough
+/// for the operator to glance at the workspace and locate the flashed tab
+/// without missing it; gentle on the eyes because the hold doesn't exceed
+/// peakOpacity and the entrance/exit are eased.
 enum TabFlashPattern {
-    static let values: [Double] = [0, 1, 0, 1, 0]
-    static let keyTimes: [Double] = [0, 0.25, 0.5, 0.75, 1]
-    static let duration: TimeInterval = 0.9
+    static let values: [Double] = [0, 1, 1, 0]
+    static let keyTimes: [Double] = [0, 0.25, 0.75, 1]
+    static let duration: TimeInterval = 2.0
     static let peakOpacity: Double = 0.55
 
     enum Curve {
@@ -38,7 +39,11 @@ enum TabFlashPattern {
         let curve: Curve
     }
 
-    static let curves: [Curve] = [.easeOut, .easeIn, .easeOut, .easeIn]
+    /// .easeOut on the way up, .easeIn on the way down. The middle (hold)
+    /// segment animates a no-op opacity assignment; SwiftUI sees no value
+    /// change so it doesn't render an animation, but the asyncAfter delay
+    /// preserves the timing before the fade-out fires.
+    static let curves: [Curve] = [.easeOut, .easeOut, .easeIn]
 
     static var segments: [Segment] {
         let stepCount = min(curves.count, values.count - 1, keyTimes.count - 1)
