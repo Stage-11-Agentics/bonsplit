@@ -8,6 +8,12 @@ final class PaneState: Identifiable {
     var tabs: [TabItem]
     var selectedTabId: UUID?
 
+    // Visual-only flash signal. Setting `flashTabId` and bumping `flashTabGeneration`
+    // requests a transient pulse on the named tab; observers (TabBarView) react
+    // by scrolling it into view and animating the tab. Selection is unaffected.
+    var flashTabId: UUID?
+    var flashTabGeneration: Int = 0
+
     init(
         id: PaneID = PaneID(),
         tabs: [TabItem] = [],

@@ -15,6 +15,46 @@ private enum TabControlShortcutHintDebugSettings {
     }
 }
 
+/// Brief, two-pulse opacity envelope used by the per-tab flash overlay.
+///
+/// Mirrors the host's pane flash envelope by construction so a single
+/// flash event reads as one coordinated animation across pane content,
+/// tab strip, and any host-side affordances.
+enum TabFlashPattern {
+    static let values: [Double] = [0, 1, 0, 1, 0]
+    static let keyTimes: [Double] = [0, 0.25, 0.5, 0.75, 1]
+    static let duration: TimeInterval = 0.9
+    static let peakOpacity: Double = 0.55
+
+    enum Curve {
+        case easeIn
+        case easeOut
+    }
+
+    struct Segment {
+        let delay: TimeInterval
+        let duration: TimeInterval
+        let targetOpacity: Double
+        let curve: Curve
+    }
+
+    static let curves: [Curve] = [.easeOut, .easeIn, .easeOut, .easeIn]
+
+    static var segments: [Segment] {
+        let stepCount = min(curves.count, values.count - 1, keyTimes.count - 1)
+        return (0..<stepCount).map { index in
+            let startTime = keyTimes[index]
+            let endTime = keyTimes[index + 1]
+            return Segment(
+                delay: startTime * duration,
+                duration: (endTime - startTime) * duration,
+                targetOpacity: values[index + 1] * peakOpacity,
+                curve: curves[index]
+            )
+        }
+    }
+}
+
 enum TabItemStyling {
     static func iconSaturation(hasRasterIcon: Bool, tabSaturation: Double) -> Double {
         hasRasterIcon ? 1.0 : tabSaturation
@@ -52,6 +92,10 @@ struct TabItemView: View {
     let showsControlShortcutHint: Bool
     let shortcutModifierSymbol: String
     let contextMenuState: TabContextMenuState
+    /// Monotonic flash generation for this tab. Non-zero only on the tab a
+    /// flash request is currently targeting; bumping this value plays a
+    /// single pulse on the tab. Selection is unaffected.
+    let flashGeneration: Int
     let onSelect: () -> Void
     let onClose: () -> Void
     let onZoomToggle: () -> Void
@@ -60,6 +104,8 @@ struct TabItemView: View {
     @State private var isHovered = false
     @State private var isCloseHovered = false
     @State private var isZoomHovered = false
+    @State private var flashOpacity: Double = 0
+    @State private var lastObservedFlashGeneration: Int = 0
     @State private var showGlobeFallback = true
     @State private var globeFallbackWorkItem: DispatchWorkItem?
     @State private var lastIsLoadingObserved = false
@@ -179,6 +225,21 @@ struct TabItemView: View {
         )
         .padding(.bottom, isSelected ? 1 : 0)
         .background(tabBackground.saturation(saturation))
+        .overlay {
+            // Visual-only flash layer. Tinted accent fill that reads through
+            // both selected and inactive tab backgrounds. `allowsHitTesting`
+            // is false so the pulse never intercepts clicks.
+            Rectangle()
+                .fill(TabBarColors.activeIndicator(for: appearance).opacity(flashOpacity))
+                .allowsHitTesting(false)
+        }
+        .onChange(of: flashGeneration) { _, newValue in
+            // The parent only delivers a non-zero generation to the targeted
+            // tab; siblings stay at 0 and never animate.
+            guard newValue > 0, newValue != lastObservedFlashGeneration else { return }
+            lastObservedFlashGeneration = newValue
+            runFlashAnimation(generation: newValue)
+        }
         .animation(.easeInOut(duration: 0.14), value: showsShortcutHint)
         .contentShape(Rectangle())
         // Middle click to close (macOS convention).
@@ -205,6 +266,29 @@ struct TabItemView: View {
 
     private var tabWidthRange: ClosedRange<CGFloat> {
         TabItemStyling.widthRange(for: appearance)
+    }
+
+    private func runFlashAnimation(generation: Int) {
+        // Reset to the envelope's first value so the animation starts clean
+        // even if a prior flash was mid-flight.
+        flashOpacity = TabFlashPattern.values.first ?? 0
+        for segment in TabFlashPattern.segments {
+            DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
+                // Bail if a newer flash superseded this run (the most recent
+                // generation owns the animation).
+                guard generation == lastObservedFlashGeneration else { return }
+                let animation: Animation
+                switch segment.curve {
+                case .easeIn:
+                    animation = .easeIn(duration: segment.duration)
+                case .easeOut:
+                    animation = .easeOut(duration: segment.duration)
+                }
+                withAnimation(animation) {
+                    flashOpacity = segment.targetOpacity
+                }
+            }
+        }
     }
 
     private func glyphSize(for iconName: String) -> CGFloat {

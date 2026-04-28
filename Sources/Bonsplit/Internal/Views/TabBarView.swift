@@ -547,6 +547,14 @@ struct TabBarView<TrailingAccessory: View>: View {
                     .onChange(of: pane.selectedTabId) { _, newTabId in
                         scrollToPreferredTarget(proxy, selectedTabId: newTabId)
                     }
+                    .onChange(of: pane.flashTabGeneration) { _, _ in
+                        guard let flashId = pane.flashTabId else { return }
+                        // Scroll the flashed tab into view before its pulse animation begins.
+                        // Selection is intentionally unchanged.
+                        withTransaction(Transaction(animation: nil)) {
+                            proxy.scrollTo(flashId, anchor: .center)
+                        }
+                    }
                 }
                 .frame(height: TabBarMetrics.barHeight)
                 .mask(combinedMask)
@@ -687,6 +695,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             showsControlShortcutHint: showsControlShortcutHints,
             shortcutModifierSymbol: controlKeyMonitor.shortcutModifierSymbol,
             contextMenuState: contextMenuState,
+            flashGeneration: (pane.flashTabId == tab.id) ? pane.flashTabGeneration : 0,
             onSelect: {
                 // Tab selection must be instant. Animating this transaction causes the pane
                 // content (often swapped via opacity) to crossfade, which is undesirable for

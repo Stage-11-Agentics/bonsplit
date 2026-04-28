@@ -298,6 +298,20 @@ public final class BonsplitController {
         delegate?.splitTabBar(self, didSelectTab: tab, inPane: pane.id)
     }
 
+    /// Trigger a transient visual flash on the tab matching `tabId`.
+    ///
+    /// Visual-only: does NOT change the selected tab or the focused pane.
+    /// The tab strip will scroll the matching tab into view and play a brief
+    /// pulse animation on it. Back-to-back calls cleanly restart the animation.
+    ///
+    /// No-op if `tabId` is not found.
+    /// - Parameter tabId: The tab to flash.
+    public func flashTab(_ tabId: TabID) {
+        guard let (pane, _) = findTabInternal(tabId) else { return }
+        pane.flashTabId = tabId.id
+        pane.flashTabGeneration &+= 1
+    }
+
     /// Move a tab to a specific pane (and optional index) inside this controller.
     /// - Parameters:
     ///   - tabId: The tab to move.
