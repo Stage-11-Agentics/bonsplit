@@ -178,7 +178,7 @@ extension BonsplitConfiguration {
 
         // MARK: - Tab Bar
 
-        /// Height of the tab bar
+        /// Outer tab bar shell height. Drives the OS chrome row that holds the tabs.
         public var tabBarHeight: CGFloat
 
         // MARK: - Tabs
@@ -194,6 +194,30 @@ extension BonsplitConfiguration {
 
         /// Spacing between tabs
         public var tabSpacing: CGFloat
+
+        /// Inner per-tab frame height. Distinct from `tabBarHeight` (the outer shell).
+        public var tabItemHeight: CGFloat
+
+        /// Tab leading icon point size (terminal/browser/markdown glyphs render at this size).
+        public var tabIconSize: CGFloat
+
+        /// Horizontal padding inside an individual tab.
+        public var tabHorizontalPadding: CGFloat
+
+        /// Close button glyph point size.
+        public var tabCloseIconSize: CGFloat
+
+        /// Spacing between leading icon and title inside a tab.
+        public var tabContentSpacing: CGFloat
+
+        /// Side length of the dirty-state indicator dot.
+        public var tabDirtyIndicatorSize: CGFloat
+
+        /// Side length of the notification badge dot.
+        public var tabNotificationBadgeSize: CGFloat
+
+        /// Height of the selected-tab active-state underbar.
+        public var tabActiveIndicatorHeight: CGFloat
 
         // MARK: - Split View
 
@@ -239,29 +263,43 @@ extension BonsplitConfiguration {
 
         public static let `default` = Appearance()
 
+        // c11-6 rewires `tabBarHeight` and the per-tab geometry knobs to drive
+        // the rendered shell (previously `tabBarHeight` was declared but unused;
+        // the rendered bar height came from internal TabBarMetrics constants).
+        // Presets below scale together so existing embedders remain coherent.
         public static let compact = Appearance(
-            tabBarHeight: 28,
+            tabBarHeight: 27,
             tabMinWidth: 100,
             tabMaxWidth: 160,
-            tabTitleFontSize: 11
+            tabTitleFontSize: 11,
+            tabItemHeight: 27
         )
 
         public static let spacious = Appearance(
-            tabBarHeight: 38,
+            tabBarHeight: 35,
             tabMinWidth: 160,
             tabMaxWidth: 280,
             tabTitleFontSize: 11,
-            tabSpacing: 2
+            tabSpacing: 2,
+            tabItemHeight: 35
         )
 
         // MARK: - Initializer
 
         public init(
-            tabBarHeight: CGFloat = 33,
+            tabBarHeight: CGFloat = 30,
             tabMinWidth: CGFloat = 112,
             tabMaxWidth: CGFloat = 220,
             tabTitleFontSize: CGFloat = 11,
             tabSpacing: CGFloat = 0,
+            tabItemHeight: CGFloat = 30,
+            tabIconSize: CGFloat = 14,
+            tabHorizontalPadding: CGFloat = 6,
+            tabCloseIconSize: CGFloat = 9,
+            tabContentSpacing: CGFloat = 6,
+            tabDirtyIndicatorSize: CGFloat = 8,
+            tabNotificationBadgeSize: CGFloat = 6,
+            tabActiveIndicatorHeight: CGFloat = 3,
             minimumPaneWidth: CGFloat = 100,
             minimumPaneHeight: CGFloat = 100,
             showSplitButtons: Bool = true,
@@ -279,6 +317,14 @@ extension BonsplitConfiguration {
             self.tabMaxWidth = tabMaxWidth
             self.tabTitleFontSize = tabTitleFontSize
             self.tabSpacing = tabSpacing
+            self.tabItemHeight = tabItemHeight
+            self.tabIconSize = tabIconSize
+            self.tabHorizontalPadding = tabHorizontalPadding
+            self.tabCloseIconSize = tabCloseIconSize
+            self.tabContentSpacing = tabContentSpacing
+            self.tabDirtyIndicatorSize = tabDirtyIndicatorSize
+            self.tabNotificationBadgeSize = tabNotificationBadgeSize
+            self.tabActiveIndicatorHeight = tabActiveIndicatorHeight
             self.minimumPaneWidth = minimumPaneWidth
             self.minimumPaneHeight = minimumPaneHeight
             self.showSplitButtons = showSplitButtons

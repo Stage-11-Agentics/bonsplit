@@ -6,10 +6,10 @@ struct TabDragPreview: View {
     let appearance: BonsplitConfiguration.Appearance
 
     var body: some View {
-        HStack(spacing: TabBarMetrics.contentSpacing) {
+        HStack(spacing: appearance.tabContentSpacing) {
             if let iconName = tab.icon {
                 Image(systemName: iconName)
-                    .font(.system(size: TabBarMetrics.iconSize))
+                    .font(.system(size: appearance.tabIconSize))
                     .foregroundStyle(TabBarColors.activeText(for: appearance))
             }
 
