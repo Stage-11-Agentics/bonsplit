@@ -1,6 +1,19 @@
 import SwiftUI
 import AppKit
 
+/// File-private cache for tab-color palette swatches. The Tab Color submenu
+/// renders one icon per palette entry inside a SwiftUI `Menu`, and SwiftUI
+/// re-evaluates the enclosing view body on every selection / hover / dirty /
+/// notification update. Keying the rendered NSImage by hex means each entry
+/// is drawn at most once per process — not once per re-render per tab.
+/// NSCache is thread-safe, so this is safe to share across TabItemView
+/// instances on the main thread.
+private let tabColorSwatchCache: NSCache<NSString, NSImage> = {
+    let cache = NSCache<NSString, NSImage>()
+    cache.countLimit = 64
+    return cache
+}()
+
 private enum TabControlShortcutHintDebugSettings {
     static let xKey = "shortcutHintPaneTabXOffset"
     static let yKey = "shortcutHintPaneTabYOffset"
@@ -531,7 +544,7 @@ struct TabItemView: View {
                             Text(entry.label)
                         } icon: {
                             if let nsColor = NSColor(bonsplitHex: entry.hex) {
-                                Image(nsImage: tabColorSwatchImage(for: nsColor))
+                                Image(nsImage: tabColorSwatchImage(forHex: entry.hex, nsColor: nsColor))
                             } else {
                                 Image(systemName: "circle")
                             }
@@ -546,7 +559,16 @@ struct TabItemView: View {
         Bundle.module.localizedString(forKey: key, value: value, table: nil)
     }
 
-    private func tabColorSwatchImage(for nsColor: NSColor) -> NSImage {
+    private func tabColorSwatchImage(forHex hex: String, nsColor: NSColor) -> NSImage {
+        // The SwiftUI Menu re-evaluates this view's body on selection, hover,
+        // dirty-state, and notification updates. Without caching, every
+        // re-render allocates N palette entries × NSImage(lockFocus/fill) per
+        // tab — wasteful AppKit drawing on a hot UI path. Key by hex so custom
+        // user-added palette entries are cached too. NSCache is thread-safe.
+        let key = hex as NSString
+        if let cached = tabColorSwatchCache.object(forKey: key) {
+            return cached
+        }
         let size = NSSize(width: 12, height: 12)
         let image = NSImage(size: size)
         image.lockFocus()
@@ -555,6 +577,7 @@ struct TabItemView: View {
         path.fill()
         image.unlockFocus()
         image.isTemplate = false
+        tabColorSwatchCache.setObject(image, forKey: key)
         return image
     }
 
@@ -608,7 +631,7 @@ struct TabItemView: View {
             if let accentNSColor = customAccentNSColor() {
                 Rectangle()
                     .fill(Color(nsColor: accentNSColor))
-                    .frame(height: TabBarMetrics.activeIndicatorHeight)
+                    .frame(height: appearance.tabActiveIndicatorHeight)
                     .opacity(isSelected ? 1.0 : 0.85)
             } else if isSelected {
                 Rectangle()
