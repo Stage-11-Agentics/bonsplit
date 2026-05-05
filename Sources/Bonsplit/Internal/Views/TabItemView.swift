@@ -124,8 +124,8 @@ struct TabItemView: View {
     var body: some View {
         HStack(spacing: 0) {
             // Icon + title block uses the standard spacing, but keep the close affordance tight.
-            HStack(spacing: TabBarMetrics.contentSpacing) {
-                let iconSlotSize = TabBarMetrics.iconSize
+            HStack(spacing: appearance.tabContentSpacing) {
+                let iconSlotSize = appearance.tabIconSize
                 let iconTint = isSelected
                     ? TabBarColors.activeText(for: appearance)
                     : TabBarColors.inactiveText(for: appearance)
@@ -220,13 +220,13 @@ struct TabItemView: View {
             // Close button / dirty indicator / shortcut hint share the same trailing slot.
             trailingAccessory
         }
-        .padding(.horizontal, TabBarMetrics.tabHorizontalPadding)
+        .padding(.horizontal, appearance.tabHorizontalPadding)
         .offset(y: isSelected ? 0.5 : 0)
         .frame(
             minWidth: tabWidthRange.lowerBound,
             maxWidth: tabWidthRange.upperBound,
-            minHeight: TabBarMetrics.tabHeight,
-            maxHeight: TabBarMetrics.tabHeight
+            minHeight: appearance.tabItemHeight,
+            maxHeight: appearance.tabItemHeight
         )
         .padding(.bottom, isSelected ? 1 : 0)
         .background(tabBackground.saturation(saturation))
@@ -298,11 +298,13 @@ struct TabItemView: View {
 
     private func glyphSize(for iconName: String) -> CGFloat {
         // `terminal.fill` reads visually heavier than most symbols at the same point size.
-        // Hardcode sizes to avoid cross-glyph layout shifts.
+        // The -2.5 offset preserves the cross-glyph balance that the original
+        // hard-coded sizes encoded; the appearance.tabIconSize knob makes both
+        // sides scale together when chrome scale changes.
         if iconName == "terminal.fill" || iconName == "terminal" || iconName == "globe" {
-            return max(10, TabBarMetrics.iconSize - 2.5)
+            return max(10, appearance.tabIconSize - 2.5)
         }
-        return TabBarMetrics.iconSize
+        return appearance.tabIconSize
     }
 
     private var shortcutHintLabel: String? {
@@ -327,8 +329,11 @@ struct TabItemView: View {
     }
 
     private var accessorySlotSize: CGFloat {
-        // Keep accessory affordances readable when the tab title font is increased.
-        min(TabBarMetrics.tabHeight, max(TabBarMetrics.closeButtonSize, ceil(accessoryFontSize + 4)))
+        // Outer cap is the per-tab item height (was a constant 30, capped close/zoom/shortcut at 30pt).
+        // Inner floor is "close icon + breathing room" — the +7 preserves today's
+        // 16pt slot at the 9pt default close-icon size (9+7=16, byte-exact with the
+        // old TabBarMetrics.closeButtonSize).
+        min(appearance.tabItemHeight, max(appearance.tabCloseIconSize + 7, ceil(accessoryFontSize + 4)))
     }
 
     private func shortcutHintWidth(for label: String) -> CGFloat {
@@ -549,7 +554,7 @@ struct TabItemView: View {
             if isSelected {
                 Rectangle()
                     .fill(TabBarColors.activeIndicator(for: appearance))
-                    .frame(height: TabBarMetrics.activeIndicatorHeight)
+                    .frame(height: appearance.tabActiveIndicatorHeight)
             }
 
             // Right border separator
@@ -573,12 +578,12 @@ struct TabItemView: View {
                     if tab.showsNotificationBadge {
                         Circle()
                             .fill(TabBarColors.notificationBadge(for: appearance))
-                            .frame(width: TabBarMetrics.notificationBadgeSize, height: TabBarMetrics.notificationBadgeSize)
+                            .frame(width: appearance.tabNotificationBadgeSize, height: appearance.tabNotificationBadgeSize)
                     }
                     if tab.isDirty {
                         Circle()
                             .fill(TabBarColors.dirtyIndicator(for: appearance))
-                            .frame(width: TabBarMetrics.dirtyIndicatorSize, height: TabBarMetrics.dirtyIndicatorSize)
+                            .frame(width: appearance.tabDirtyIndicatorSize, height: appearance.tabDirtyIndicatorSize)
                             .saturation(saturation)
                     }
                 }
@@ -587,7 +592,7 @@ struct TabItemView: View {
             if tab.isPinned {
                 if isSelected || isHovered || isCloseHovered || (!tab.isDirty && !tab.showsNotificationBadge) {
                     Image(systemName: "pin.fill")
-                        .font(.system(size: TabBarMetrics.closeIconSize, weight: .semibold))
+                        .font(.system(size: appearance.tabCloseIconSize, weight: .semibold))
                         .foregroundStyle(TabBarColors.inactiveText(for: appearance))
                         .frame(width: accessorySlotSize, height: accessorySlotSize)
                         .saturation(saturation)
@@ -598,7 +603,7 @@ struct TabItemView: View {
                     onClose()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: TabBarMetrics.closeIconSize, weight: .semibold))
+                        .font(.system(size: appearance.tabCloseIconSize, weight: .semibold))
                         .foregroundStyle(
                             isCloseHovered
                                 ? TabBarColors.activeText(for: appearance)

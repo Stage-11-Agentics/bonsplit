@@ -470,9 +470,9 @@ struct TabBarView<TrailingAccessory: View>: View {
             GeometryReader { containerGeo in
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: TabBarMetrics.tabSpacing) {
+                        HStack(spacing: appearance.tabSpacing) {
                             Color.clear
-                                .frame(width: 0, height: TabBarMetrics.tabHeight)
+                                .frame(width: 0, height: appearance.tabItemHeight)
                                 .id(leadingScrollAnchorId)
 
                             ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
@@ -521,7 +521,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                                 controller.requestNewTab(kind: "terminal", inPane: pane.id)
                                 return true
                             }
-                            .frame(width: trailing, height: TabBarMetrics.tabHeight)
+                            .frame(width: trailing, height: appearance.tabItemHeight)
                             .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
                                 targetIndex: pane.tabs.count,
                                 pane: pane,
@@ -556,7 +556,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                         }
                     }
                 }
-                .frame(height: TabBarMetrics.barHeight)
+                .frame(height: appearance.tabBarHeight)
                 .mask(combinedMask)
                 // Trailing chrome sits on top of the tab strip in its own opaque backdrop.
                 // The backdrop visually obscures any tabs that scroll under the chrome,
@@ -621,7 +621,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                 }
             }
         }
-        .frame(height: TabBarMetrics.barHeight)
+        .frame(height: appearance.tabBarHeight)
         .coordinateSpace(name: "tabBar")
         .background(tabBarBackground)
         .background(TabBarDragAndHoverView(
@@ -887,7 +887,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             controller.requestNewTab(kind: "terminal", inPane: pane.id)
             return true
         }
-        .frame(width: 30, height: TabBarMetrics.tabHeight)
+        .frame(width: 30, height: appearance.tabItemHeight)
         .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
             targetIndex: pane.tabs.count,
             pane: pane,
