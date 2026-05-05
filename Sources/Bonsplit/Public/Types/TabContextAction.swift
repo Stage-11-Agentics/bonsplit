@@ -18,4 +18,12 @@ public enum TabContextAction: String, CaseIterable, Sendable {
     case markAsRead
     case markAsUnread
     case toggleZoom
+    /// Clear the tab's customColorHex back to nil. Raised from the
+    /// "Tab Color" submenu when a color is currently set.
+    case clearColor
+    /// Open a host-supplied prompt for the user to enter a custom hex
+    /// color for the tab. The host typically presents an input dialog
+    /// and then calls `BonsplitController.requestSetTabColor` (or
+    /// directly mutates state) once the user commits.
+    case chooseCustomColor
 }

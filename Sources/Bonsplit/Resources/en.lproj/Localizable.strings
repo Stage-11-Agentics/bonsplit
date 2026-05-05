@@ -1,2 +1,5 @@
 "command.moveTabToLeftPane.title" = "Move to Left Pane";
 "command.moveTabToRightPane.title" = "Move to Right Pane";
+"command.tabColor.title" = "Tab Color";
+"command.tabColor.clearColor" = "Clear Color";
+"command.tabColor.chooseCustom" = "Choose Custom Color…";

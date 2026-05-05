@@ -17,6 +17,21 @@ public struct BonsplitNewTabMenuItem: Sendable, Equatable, Identifiable {
     }
 }
 
+/// A single entry in the host-supplied tab color palette. Hosts populate
+/// `BonsplitController.tabColorPalette` with these entries; selections are
+/// reported via the `didSelectTabColorPaletteEntry` delegate hook.
+public struct BonsplitTabColorMenuItem: Sendable, Equatable, Identifiable {
+    public let id: String
+    public let label: String
+    public let hex: String
+
+    public init(id: String, label: String, hex: String) {
+        self.id = id
+        self.label = label
+        self.hex = hex
+    }
+}
+
 /// Protocol for receiving callbacks about tab bar events
 public protocol BonsplitDelegate: AnyObject {
     // MARK: - Tab Lifecycle (Veto Operations)
@@ -91,6 +106,11 @@ public protocol BonsplitDelegate: AnyObject {
     /// Called when the user triggers an action from a tab's context menu.
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Tab, inPane pane: PaneID)
 
+    /// Called when the user picks an entry from the host-supplied tab color
+    /// palette in a tab's context menu. The `hex` string is the entry's
+    /// `BonsplitTabColorMenuItem.hex` value, passed through verbatim.
+    func splitTabBar(_ controller: BonsplitController, didSelectTabColorPaletteEntry hex: String, for tab: Tab, inPane pane: PaneID)
+
     // MARK: - Geometry
 
     /// Called when any pane geometry changes (resize, split, close)
@@ -119,6 +139,7 @@ public extension BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, menuItemsForNewTabKind kind: String, inPane pane: PaneID) -> [BonsplitNewTabMenuItem] { [] }
     func splitTabBar(_ controller: BonsplitController, didSelectNewTabMenuItem itemId: String, forKind kind: String, inPane pane: PaneID) {}
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Tab, inPane pane: PaneID) {}
+    func splitTabBar(_ controller: BonsplitController, didSelectTabColorPaletteEntry hex: String, for tab: Tab, inPane pane: PaneID) {}
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {}
     func splitTabBar(_ controller: BonsplitController, shouldNotifyDuringDrag: Bool) -> Bool { false }
 }

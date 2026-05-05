@@ -285,6 +285,7 @@ struct TabContextMenuState {
     let isBrowser: Bool
     let isTerminal: Bool
     let hasCustomTitle: Bool
+    let hasCustomColor: Bool
     let canCloseToLeft: Bool
     let canCloseToRight: Bool
     let canCloseOthers: Bool
@@ -293,6 +294,7 @@ struct TabContextMenuState {
     let isZoomed: Bool
     let hasSplits: Bool
     let shortcuts: [TabContextAction: KeyboardShortcut]
+    let tabColorPalette: [BonsplitTabColorMenuItem]
 
     var canMarkAsUnread: Bool {
         !isUnread
@@ -724,6 +726,9 @@ struct TabBarView<TrailingAccessory: View>: View {
             },
             onContextAction: { action in
                 controller.requestTabContextAction(action, for: TabID(id: tab.id), inPane: pane.id)
+            },
+            onSetTabColor: { hex in
+                controller.requestSetTabColor(hex: hex, for: TabID(id: tab.id), inPane: pane.id)
             }
         )
         .background(
@@ -775,6 +780,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             isBrowser: tab.kind == "browser",
             isTerminal: tab.kind == "terminal",
             hasCustomTitle: tab.hasCustomTitle,
+            hasCustomColor: tab.customColorHex != nil,
             canCloseToLeft: canCloseToLeft,
             canCloseToRight: canCloseToRight,
             canCloseOthers: canCloseOthers,
@@ -782,7 +788,8 @@ struct TabBarView<TrailingAccessory: View>: View {
             canMoveToRightPane: controller.adjacentPane(to: pane.id, direction: .right) != nil,
             isZoomed: splitViewController.zoomedPaneId == pane.id,
             hasSplits: splitViewController.rootNode.allPaneIds.count > 1,
-            shortcuts: controller.contextMenuShortcuts
+            shortcuts: controller.contextMenuShortcuts,
+            tabColorPalette: controller.tabColorPalette
         )
     }
 

@@ -105,6 +105,7 @@ struct TabItemView: View {
     let onClose: () -> Void
     let onZoomToggle: () -> Void
     let onContextAction: (TabContextAction) -> Void
+    let onSetTabColor: (String) -> Void
 
     @State private var isHovered = false
     @State private var isCloseHovered = false
@@ -501,6 +502,55 @@ struct TabItemView: View {
             contextButton("Mark Tab as Unread", action: .markAsUnread)
                 .disabled(!contextMenuState.canMarkAsUnread)
         }
+
+        Divider()
+
+        Menu(localizedString("command.tabColor.title", default: "Tab Color")) {
+            if contextMenuState.hasCustomColor {
+                Button(localizedString("command.tabColor.clearColor", default: "Clear Color")) {
+                    onContextAction(.clearColor)
+                }
+            }
+
+            Button(localizedString("command.tabColor.chooseCustom", default: "Choose Custom Color…")) {
+                onContextAction(.chooseCustomColor)
+            }
+
+            if !contextMenuState.tabColorPalette.isEmpty {
+                Divider()
+                ForEach(contextMenuState.tabColorPalette) { entry in
+                    Button {
+                        onSetTabColor(entry.hex)
+                    } label: {
+                        Label {
+                            Text(entry.label)
+                        } icon: {
+                            if let nsColor = NSColor(bonsplitHex: entry.hex) {
+                                Image(nsImage: tabColorSwatchImage(for: nsColor))
+                            } else {
+                                Image(systemName: "circle")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func localizedString(_ key: String, default value: String) -> String {
+        Bundle.module.localizedString(forKey: key, value: value, table: nil)
+    }
+
+    private func tabColorSwatchImage(for nsColor: NSColor) -> NSImage {
+        let size = NSSize(width: 12, height: 12)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        nsColor.setFill()
+        let path = NSBezierPath(ovalIn: NSRect(origin: .zero, size: size))
+        path.fill()
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
     }
 
     @ViewBuilder

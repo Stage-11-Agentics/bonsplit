@@ -189,6 +189,14 @@ public final class BonsplitController {
         delegate?.splitTabBar(self, didRequestTabContextAction: action, for: tab, inPane: pane)
     }
 
+    /// Notify the delegate that the user picked a palette entry from the
+    /// tab's "Tab Color" submenu. The host applies the color (typically by
+    /// mutating its own panel-state and calling `updateTab(customColorHex:)`).
+    public func requestSetTabColor(hex: String, for tabId: TabID, inPane pane: PaneID) {
+        guard let tab = tab(tabId) else { return }
+        delegate?.splitTabBar(self, didSelectTabColorPaletteEntry: hex, for: tab, inPane: pane)
+    }
+
     /// Update an existing tab's metadata
     /// - Parameters:
     ///   - tabId: The tab to update
@@ -655,6 +663,14 @@ public final class BonsplitController {
     /// Keyboard shortcuts to display in tab context menus, keyed by context action.
     /// Set by the host app to sync with its customizable keyboard shortcut settings.
     public var contextMenuShortcuts: [TabContextAction: KeyboardShortcut] = [:]
+
+    // MARK: - Tab Color Palette
+
+    /// Host-supplied palette shown inside the tab context menu's "Tab Color"
+    /// submenu. Empty = no palette section (the submenu still surfaces
+    /// "Choose Custom Color…" / "Clear Color"). Hosts assign this once and
+    /// update it when their underlying palette changes.
+    public var tabColorPalette: [BonsplitTabColorMenuItem] = []
 
     // MARK: - Query Methods
 
