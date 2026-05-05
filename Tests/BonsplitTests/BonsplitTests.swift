@@ -138,6 +138,95 @@ final class BonsplitTests: XCTestCase {
     }
 
     @MainActor
+    func testCreateTabWithCustomColorHexExposesValueToConsumer() {
+        let controller = BonsplitController()
+        let tabId = controller.createTab(
+            title: "Colored",
+            icon: "doc",
+            customColorHex: "#C0392B"
+        )!
+
+        XCTAssertEqual(controller.tab(tabId)?.customColorHex, "#C0392B")
+    }
+
+    @MainActor
+    func testCreateTabWithoutCustomColorHexDefaultsToNil() {
+        let controller = BonsplitController()
+        let tabId = controller.createTab(title: "Plain", icon: "doc")!
+
+        XCTAssertNil(controller.tab(tabId)?.customColorHex)
+    }
+
+    @MainActor
+    func testUpdateTabCustomColorHexKeepSetClearSemantics() {
+        let controller = BonsplitController()
+        let tabId = controller.createTab(title: "T", icon: "doc")!
+
+        controller.updateTab(tabId, customColorHex: .some("#196F3D"))
+        XCTAssertEqual(controller.tab(tabId)?.customColorHex, "#196F3D")
+
+        // Default nil = "keep current" — must not clobber.
+        controller.updateTab(tabId, title: "T2")
+        XCTAssertEqual(controller.tab(tabId)?.customColorHex, "#196F3D")
+
+        // .some(nil) clears.
+        controller.updateTab(tabId, customColorHex: .some(nil))
+        XCTAssertNil(controller.tab(tabId)?.customColorHex)
+    }
+
+    func testTabItemCodableRoundTripPreservesCustomColorHex() throws {
+        let original = TabItem(
+            id: UUID(),
+            title: "Round trip",
+            customColorHex: "#7B3F00"
+        )
+        let encoded = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(TabItem.self, from: encoded)
+        XCTAssertEqual(decoded.customColorHex, "#7B3F00")
+        XCTAssertEqual(decoded.id, original.id)
+        XCTAssertEqual(decoded.title, original.title)
+    }
+
+    func testTabItemCodableEncodesCustomColorHexOnlyWhenPresent() throws {
+        let withColor = TabItem(id: UUID(), title: "A", customColorHex: "#283593")
+        let withoutColor = TabItem(id: UUID(), title: "B")
+
+        let encodedWith = try JSONEncoder().encode(withColor)
+        let encodedWithout = try JSONEncoder().encode(withoutColor)
+
+        let jsonWith = try XCTUnwrap(String(data: encodedWith, encoding: .utf8))
+        let jsonWithout = try XCTUnwrap(String(data: encodedWithout, encoding: .utf8))
+
+        XCTAssertTrue(jsonWith.contains("\"customColorHex\""))
+        XCTAssertFalse(
+            jsonWithout.contains("\"customColorHex\""),
+            "Nil customColorHex must be omitted from JSON to keep payloads small and backwards-compatible"
+        )
+    }
+
+    func testTabItemCodableDecodesLegacyJSONWithoutCustomColorHex() throws {
+        // Hand-rolled legacy payload — no customColorHex field. Must decode
+        // with customColorHex == nil (decodeIfPresent default).
+        let id = UUID()
+        let legacyJSON = """
+        {
+          "id": "\(id.uuidString)",
+          "title": "Legacy",
+          "hasCustomTitle": false,
+          "isDirty": false,
+          "showsNotificationBadge": false,
+          "isLoading": false,
+          "isPinned": false
+        }
+        """
+        let data = try XCTUnwrap(legacyJSON.data(using: .utf8))
+        let decoded = try JSONDecoder().decode(TabItem.self, from: data)
+        XCTAssertEqual(decoded.id, id)
+        XCTAssertEqual(decoded.title, "Legacy")
+        XCTAssertNil(decoded.customColorHex)
+    }
+
+    @MainActor
     func testTabClose() {
         let controller = BonsplitController()
         let tabId = controller.createTab(title: "Test Tab", icon: "doc")!
