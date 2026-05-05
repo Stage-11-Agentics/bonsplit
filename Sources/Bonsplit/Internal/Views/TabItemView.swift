@@ -545,8 +545,17 @@ struct TabItemView: View {
                 Color.clear
             }
 
-            // Top accent indicator for selected tab
-            if isSelected {
+            // Top accent indicator. Selected tabs always render a rail; if
+            // the tab carries a customColorHex it overrides the default
+            // `activeIndicator` color. Unselected tabs render a rail only
+            // when a customColorHex is set, so the accent acts as a calm
+            // identity marker without dominating chrome.
+            if let accentNSColor = customAccentNSColor() {
+                Rectangle()
+                    .fill(Color(nsColor: accentNSColor))
+                    .frame(height: TabBarMetrics.activeIndicatorHeight)
+                    .opacity(isSelected ? 1.0 : 0.85)
+            } else if isSelected {
                 Rectangle()
                     .fill(TabBarColors.activeIndicator(for: appearance))
                     .frame(height: TabBarMetrics.activeIndicatorHeight)
@@ -560,6 +569,11 @@ struct TabItemView: View {
                     .frame(width: 1)
             }
         }
+    }
+
+    private func customAccentNSColor() -> NSColor? {
+        guard let hex = tab.customColorHex else { return nil }
+        return NSColor(bonsplitHex: hex)
     }
 
     // MARK: - Close Button / Dirty Indicator
