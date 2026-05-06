@@ -1033,7 +1033,7 @@ struct TabBarView<TrailingAccessory: View>: View {
     private var splitButtonsGroupSeparator: some View {
         Rectangle()
             .fill(TabBarColors.separator(for: appearance))
-            .frame(width: 1, height: 18)
+            .frame(width: 1, height: appearance.splitToolbarSeparatorHeight)
             .padding(.horizontal, 8)
     }
 
@@ -1242,13 +1242,14 @@ private struct SplitToolbarButton: View {
             Group {
                 if let labelText {
                     Text(labelText)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: appearance.splitToolbarButtonIconSize, weight: .semibold))
                 } else {
                     Image(systemName: systemImage)
-                        .font(.system(size: 12))
+                        .font(.system(size: appearance.splitToolbarButtonIconSize))
                 }
             }
-            .frame(width: 22, height: 22)
+            .frame(width: appearance.splitToolbarButtonFrameSize,
+                   height: appearance.splitToolbarButtonFrameSize)
             .background(
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color.primary.opacity(isHovered && isEnabled ? 0.09 : 0))

@@ -219,6 +219,22 @@ extension BonsplitConfiguration {
         /// Height of the selected-tab active-state underbar.
         public var tabActiveIndicatorHeight: CGFloat
 
+        // MARK: - Split toolbar (trailing-edge new-tab + split + close buttons)
+
+        /// SF Symbol point size used inside each `SplitToolbarButton`. Drives
+        /// the agent (A), terminal, browser (globe), markdown (doc.text),
+        /// horizontal split, vertical split, plus, and close glyphs in the
+        /// trailing-edge toolbar of the tab bar.
+        public var splitToolbarButtonIconSize: CGFloat
+
+        /// Square frame side length of each `SplitToolbarButton`. The hover
+        /// background and click target both follow this.
+        public var splitToolbarButtonFrameSize: CGFloat
+
+        /// Vertical height of the thin separator between toolbar groups
+        /// (between tabs↔new-surface, and between new-surface↔split-actions).
+        public var splitToolbarSeparatorHeight: CGFloat
+
         // MARK: - Split View
 
         /// Minimum width of a pane
@@ -300,6 +316,9 @@ extension BonsplitConfiguration {
             tabDirtyIndicatorSize: CGFloat = 8,
             tabNotificationBadgeSize: CGFloat = 6,
             tabActiveIndicatorHeight: CGFloat = 3,
+            splitToolbarButtonIconSize: CGFloat = 12,
+            splitToolbarButtonFrameSize: CGFloat = 22,
+            splitToolbarSeparatorHeight: CGFloat = 18,
             minimumPaneWidth: CGFloat = 100,
             minimumPaneHeight: CGFloat = 100,
             showSplitButtons: Bool = true,
@@ -325,6 +344,9 @@ extension BonsplitConfiguration {
             self.tabDirtyIndicatorSize = tabDirtyIndicatorSize
             self.tabNotificationBadgeSize = tabNotificationBadgeSize
             self.tabActiveIndicatorHeight = tabActiveIndicatorHeight
+            self.splitToolbarButtonIconSize = splitToolbarButtonIconSize
+            self.splitToolbarButtonFrameSize = splitToolbarButtonFrameSize
+            self.splitToolbarSeparatorHeight = splitToolbarSeparatorHeight
             self.minimumPaneWidth = minimumPaneWidth
             self.minimumPaneHeight = minimumPaneHeight
             self.showSplitButtons = showSplitButtons
