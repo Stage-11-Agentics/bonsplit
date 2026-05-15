@@ -1,3 +1,5 @@
+"command.closeTab.title" = "Закрити вкладку";
+"command.closePane.title" = "Закрити панель";
 "command.tabColor.title" = "Колір вкладки";
 "command.tabColor.clearColor" = "Очистити колір";
 "command.tabColor.chooseCustom" = "Вибрати власний колір…";

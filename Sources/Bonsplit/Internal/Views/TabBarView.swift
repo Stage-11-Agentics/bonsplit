@@ -697,6 +697,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             showsControlShortcutHint: showsControlShortcutHints,
             shortcutModifierSymbol: controlKeyMonitor.shortcutModifierSymbol,
             contextMenuState: contextMenuState,
+            useSimplifiedTabUX: controller.configuration.simplifiedTabContextMenu,
             flashGeneration: (pane.flashTabId == tab.id) ? pane.flashTabGeneration : 0,
             onSelect: {
                 // Tab selection must be instant. Animating this transaction causes the pane

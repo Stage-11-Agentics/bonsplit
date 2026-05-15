@@ -4,6 +4,13 @@ import Foundation
 public enum TabContextAction: String, CaseIterable, Sendable {
     case rename
     case clearName
+    /// Close just this tab. Equivalent to the close-X button on the tab,
+    /// surfaced as a menu entry so right-click drives it without aiming
+    /// at the X target.
+    case closeTab
+    /// Close the entire pane that contains this tab. Equivalent to the
+    /// pane-close button in the tab bar's trailing toolbar.
+    case closePane
     case closeToLeft
     case closeToRight
     case closeOthers

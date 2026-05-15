@@ -1,3 +1,5 @@
+"command.closeTab.title" = "Close Tab";
+"command.closePane.title" = "Close Pane";
 "command.moveTabToLeftPane.title" = "Move to Left Pane";
 "command.moveTabToRightPane.title" = "Move to Right Pane";
 "command.tabColor.title" = "Tab Color";

@@ -1,3 +1,5 @@
+"command.closeTab.title" = "탭 닫기";
+"command.closePane.title" = "페인 닫기";
 "command.tabColor.title" = "탭 색상";
 "command.tabColor.clearColor" = "색상 지우기";
 "command.tabColor.chooseCustom" = "사용자 지정 색상 선택…";

@@ -1,3 +1,5 @@
+"command.closeTab.title" = "關閉標籤頁";
+"command.closePane.title" = "關閉窗格";
 "command.tabColor.title" = "標籤頁顏色";
 "command.tabColor.clearColor" = "清除顏色";
 "command.tabColor.chooseCustom" = "選擇自訂顏色…";

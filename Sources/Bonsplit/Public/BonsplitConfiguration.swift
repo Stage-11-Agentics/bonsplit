@@ -53,6 +53,13 @@ public struct BonsplitConfiguration: Sendable {
     /// Controls where new tabs are inserted in the tab list
     public var newTabPosition: NewTabPosition
 
+    /// When true, the right-click context menu on a tab is collapsed to a
+    /// minimal two-item set: Close Tab and Close Pane. Hosts that want the
+    /// full menu (rename, close-others, move, pin, color, …) leave this off.
+    /// The reduced menu trades feature breadth for clarity and aims to keep
+    /// the close gestures aligned with the always-visible left-anchored X.
+    public var simplifiedTabContextMenu: Bool
+
     // MARK: - Appearance
 
     /// Tab bar appearance customization
@@ -85,6 +92,7 @@ public struct BonsplitConfiguration: Sendable {
         autoCloseEmptyPanes: Bool = true,
         contentViewLifecycle: ContentViewLifecycle = .recreateOnSwitch,
         newTabPosition: NewTabPosition = .current,
+        simplifiedTabContextMenu: Bool = false,
         appearance: Appearance = .default
     ) {
         self.allowSplits = allowSplits
@@ -95,6 +103,7 @@ public struct BonsplitConfiguration: Sendable {
         self.autoCloseEmptyPanes = autoCloseEmptyPanes
         self.contentViewLifecycle = contentViewLifecycle
         self.newTabPosition = newTabPosition
+        self.simplifiedTabContextMenu = simplifiedTabContextMenu
         self.appearance = appearance
     }
 }

@@ -110,6 +110,11 @@ struct TabItemView: View {
     let showsControlShortcutHint: Bool
     let shortcutModifierSymbol: String
     let contextMenuState: TabContextMenuState
+    /// Render the always-visible close X on the leading edge of the tab,
+    /// and collapse the right-click menu to Close Tab / Close Pane.
+    /// Hosts that want the legacy hover-trailing X + full menu leave this
+    /// off (default behaviour for new embedders).
+    let useSimplifiedTabUX: Bool
     /// Monotonic flash generation for this tab. Non-zero only on the tab a
     /// flash request is currently targeting; bumping this value plays a
     /// single pulse on the tab. Selection is unaffected.
@@ -137,6 +142,13 @@ struct TabItemView: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            // C11-26: when simplified UX is on, anchor the close X on the
+            // left edge of the tab so it's never eaten by an adjacent pane
+            // separator and never scrolls off-screen with long titles. The
+            // legacy trailing close (hover-only) is suppressed below.
+            if useSimplifiedTabUX {
+                leadingCloseAccessory
+            }
             // Icon + title block uses the standard spacing, but keep the close affordance tight.
             HStack(spacing: appearance.tabContentSpacing) {
                 let iconSlotSize = appearance.tabIconSize
@@ -192,6 +204,7 @@ struct TabItemView: View {
                 Text(tab.title)
                     .font(.system(size: appearance.tabTitleFontSize, weight: isSelected ? .semibold : .regular))
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .foregroundStyle(
                         isSelected
                             ? TabBarColors.activeText(for: appearance)
@@ -356,6 +369,46 @@ struct TabItemView: View {
         return ceil(textWidth) + 8
     }
 
+    /// C11-26: left-anchored, always-visible close button. Rendered only
+    /// when `useSimplifiedTabUX` is true. Pinned and non-closeable tabs
+    /// render an empty frame so the title block stays aligned across tabs.
+    @ViewBuilder
+    private var leadingCloseAccessory: some View {
+        let canClose = !tab.isPinned
+        ZStack {
+            if canClose {
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: appearance.tabCloseIconSize, weight: .semibold))
+                        .foregroundStyle(
+                            isCloseHovered
+                                ? TabBarColors.activeText(for: appearance)
+                                : TabBarColors.inactiveText(for: appearance).opacity(0.65)
+                        )
+                        .frame(width: accessorySlotSize, height: accessorySlotSize)
+                        .background(
+                            Circle()
+                                .fill(
+                                    isCloseHovered
+                                        ? TabBarColors.hoveredTabBackground(for: appearance)
+                                        : .clear
+                                )
+                        )
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    isCloseHovered = hovering
+                }
+                .saturation(saturation)
+                .accessibilityLabel("Close Tab")
+            }
+        }
+        .frame(width: accessorySlotSize, height: accessorySlotSize)
+        .animation(.easeInOut(duration: TabBarMetrics.hoverDuration), value: isCloseHovered)
+    }
+
     @ViewBuilder
     private var trailingAccessory: some View {
         ZStack(alignment: .center) {
@@ -450,6 +503,31 @@ struct TabItemView: View {
 
     @ViewBuilder
     private var contextMenuContent: some View {
+        if useSimplifiedTabUX {
+            simplifiedContextMenuContent
+        } else {
+            legacyContextMenuContent
+        }
+    }
+
+    /// C11-26: minimal right-click menu — Close Tab + Close Pane. The
+    /// reduced surface trades feature breadth for clarity; rename, pin,
+    /// reorder, etc. are still reachable through the command palette,
+    /// keyboard, or direct gestures.
+    @ViewBuilder
+    private var simplifiedContextMenuContent: some View {
+        contextButton(
+            localizedString("command.closeTab.title", default: "Close Tab"),
+            action: .closeTab
+        )
+        contextButton(
+            localizedString("command.closePane.title", default: "Close Pane"),
+            action: .closePane
+        )
+    }
+
+    @ViewBuilder
+    private var legacyContextMenuContent: some View {
         contextButton("Rename Tab…", action: .rename)
 
         if contextMenuState.hasCustomTitle {
@@ -684,8 +762,10 @@ struct TabItemView: View {
                         .frame(width: accessorySlotSize, height: accessorySlotSize)
                         .saturation(saturation)
                 }
-            } else if isSelected || isHovered || isCloseHovered {
-                // Close button (always visible on active tab, shown on hover for others)
+            } else if !useSimplifiedTabUX && (isSelected || isHovered || isCloseHovered) {
+                // Close button (always visible on active tab, shown on hover for others).
+                // C11-26: the simplified UX renders the close X in the leading
+                // slot (always-visible, hit-collision-safe). Don't double up.
                 Button {
                     onClose()
                 } label: {
