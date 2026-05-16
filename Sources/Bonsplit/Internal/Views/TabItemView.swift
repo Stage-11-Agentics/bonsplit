@@ -141,7 +141,7 @@ struct TabItemView: View {
     @AppStorage(TabControlShortcutHintDebugSettings.alwaysShowKey) private var alwaysShowShortcutHints = TabControlShortcutHintDebugSettings.defaultAlwaysShow
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: useSimplifiedTabUX ? appearance.tabContentSpacing : 0) {
             // C11-26: when simplified UX is on, anchor the close X on the
             // left edge of the tab so it's never eaten by an adjacent pane
             // separator and never scrolls off-screen with long titles. The
@@ -157,49 +157,56 @@ struct TabItemView: View {
                     : TabBarColors.inactiveText(for: appearance)
                 let faviconImage = renderedFaviconImage ?? tab.iconImageData.flatMap { NSImage(data: $0) }
 
-                Group {
-                    if tab.isLoading {
-                        // Slightly smaller than the icon slot so it reads cleaner at tab scale.
-                        TabLoadingSpinner(size: iconSlotSize * 0.86, color: iconTint)
-                    } else if let image = faviconImage {
-                        FaviconIconView(image: image)
-                            .frame(width: iconSlotSize, height: iconSlotSize, alignment: .center)
-                            .clipped()
-                    } else if let iconName = tab.icon {
-                        if iconName == "globe", !showGlobeFallback {
-                            // Avoid a distracting "globe -> favicon" flash: show a neutral placeholder
-                            // briefly while the favicon fetch finishes. If no favicon arrives, we
-                            // reveal the globe after a short delay.
-                            RoundedRectangle(cornerRadius: 3)
-                                .stroke(iconTint.opacity(0.25), lineWidth: 1)
-                        } else {
-                            Image(systemName: iconName)
-                                .font(.system(size: glyphSize(for: iconName)))
-                                .foregroundStyle(iconTint)
+                // C11-26: the simplified UX drops the per-tab leading icon
+                // (terminal/markdown/browser glyph and favicons) and gives
+                // that space to a bigger close X. Operators reported the
+                // per-surface-type glyph wasn't a useful identifier; the
+                // title is what they read.
+                if !useSimplifiedTabUX {
+                    Group {
+                        if tab.isLoading {
+                            // Slightly smaller than the icon slot so it reads cleaner at tab scale.
+                            TabLoadingSpinner(size: iconSlotSize * 0.86, color: iconTint)
+                        } else if let image = faviconImage {
+                            FaviconIconView(image: image)
+                                .frame(width: iconSlotSize, height: iconSlotSize, alignment: .center)
+                                .clipped()
+                        } else if let iconName = tab.icon {
+                            if iconName == "globe", !showGlobeFallback {
+                                // Avoid a distracting "globe -> favicon" flash: show a neutral placeholder
+                                // briefly while the favicon fetch finishes. If no favicon arrives, we
+                                // reveal the globe after a short delay.
+                                RoundedRectangle(cornerRadius: 3)
+                                    .stroke(iconTint.opacity(0.25), lineWidth: 1)
+                            } else {
+                                Image(systemName: iconName)
+                                    .font(.system(size: glyphSize(for: iconName)))
+                                    .foregroundStyle(iconTint)
+                            }
                         }
                     }
+                    // Keep downloaded favicon bitmaps in full color even for inactive tab bars.
+                    .saturation(TabItemStyling.iconSaturation(hasRasterIcon: faviconImage != nil, tabSaturation: saturation))
+                    .transaction { tx in
+                        // Prevent incidental parent animations from briefly fading icon content.
+                        tx.animation = nil
+                    }
+                    .frame(width: iconSlotSize, height: iconSlotSize, alignment: .center)
+                    .onAppear {
+                        updateRenderedFaviconImage()
+                        updateGlobeFallback()
+                    }
+                    .onDisappear {
+                        globeFallbackWorkItem?.cancel()
+                        globeFallbackWorkItem = nil
+                    }
+                    .onChange(of: tab.isLoading) { _ in updateGlobeFallback() }
+                    .onChange(of: tab.iconImageData) { _ in
+                        updateRenderedFaviconImage()
+                        updateGlobeFallback()
+                    }
+                    .onChange(of: tab.icon) { _ in updateGlobeFallback() }
                 }
-                // Keep downloaded favicon bitmaps in full color even for inactive tab bars.
-                .saturation(TabItemStyling.iconSaturation(hasRasterIcon: faviconImage != nil, tabSaturation: saturation))
-                .transaction { tx in
-                    // Prevent incidental parent animations from briefly fading icon content.
-                    tx.animation = nil
-                }
-                .frame(width: iconSlotSize, height: iconSlotSize, alignment: .center)
-                .onAppear {
-                    updateRenderedFaviconImage()
-                    updateGlobeFallback()
-                }
-                .onDisappear {
-                    globeFallbackWorkItem?.cancel()
-                    globeFallbackWorkItem = nil
-                }
-                .onChange(of: tab.isLoading) { _ in updateGlobeFallback() }
-                .onChange(of: tab.iconImageData) { _ in
-                    updateRenderedFaviconImage()
-                    updateGlobeFallback()
-                }
-                .onChange(of: tab.icon) { _ in updateGlobeFallback() }
 
                 Text(tab.title)
                     .font(.system(size: appearance.tabTitleFontSize, weight: isSelected ? .semibold : .regular))
@@ -372,22 +379,28 @@ struct TabItemView: View {
     /// C11-26: left-anchored, always-visible close button. Rendered only
     /// when `useSimplifiedTabUX` is true. Pinned and non-closeable tabs
     /// render an empty frame so the title block stays aligned across tabs.
+    /// Sized to fill the visual space the per-tab icon used to occupy
+    /// (which simplified mode also drops) — glyph at `tabIconSize`, slot
+    /// at `tabIconSize + 8` for breathing room. Roughly matches Finder /
+    /// Safari's hit target rather than the legacy 9pt trailing X.
     @ViewBuilder
     private var leadingCloseAccessory: some View {
         let canClose = !tab.isPinned
+        let glyphSize = appearance.tabIconSize
+        let slotSize = max(appearance.tabItemHeight - 6, glyphSize + 8)
         ZStack {
             if canClose {
                 Button {
                     onClose()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: appearance.tabCloseIconSize, weight: .semibold))
+                        .font(.system(size: glyphSize, weight: .semibold))
                         .foregroundStyle(
                             isCloseHovered
                                 ? TabBarColors.activeText(for: appearance)
-                                : TabBarColors.inactiveText(for: appearance).opacity(0.65)
+                                : TabBarColors.inactiveText(for: appearance).opacity(0.7)
                         )
-                        .frame(width: accessorySlotSize, height: accessorySlotSize)
+                        .frame(width: slotSize, height: slotSize)
                         .background(
                             Circle()
                                 .fill(
@@ -405,7 +418,7 @@ struct TabItemView: View {
                 .accessibilityLabel("Close Tab")
             }
         }
-        .frame(width: accessorySlotSize, height: accessorySlotSize)
+        .frame(width: slotSize, height: slotSize)
         .animation(.easeInOut(duration: TabBarMetrics.hoverDuration), value: isCloseHovered)
     }
 
