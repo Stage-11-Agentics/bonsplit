@@ -60,6 +60,16 @@ public struct BonsplitConfiguration: Sendable {
     /// the close gestures aligned with the always-visible left-anchored X.
     public var simplifiedTabContextMenu: Bool
 
+    /// Whether the Browser (globe) surface-spawn button is shown in each pane's
+    /// trailing tab-bar toolbar. Hosts that don't support — or have disabled —
+    /// browser surfaces set this false to remove the affordance entirely.
+    public var showsBrowserSpawnButton: Bool
+
+    /// Whether the Markdown (doc.text) surface-spawn button is shown in each
+    /// pane's trailing tab-bar toolbar. Hosts that don't support — or have
+    /// disabled — markdown surfaces set this false to remove the affordance.
+    public var showsMarkdownSpawnButton: Bool
+
     // MARK: - Appearance
 
     /// Tab bar appearance customization
@@ -93,6 +103,8 @@ public struct BonsplitConfiguration: Sendable {
         contentViewLifecycle: ContentViewLifecycle = .recreateOnSwitch,
         newTabPosition: NewTabPosition = .current,
         simplifiedTabContextMenu: Bool = false,
+        showsBrowserSpawnButton: Bool = true,
+        showsMarkdownSpawnButton: Bool = true,
         appearance: Appearance = .default
     ) {
         self.allowSplits = allowSplits
@@ -104,6 +116,8 @@ public struct BonsplitConfiguration: Sendable {
         self.contentViewLifecycle = contentViewLifecycle
         self.newTabPosition = newTabPosition
         self.simplifiedTabContextMenu = simplifiedTabContextMenu
+        self.showsBrowserSpawnButton = showsBrowserSpawnButton
+        self.showsMarkdownSpawnButton = showsMarkdownSpawnButton
         self.appearance = appearance
     }
 }

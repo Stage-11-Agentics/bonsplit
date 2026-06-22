@@ -973,20 +973,24 @@ struct TabBarView<TrailingAccessory: View>: View {
                 controller.requestNewTab(kind: "terminal", inPane: pane.id)
             }
 
-            SplitToolbarButton(
-                systemImage: "globe",
-                tooltip: tooltips.newBrowser,
-                appearance: appearance
-            ) {
-                controller.requestNewTab(kind: "browser", inPane: pane.id)
+            if controller.configuration.showsBrowserSpawnButton {
+                SplitToolbarButton(
+                    systemImage: "globe",
+                    tooltip: tooltips.newBrowser,
+                    appearance: appearance
+                ) {
+                    controller.requestNewTab(kind: "browser", inPane: pane.id)
+                }
             }
 
-            SplitToolbarButton(
-                systemImage: "doc.text",
-                tooltip: tooltips.newMarkdown,
-                appearance: appearance
-            ) {
-                controller.requestNewTab(kind: "markdown", inPane: pane.id)
+            if controller.configuration.showsMarkdownSpawnButton {
+                SplitToolbarButton(
+                    systemImage: "doc.text",
+                    tooltip: tooltips.newMarkdown,
+                    appearance: appearance
+                ) {
+                    controller.requestNewTab(kind: "markdown", inPane: pane.id)
+                }
             }
 
             splitButtonsGroupSeparator
