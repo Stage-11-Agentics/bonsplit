@@ -33,4 +33,13 @@ public enum TabContextAction: String, CaseIterable, Sendable {
     /// and then calls `BonsplitController.requestSetTabColor` (or
     /// directly mutates state) once the user commits.
     case chooseCustomColor
+    /// Show host-supplied details about the surface backing this tab
+    /// (identifiers, metadata, etc.). The host decides how to present it.
+    /// c11-specific: surfaces the `surface:N` / `tab:N` handles and the
+    /// surface metadata manifest.
+    case surfaceDetails
+    /// Copy the tab's stable surface handle (e.g. `surface:75`) to the
+    /// clipboard. The host performs the copy and any confirmation feedback.
+    /// c11-specific.
+    case copySurfaceRef
 }

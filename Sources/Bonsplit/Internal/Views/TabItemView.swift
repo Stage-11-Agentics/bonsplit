@@ -530,6 +530,17 @@ struct TabItemView: View {
     @ViewBuilder
     private var simplifiedContextMenuContent: some View {
         contextButton(
+            localizedString("command.surfaceDetails.title", default: "Surface Details"),
+            action: .surfaceDetails
+        )
+        if let surfaceRef = contextMenuState.surfaceRef {
+            contextButton(
+                "\(localizedString("command.copySurfaceRef.prefix", default: "Copy")) \(surfaceRef)",
+                action: .copySurfaceRef
+            )
+        }
+        Divider()
+        contextButton(
             localizedString("command.closeTab.title", default: "Close Tab"),
             action: .closeTab
         )
@@ -541,6 +552,11 @@ struct TabItemView: View {
 
     @ViewBuilder
     private var legacyContextMenuContent: some View {
+        contextButton("Surface Details", action: .surfaceDetails)
+        if let surfaceRef = contextMenuState.surfaceRef {
+            contextButton("Copy \(surfaceRef)", action: .copySurfaceRef)
+        }
+        Divider()
         contextButton("Rename Tab…", action: .rename)
 
         if contextMenuState.hasCustomTitle {

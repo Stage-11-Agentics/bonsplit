@@ -55,6 +55,12 @@ public final class BonsplitController {
     /// Internal host-driven closes should not use this hook.
     @ObservationIgnored public var onTabCloseRequest: ((_ tabId: TabID, _ paneId: PaneID) -> Void)?
 
+    /// Host-supplied resolver for a tab's stable surface handle (e.g. the c11
+    /// `surface:N` ref). Returns nil when the host has no handle for the tab.
+    /// Used to label the tab context menu's copy-handle item; should be cheap
+    /// since it is called while building each tab's context-menu state.
+    @ObservationIgnored public var surfaceRefProvider: ((_ tabId: TabID) -> String?)?
+
     // MARK: - Internal State
 
     internal var internalController: SplitViewController

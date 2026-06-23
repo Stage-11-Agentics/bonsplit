@@ -295,6 +295,9 @@ struct TabContextMenuState {
     let hasSplits: Bool
     let shortcuts: [TabContextAction: KeyboardShortcut]
     let tabColorPalette: [BonsplitTabColorMenuItem]
+    /// Host-supplied stable handle for the tab's surface (e.g. `surface:75`).
+    /// nil when the host has no handle; the copy-handle menu item is hidden.
+    let surfaceRef: String?
 
     var canMarkAsUnread: Bool {
         !isUnread
@@ -790,7 +793,8 @@ struct TabBarView<TrailingAccessory: View>: View {
             isZoomed: splitViewController.zoomedPaneId == pane.id,
             hasSplits: splitViewController.rootNode.allPaneIds.count > 1,
             shortcuts: controller.contextMenuShortcuts,
-            tabColorPalette: controller.tabColorPalette
+            tabColorPalette: controller.tabColorPalette,
+            surfaceRef: controller.surfaceRefProvider.flatMap { $0(TabID(id: tab.id)) }
         )
     }
 
