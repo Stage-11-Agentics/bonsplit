@@ -1739,7 +1739,12 @@ private struct SplitToolbarButton: View {
             )
         }
         .buttonStyle(SplitActionButtonStyle(appearance: appearance))
-        .safeHelp(tooltip)
+        // Native `.help` attaches the tooltip to the button itself so macOS
+        // actually shows it. (`safeHelp` registers the tooltip on an occluded
+        // background view whose `hitTest` returns nil, so the system never
+        // queries it — the tooltips silently never appeared.) Works in both the
+        // normal/medium bar and the dropdown controls row.
+        .help(tooltip)
         .onHover { isHovered = $0 }
     }
 }
