@@ -306,6 +306,16 @@ struct TabContextMenuState {
 }
 
 /// Tab bar view with scrollable tabs, drag/drop support, and split buttons
+/// Responsive layout tier for a pane's tab strip. As the pane narrows the
+/// strip degrades in two steps: first the tab list folds into a dropdown while
+/// the controls cluster stays inline (`.medium`), then the controls fold into
+/// the dropdown too (`.narrow`).
+private enum TabStripLayoutTier {
+    case full      // all tabs + controls inline (default wide layout)
+    case medium    // active title + controls inline; tab list in the dropdown
+    case narrow    // active title only; controls + tab list in the dropdown
+}
+
 struct TabBarView<TrailingAccessory: View>: View {
     @Environment(BonsplitController.self) private var controller
     @Environment(SplitViewController.self) private var splitViewController
@@ -330,6 +340,12 @@ struct TabBarView<TrailingAccessory: View>: View {
     @State private var effectiveChromeWidth: CGFloat = TabBarStyling.splitButtonsBackdropWidth
     @StateObject private var controlKeyMonitor = TabControlShortcutKeyMonitor()
     @StateObject private var scrollViewBridge = TabBarScrollViewBridge()
+    // Responsive tab-strip tier. As a pane narrows the strip degrades in two
+    // steps: the tab list folds into a dropdown first (controls stay inline),
+    // then the controls fold in too. See the "Collapsed (narrow-pane) tab
+    // dropdown" section.
+    @State private var layoutTier: TabStripLayoutTier = .full
+    @State private var isDropdownOpen = false
 
     init(
         pane: PaneState,
@@ -459,6 +475,30 @@ struct TabBarView<TrailingAccessory: View>: View {
 
 
     var body: some View {
+        GeometryReader { outerGeo in
+            Group {
+                if layoutTier == .full {
+                    horizontalBar
+                } else {
+                    collapsedBar(layoutTier)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .onAppear { recomputeLayoutTier(availableWidth: outerGeo.size.width) }
+            .onChange(of: outerGeo.size.width) { _, newWidth in
+                recomputeLayoutTier(availableWidth: newWidth)
+            }
+            .onChange(of: collapseDecisionSignature) { _, _ in
+                recomputeLayoutTier(availableWidth: outerGeo.size.width)
+            }
+        }
+        .frame(height: appearance.tabBarHeight)
+    }
+
+    // MARK: - Horizontal Tab Strip (default / wide layout)
+
+    @ViewBuilder
+    private var horizontalBar: some View {
         HStack(spacing: 0) {
             if appearance.tabBarLeadingInset > 0 && controller.internalController.rootNode.allPaneIds.first == pane.id {
                 TabBarDragZoneView(
@@ -679,6 +719,414 @@ struct TabBarView<TrailingAccessory: View>: View {
         .onDisappear {
             controlKeyMonitor.stop()
         }
+    }
+
+    // MARK: - Collapsed (narrow-pane) tab dropdown
+
+    /// Value the collapse decision depends on, beyond raw width: the set of tab
+    /// titles plus the active selection. Recompute the mode when any change.
+    private var collapseDecisionSignature: [String] {
+        pane.tabs.map { "\($0.id.uuidString)\u{1}\($0.title)" }
+            + ["sel:\(pane.selectedTabId?.uuidString ?? "-")"]
+    }
+
+    private var activeTab: TabItem? {
+        if let id = pane.selectedTabId, let match = pane.tabs.first(where: { $0.id == id }) {
+            return match
+        }
+        return pane.tabs.first
+    }
+
+    /// Any non-active tab asking for attention (unread/activity or dirty).
+    private var hasBackgroundActivity: Bool {
+        let activeId = activeTab?.id
+        return pane.tabs.contains { $0.id != activeId && ($0.showsNotificationBadge || $0.isDirty) }
+    }
+
+    private func measuredTitleWidth(_ title: String, bold: Bool) -> CGFloat {
+        let weight: NSFont.Weight = bold ? .semibold : .regular
+        let font = NSFont.systemFont(ofSize: appearance.tabTitleFontSize, weight: weight)
+        return ceil((title as NSString).size(withAttributes: [.font: font]).width)
+    }
+
+    /// Fixed (non-title) horizontal cost of one tab in the strip: leading close
+    /// affordance + content spacing + horizontal padding on both sides.
+    private var perTabFixedCost: CGFloat {
+        let closeSlot = appearance.tabCloseIconSize + 10
+        return appearance.tabHorizontalPadding * 2 + appearance.tabContentSpacing + closeSlot
+    }
+
+    /// Estimated width of the trailing chrome cluster (surface-spawn + split +
+    /// new-tab + close-pane buttons, plus the two group separators). Derived
+    /// from `appearance` so it tracks compact/spacious presets and stays valid
+    /// while collapsed, when the rendered preference keys no longer update.
+    private var estimatedChromeWidth: CGFloat {
+        guard showSplitButtons else { return max(0, trailingAccessoryWidth) }
+        // Prefer the real measured cluster width once the horizontal (or medium)
+        // strip has rendered the buttons; the @State retains it while narrow, so
+        // the full↔medium boundary stays exact. Fall back to a computed estimate
+        // only before the first measurement.
+        if splitButtonsIntrinsicWidth > 0 {
+            return splitButtonsIntrinsicWidth + max(0, trailingAccessoryWidth)
+        }
+        let buttonCount: CGFloat = 8        // A, terminal, browser, markdown, split→, split↓, +, ✕
+        let separatorCount: CGFloat = 2
+        let itemCount = buttonCount + separatorCount
+        let buttons = buttonCount * appearance.splitToolbarButtonFrameSize
+        let separators = separatorCount * (1 + 16)      // 1pt rule + 8pt padding per side
+        let interItemSpacing: CGFloat = 2 * max(0, itemCount - 1)
+        let outerPadding: CGFloat = 6 + 8
+        return buttons + separators + interItemSpacing + outerPadding + max(0, trailingAccessoryWidth)
+    }
+
+    /// Sum of every tab's natural (untruncated) width, clamped to the per-tab
+    /// min/max. When this exceeds the room left after the chrome, the strip
+    /// would have to truncate — the signal to fold into the dropdown.
+    private var desiredTabsWidth: CGFloat {
+        let minW = appearance.tabMinWidth
+        let maxW = appearance.tabMaxWidth
+        var total: CGFloat = 0
+        for tab in pane.tabs {
+            let natural = perTabFixedCost + measuredTitleWidth(tab.title, bold: pane.selectedTabId == tab.id)
+            total += min(maxW, max(minW, natural))
+        }
+        if pane.tabs.count > 1 {
+            total += appearance.tabSpacing * CGFloat(pane.tabs.count - 1)
+        }
+        return total
+    }
+
+    /// Choose the layout tier for the available width with directional
+    /// hysteresis: the strip degrades promptly when space runs out, but
+    /// re-expands only past a slack margin, so dragging a divider near a
+    /// boundary doesn't strobe between tiers.
+    ///
+    /// - `.full`   : all tabs + controls fit inline.
+    /// - `.medium` : tabs don't all fit, but the active title + controls do —
+    ///               controls stay inline, the tab list moves to the dropdown.
+    /// - `.narrow` : not even title + controls fit — only the title shows; the
+    ///               controls move into the dropdown's first row.
+    private func recomputeLayoutTier(availableWidth: CGFloat) {
+        guard availableWidth > 1, !pane.tabs.isEmpty else {
+            setLayoutTier(.full)
+            return
+        }
+        let hysteresis: CGFloat = 28
+        let trailingSlack: CGFloat = 8
+        let disclosureWidth: CGFloat = 52
+        let minTitleForMedium: CGFloat = 90
+        let chrome = estimatedChromeWidth
+        let room = availableWidth - trailingSlack
+        let needFull = desiredTabsWidth + chrome
+        let needMedium = minTitleForMedium + disclosureWidth + chrome
+
+        var target = layoutTier
+        switch layoutTier {
+        case .full:
+            if needFull > room {
+                target = (needMedium <= room) ? .medium : .narrow
+            }
+        case .medium:
+            if needFull + hysteresis <= room {
+                target = .full
+            } else if needMedium > room {
+                target = .narrow
+            }
+        case .narrow:
+            if needFull + hysteresis <= room {
+                target = .full
+            } else if needMedium + hysteresis <= room {
+                target = .medium
+            }
+        }
+        setLayoutTier(target)
+    }
+
+    private func setLayoutTier(_ newTier: TabStripLayoutTier) {
+        guard newTier != layoutTier else { return }
+        layoutTier = newTier
+        // Close any open dropdown on a tier change: `.full` has no dropdown, and
+        // the dropdown's contents differ between medium and narrow.
+        if isDropdownOpen { isDropdownOpen = false }
+    }
+
+    /// Square, chunky rows: every dropdown row (controls + tabs) shares this.
+    private var collapsedRowHeight: CGFloat {
+        max(30, appearance.tabItemHeight + 4)
+    }
+
+    private var collapsedDropdownWidth: CGFloat {
+        let minW: CGFloat = 240
+        let maxW: CGFloat = 380
+        let longest = pane.tabs.reduce(CGFloat(0)) { acc, tab in
+            max(acc, measuredTitleWidth(tab.title, bold: pane.selectedTabId == tab.id))
+        }
+        // title + leading marker + trailing close + paddings
+        return min(maxW, max(minW, longest + 96))
+    }
+
+    @ViewBuilder
+    private func collapsedBar(_ tier: TabStripLayoutTier) -> some View {
+        HStack(spacing: 6) {
+            // Large hit area: the full title, the empty run, and the disclosure
+            // pill all toggle the tab dropdown. This is a high-traffic target,
+            // so the whole left segment is one big tap region.
+            HStack(spacing: 6) {
+                Text(activeTab?.title ?? "")
+                    .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(TabBarColors.activeText(for: appearance))
+                    .saturation(tabBarSaturation)
+
+                Spacer(minLength: 4)
+
+                collapsedDisclosure
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: appearance.tabBarHeight)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withTransaction(Transaction(animation: nil)) {
+                    controller.focusPane(pane.id)
+                }
+                isDropdownOpen.toggle()
+            }
+            .popover(isPresented: $isDropdownOpen, arrowEdge: .bottom) {
+                if tier == .narrow {
+                    collapsedDropdownContent      // controls row + tab list
+                } else {
+                    collapsedTabListContent       // tab list only (controls inline)
+                }
+            }
+
+            // Medium tier keeps the controls cluster inline on the bar, exactly
+            // as the wide layout renders it.
+            if tier == .medium {
+                splitButtons
+                    .saturation(tabBarSaturation)
+            }
+        }
+        .padding(.leading, max(8, appearance.tabHorizontalPadding + 2))
+        .padding(.trailing, tier == .medium ? 0 : 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: appearance.tabBarHeight)
+        .background(tabBarBackground)
+        .background(TabBarDragAndHoverView(
+            isMinimalMode: isMinimalMode,
+            onHoverChanged: { isHoveringTabBar = $0 }
+        ))
+        // The collapsed header is also a drop target: a tab dragged from
+        // another pane appends to this pane.
+        .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
+            targetIndex: pane.tabs.count,
+            pane: pane,
+            bonsplitController: controller,
+            controller: splitViewController,
+            dropTargetIndex: $dropTargetIndex,
+            dropLifecycle: $dropLifecycle
+        ))
+    }
+
+    /// Dropdown body for the medium tier: just the tab list (the controls are
+    /// already inline on the bar, so they are not repeated here).
+    @ViewBuilder
+    private var collapsedTabListContent: some View {
+        VStack(spacing: 0) {
+            if pane.tabs.count > 9 {
+                ScrollView { collapsedTabRows }
+                    .frame(maxHeight: collapsedRowHeight * 9)
+            } else {
+                collapsedTabRows
+            }
+        }
+        .frame(width: collapsedDropdownWidth)
+        .padding(.vertical, 4)
+    }
+
+    /// The disclosure control. This is a new interaction paradigm, so it is
+    /// deliberately prominent: a filled, outlined pill carrying the tab count
+    /// and a heavy chevron, plus an activity dot when a background tab wants
+    /// attention.
+    @ViewBuilder
+    private var collapsedDisclosure: some View {
+        HStack(spacing: 3) {
+            Text("\(pane.tabs.count)")
+                .font(.system(size: appearance.tabTitleFontSize, weight: .bold))
+                .monospacedDigit()
+            Image(systemName: "chevron.down")
+                .font(.system(size: appearance.tabTitleFontSize - 1, weight: .heavy))
+        }
+        .foregroundStyle(TabBarColors.activeText(for: appearance))
+        .padding(.horizontal, 8)
+        .frame(height: max(20, appearance.tabItemHeight - 8))
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(TabBarColors.activeIndicator(for: appearance).opacity(0.22))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(TabBarColors.activeIndicator(for: appearance).opacity(0.55), lineWidth: 1)
+                )
+        )
+        .overlay(alignment: .topTrailing) {
+            if hasBackgroundActivity {
+                Circle()
+                    .fill(TabBarColors.notificationBadge(for: appearance))
+                    .frame(width: 7, height: 7)
+                    .offset(x: 3, y: -3)
+            }
+        }
+        .saturation(tabBarSaturation)
+        .accessibilityLabel("Show all tabs")
+        .accessibilityValue("\(pane.tabs.count) tabs")
+    }
+
+    @ViewBuilder
+    private var collapsedDropdownContent: some View {
+        VStack(spacing: 0) {
+            collapsedControlsRow
+            Divider()
+            if pane.tabs.count > 8 {
+                ScrollView { collapsedTabRows }
+                    .frame(maxHeight: collapsedRowHeight * 9)
+            } else {
+                collapsedTabRows
+            }
+        }
+        .frame(width: collapsedDropdownWidth)
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var collapsedTabRows: some View {
+        VStack(spacing: 0) {
+            ForEach(pane.tabs) { tab in
+                collapsedTabRow(tab)
+            }
+        }
+    }
+
+    /// One tab per row, full title (no truncation in the common case), with a
+    /// leading selection/activity marker and a trailing close. Each row is the
+    /// draggable unit — reorder within the dropdown, or transfer to another pane.
+    @ViewBuilder
+    private func collapsedTabRow(_ tab: TabItem) -> some View {
+        let isSelected = pane.selectedTabId == tab.id
+        HStack(spacing: 8) {
+            Circle()
+                .fill(
+                    isSelected
+                        ? TabBarColors.activeIndicator(for: appearance)
+                        : ((tab.showsNotificationBadge || tab.isDirty)
+                            ? TabBarColors.notificationBadge(for: appearance)
+                            : Color.clear)
+                )
+                .frame(width: 7, height: 7)
+
+            Text(tab.title)
+                .font(.system(size: appearance.tabTitleFontSize + 1, weight: isSelected ? .semibold : .regular))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(
+                    isSelected
+                        ? TabBarColors.activeText(for: appearance)
+                        : TabBarColors.inactiveText(for: appearance)
+                )
+
+            Spacer(minLength: 8)
+
+            if !tab.isPinned {
+                Button {
+                    withTransaction(Transaction(animation: nil)) {
+                        controller.onTabCloseRequest?(TabID(id: tab.id), pane.id)
+                        _ = controller.closeTab(TabID(id: tab.id), inPane: pane.id)
+                    }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: appearance.tabCloseIconSize, weight: .semibold))
+                        .foregroundStyle(TabBarColors.inactiveText(for: appearance))
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close tab")
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: collapsedRowHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isSelected ? TabBarColors.activeTabBackground(for: appearance) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withTransaction(Transaction(animation: nil)) {
+                pane.selectTab(tab.id)
+                controller.focusPane(pane.id)
+            }
+            isDropdownOpen = false
+        }
+        .onDrag { createItemProvider(for: tab) }
+    }
+
+    /// The single controls row at the top of the dropdown: the same actions as
+    /// the horizontal strip's trailing chrome, reused verbatim. Each action
+    /// dismisses the dropdown after firing.
+    @ViewBuilder
+    private var collapsedControlsRow: some View {
+        let tooltips = controller.configuration.appearance.splitButtonTooltips
+        let canClosePane = controller.allPaneIds.count > 1
+            || controller.configuration.allowCloseLastPane
+        HStack(spacing: 4) {
+            SplitToolbarButton(systemImage: "", labelText: "A", tooltip: tooltips.newAgent, appearance: appearance) {
+                controller.requestNewTab(kind: "agent", inPane: pane.id)
+                isDropdownOpen = false
+            }
+            .contextMenu {
+                let items = controller.menuItemsForNewTab(kind: "agent", inPane: pane.id)
+                ForEach(items) { item in
+                    Button {
+                        controller.selectNewTabMenuItem(item.id, forKind: "agent", inPane: pane.id)
+                    } label: {
+                        Text((item.isCurrent ? "✓  " : "    ") + item.label)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+            }
+
+            SplitToolbarButton(systemImage: "terminal", tooltip: tooltips.newTerminal, appearance: appearance) {
+                controller.requestNewTab(kind: "terminal", inPane: pane.id)
+                isDropdownOpen = false
+            }
+            SplitToolbarButton(systemImage: "globe", tooltip: tooltips.newBrowser, appearance: appearance) {
+                controller.requestNewTab(kind: "browser", inPane: pane.id)
+                isDropdownOpen = false
+            }
+            SplitToolbarButton(systemImage: "doc.text", tooltip: tooltips.newMarkdown, appearance: appearance) {
+                controller.requestNewTab(kind: "markdown", inPane: pane.id)
+                isDropdownOpen = false
+            }
+
+            Spacer(minLength: 8)
+
+            SplitToolbarButton(systemImage: "square.split.2x1", tooltip: tooltips.splitRight, appearance: appearance) {
+                controller.splitPane(pane.id, orientation: .horizontal)
+                isDropdownOpen = false
+            }
+            SplitToolbarButton(systemImage: "square.split.1x2", tooltip: tooltips.splitDown, appearance: appearance) {
+                controller.splitPane(pane.id, orientation: .vertical)
+                isDropdownOpen = false
+            }
+            SplitToolbarButton(systemImage: "plus", tooltip: tooltips.newTab, appearance: appearance) {
+                controller.requestNewTab(kind: "newTab", inPane: pane.id)
+                isDropdownOpen = false
+            }
+            SplitToolbarButton(systemImage: "xmark", tooltip: tooltips.closePane, appearance: appearance, isEnabled: canClosePane) {
+                controller.requestClosePane(pane.id)
+                isDropdownOpen = false
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: collapsedRowHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Tab Item
