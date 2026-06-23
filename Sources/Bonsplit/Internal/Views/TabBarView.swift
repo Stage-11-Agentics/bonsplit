@@ -891,9 +891,8 @@ struct TabBarView<TrailingAccessory: View>: View {
 
             collapsedDisclosure
 
-            // Medium tier keeps the controls cluster inline on the bar, exactly
-            // as the wide layout renders it. The buttons capture their own taps;
-            // every other point on the bar opens the dropdown (below).
+            // Medium tier keeps the controls cluster inline on the bar, as a
+            // separate region with its own button taps.
             if tier == .medium {
                 splitButtons
                     .saturation(tabBarSaturation)
@@ -903,11 +902,14 @@ struct TabBarView<TrailingAccessory: View>: View {
         .padding(.trailing, tier == .medium ? 0 : 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: appearance.tabBarHeight)
-        // Issue 3: the ENTIRE header — title, empty run, and disclosure — is one
-        // large tap target that toggles the dropdown. In medium tier the control
-        // buttons still handle their own taps; everything else opens the list.
-        // The gesture is applied BEFORE the NSView-backed hover/drag background
-        // below, so SwiftUI (not the AppKit background view) receives the click.
+        // The ENTIRE header (title included) is one tap target. The gesture is
+        // on this outer view, ahead of the NSView-backed hover/drag background,
+        // so SwiftUI receives the click. Do NOT wrap the title/disclosure in a
+        // child that adds its own `.onHover` + `.background`: that creates an
+        // AppKit hosting layer which swallows the mouse-down and the tap stops
+        // firing. The hover affordance is driven from `isHoveringTabBar` in the
+        // background instead. In medium tier the control buttons capture their
+        // own taps; everything else opens the dropdown.
         .contentShape(Rectangle())
         .onTapGesture {
             withTransaction(Transaction(animation: nil)) {
@@ -915,8 +917,6 @@ struct TabBarView<TrailingAccessory: View>: View {
             }
             isDropdownOpen.toggle()
         }
-        // The collapsed header is also a drop target: a tab dragged from
-        // another pane appends to this pane.
         .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
             targetIndex: pane.tabs.count,
             pane: pane,
@@ -932,18 +932,26 @@ struct TabBarView<TrailingAccessory: View>: View {
         ))
     }
 
-    /// Background for the collapsed bar. Unlike the horizontal `tabBarBackground`
-    /// (which gaps its bottom separator around the selected tab's frame — stale
-    /// and partial once collapsed), this draws a *continuous* full-width bottom
-    /// line: the gold active indicator when focused, the subtle separator
-    /// otherwise. Fixes the cut-off accent line in dropdown mode (issue 2).
+    /// Background for the collapsed bar: bar fill, a hover tint driven by the
+    /// shared `isHoveringTabBar` (set by the AppKit hover view above — no extra
+    /// gesture layer that could swallow the tap), and a continuous full-width
+    /// bottom accent line (gold when focused, separator otherwise). All drawn
+    /// behind the title text, so neither the hover tint nor the accent line
+    /// covers the content or intercepts the tap. Fixes the cut-off accent line
+    /// in dropdown mode (issue 2) and gives the header a clear clickable
+    /// affordance.
     @ViewBuilder
     private var collapsedBarBackground: some View {
-        let barFill = isFocused
+        let base = isFocused
             ? TabBarColors.barBackground(for: appearance)
             : TabBarColors.barBackground(for: appearance).opacity(0.95)
         Rectangle()
-            .fill(barFill)
+            .fill(base)
+            .overlay {
+                if isHoveringTabBar {
+                    Rectangle().fill(TabBarColors.hoveredTabBackground(for: appearance))
+                }
+            }
             .overlay(alignment: .bottom) {
                 Rectangle()
                     .fill(isFocused
