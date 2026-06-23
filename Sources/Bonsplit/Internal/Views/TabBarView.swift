@@ -783,12 +783,16 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// min/max. When this exceeds the room left after the chrome, the strip
     /// would have to truncate — the signal to fold into the dropdown.
     private var desiredTabsWidth: CGFloat {
-        let minW = appearance.tabMinWidth
+        // Decision floor is intentionally below the layout `tabMinWidth` so the
+        // strip stays inline a bit tighter — letting the controls cover more of
+        // a narrow pane before collapsing. This only affects short-title tabs
+        // (e.g. "~"); long titles collapse on their real measured width.
+        let floor: CGFloat = min(appearance.tabMinWidth, 68)
         let maxW = appearance.tabMaxWidth
         var total: CGFloat = 0
         for tab in pane.tabs {
             let natural = perTabFixedCost + measuredTitleWidth(tab.title, bold: pane.selectedTabId == tab.id)
-            total += min(maxW, max(minW, natural))
+            total += min(maxW, max(floor, natural))
         }
         if pane.tabs.count > 1 {
             total += appearance.tabSpacing * CGFloat(pane.tabs.count - 1)
@@ -814,7 +818,7 @@ struct TabBarView<TrailingAccessory: View>: View {
         let hysteresis: CGFloat = 28
         let trailingSlack: CGFloat = 8
         let disclosureWidth: CGFloat = 52
-        let minTitleForMedium: CGFloat = 90
+        let minTitleForMedium: CGFloat = 72
         let chrome = estimatedChromeWidth
         let room = availableWidth - trailingSlack
         let needFull = desiredTabsWidth + chrome
@@ -868,40 +872,28 @@ struct TabBarView<TrailingAccessory: View>: View {
     @ViewBuilder
     private func collapsedBar(_ tier: TabStripLayoutTier) -> some View {
         HStack(spacing: 6) {
-            // Large hit area: the full title, the empty run, and the disclosure
-            // pill all toggle the tab dropdown. This is a high-traffic target,
-            // so the whole left segment is one big tap region.
-            HStack(spacing: 6) {
-                Text(activeTab?.title ?? "")
-                    .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .foregroundStyle(TabBarColors.activeText(for: appearance))
-                    .saturation(tabBarSaturation)
-
-                Spacer(minLength: 4)
-
-                collapsedDisclosure
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: appearance.tabBarHeight)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withTransaction(Transaction(animation: nil)) {
-                    controller.focusPane(pane.id)
+            Text(activeTab?.title ?? "")
+                .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(TabBarColors.activeText(for: appearance))
+                .saturation(tabBarSaturation)
+                // Anchor the dropdown under the title so it opens left-aligned.
+                .popover(isPresented: $isDropdownOpen, arrowEdge: .bottom) {
+                    if tier == .narrow {
+                        collapsedDropdownContent      // controls row + tab list
+                    } else {
+                        collapsedTabListContent       // tab list only (controls inline)
+                    }
                 }
-                isDropdownOpen.toggle()
-            }
-            .popover(isPresented: $isDropdownOpen, arrowEdge: .bottom) {
-                if tier == .narrow {
-                    collapsedDropdownContent      // controls row + tab list
-                } else {
-                    collapsedTabListContent       // tab list only (controls inline)
-                }
-            }
+
+            Spacer(minLength: 4)
+
+            collapsedDisclosure
 
             // Medium tier keeps the controls cluster inline on the bar, exactly
-            // as the wide layout renders it.
+            // as the wide layout renders it. The buttons capture their own taps;
+            // every other point on the bar opens the dropdown (below).
             if tier == .medium {
                 splitButtons
                     .saturation(tabBarSaturation)
@@ -911,11 +903,18 @@ struct TabBarView<TrailingAccessory: View>: View {
         .padding(.trailing, tier == .medium ? 0 : 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: appearance.tabBarHeight)
-        .background(tabBarBackground)
-        .background(TabBarDragAndHoverView(
-            isMinimalMode: isMinimalMode,
-            onHoverChanged: { isHoveringTabBar = $0 }
-        ))
+        // Issue 3: the ENTIRE header — title, empty run, and disclosure — is one
+        // large tap target that toggles the dropdown. In medium tier the control
+        // buttons still handle their own taps; everything else opens the list.
+        // The gesture is applied BEFORE the NSView-backed hover/drag background
+        // below, so SwiftUI (not the AppKit background view) receives the click.
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withTransaction(Transaction(animation: nil)) {
+                controller.focusPane(pane.id)
+            }
+            isDropdownOpen.toggle()
+        }
         // The collapsed header is also a drop target: a tab dragged from
         // another pane appends to this pane.
         .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
@@ -926,6 +925,32 @@ struct TabBarView<TrailingAccessory: View>: View {
             dropTargetIndex: $dropTargetIndex,
             dropLifecycle: $dropLifecycle
         ))
+        .background(collapsedBarBackground)
+        .background(TabBarDragAndHoverView(
+            isMinimalMode: isMinimalMode,
+            onHoverChanged: { isHoveringTabBar = $0 }
+        ))
+    }
+
+    /// Background for the collapsed bar. Unlike the horizontal `tabBarBackground`
+    /// (which gaps its bottom separator around the selected tab's frame — stale
+    /// and partial once collapsed), this draws a *continuous* full-width bottom
+    /// line: the gold active indicator when focused, the subtle separator
+    /// otherwise. Fixes the cut-off accent line in dropdown mode (issue 2).
+    @ViewBuilder
+    private var collapsedBarBackground: some View {
+        let barFill = isFocused
+            ? TabBarColors.barBackground(for: appearance)
+            : TabBarColors.barBackground(for: appearance).opacity(0.95)
+        Rectangle()
+            .fill(barFill)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(isFocused
+                        ? TabBarColors.activeIndicator(for: appearance)
+                        : TabBarColors.separator(for: appearance))
+                    .frame(height: isFocused ? appearance.tabActiveIndicatorHeight : 1)
+            }
     }
 
     /// Dropdown body for the medium tier: just the tab list (the controls are
