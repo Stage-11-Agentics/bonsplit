@@ -872,24 +872,9 @@ struct TabBarView<TrailingAccessory: View>: View {
     @ViewBuilder
     private func collapsedBar(_ tier: TabStripLayoutTier) -> some View {
         HStack(spacing: 6) {
-            Text(activeTab?.title ?? "")
-                .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(TabBarColors.activeText(for: appearance))
-                .saturation(tabBarSaturation)
-                // Anchor the dropdown under the title so it opens left-aligned.
-                .popover(isPresented: $isDropdownOpen, arrowEdge: .bottom) {
-                    if tier == .narrow {
-                        collapsedDropdownContent      // controls row + tab list
-                    } else {
-                        collapsedTabListContent       // tab list only (controls inline)
-                    }
-                }
-
-            Spacer(minLength: 4)
-
-            collapsedDisclosure
+            // The whole header (title + count + chevron) is one bordered chip
+            // so it visibly reads as a single clickable dropdown control.
+            collapsedControlChip(tier)
 
             // Medium tier keeps the controls cluster inline on the bar, as a
             // separate region with its own button taps.
@@ -932,14 +917,68 @@ struct TabBarView<TrailingAccessory: View>: View {
         ))
     }
 
-    /// Background for the collapsed bar: bar fill, a hover tint driven by the
-    /// shared `isHoveringTabBar` (set by the AppKit hover view above — no extra
-    /// gesture layer that could swallow the tap), and a continuous full-width
-    /// bottom accent line (gold when focused, separator otherwise). All drawn
-    /// behind the title text, so neither the hover tint nor the accent line
-    /// covers the content or intercepts the tap. Fixes the cut-off accent line
-    /// in dropdown mode (issue 2) and gives the header a clear clickable
-    /// affordance.
+    /// The clickable-looking dropdown control: the title, the tab count, and the
+    /// chevron, all wrapped in ONE rounded, outlined chip — the same outline the
+    /// disclosure pill used, now around the whole header so it reads as a single
+    /// control. Brightens on hover via the shared `isHoveringTabBar` (the AppKit
+    /// hover view). This view only DRAWS (shapes + popover); it adds no
+    /// `.onHover`/NSView layer, so the outer bar's tap gesture still fires over
+    /// it. (A child `.onHover` here would create an AppKit hosting layer that
+    /// swallows the mouse-down — that mistake is why the tap broke once.)
+    @ViewBuilder
+    private func collapsedControlChip(_ tier: TabStripLayoutTier) -> some View {
+        HStack(spacing: 6) {
+            Text(activeTab?.title ?? "")
+                .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(TabBarColors.activeText(for: appearance))
+
+            Spacer(minLength: 6)
+
+            if hasBackgroundActivity {
+                Circle()
+                    .fill(TabBarColors.notificationBadge(for: appearance))
+                    .frame(width: 6, height: 6)
+            }
+
+            Text("\(pane.tabs.count)")
+                .font(.system(size: appearance.tabTitleFontSize, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(TabBarColors.activeText(for: appearance))
+            Image(systemName: "chevron.down")
+                .font(.system(size: appearance.tabTitleFontSize - 1, weight: .heavy))
+                .foregroundStyle(TabBarColors.activeText(for: appearance))
+        }
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: max(20, appearance.tabItemHeight - 6))
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(TabBarColors.activeIndicator(for: appearance)
+                    .opacity(isHoveringTabBar ? 0.28 : 0.16))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(TabBarColors.activeIndicator(for: appearance).opacity(0.55), lineWidth: 1)
+        )
+        .saturation(tabBarSaturation)
+        .accessibilityLabel("Show all tabs")
+        .accessibilityValue("\(pane.tabs.count) tabs")
+        .popover(isPresented: $isDropdownOpen, arrowEdge: .bottom) {
+            if tier == .narrow {
+                collapsedDropdownContent      // controls row + tab list
+            } else {
+                collapsedTabListContent       // tab list only (controls inline)
+            }
+        }
+    }
+
+    /// Background for the collapsed bar: bar fill plus a continuous full-width
+    /// bottom accent line (gold when focused, separator otherwise). Drawn behind
+    /// the content so it never covers it or intercepts the tap. Fixes the
+    /// cut-off accent line in dropdown mode (issue 2). The clickable affordance
+    /// is the chip outline above, not a bar-wide tint.
     @ViewBuilder
     private var collapsedBarBackground: some View {
         let base = isFocused
@@ -947,11 +986,6 @@ struct TabBarView<TrailingAccessory: View>: View {
             : TabBarColors.barBackground(for: appearance).opacity(0.95)
         Rectangle()
             .fill(base)
-            .overlay {
-                if isHoveringTabBar {
-                    Rectangle().fill(TabBarColors.hoveredTabBackground(for: appearance))
-                }
-            }
             .overlay(alignment: .bottom) {
                 Rectangle()
                     .fill(isFocused
@@ -975,43 +1009,6 @@ struct TabBarView<TrailingAccessory: View>: View {
         }
         .frame(width: collapsedDropdownWidth)
         .padding(.vertical, 4)
-    }
-
-    /// The disclosure control. This is a new interaction paradigm, so it is
-    /// deliberately prominent: a filled, outlined pill carrying the tab count
-    /// and a heavy chevron, plus an activity dot when a background tab wants
-    /// attention.
-    @ViewBuilder
-    private var collapsedDisclosure: some View {
-        HStack(spacing: 3) {
-            Text("\(pane.tabs.count)")
-                .font(.system(size: appearance.tabTitleFontSize, weight: .bold))
-                .monospacedDigit()
-            Image(systemName: "chevron.down")
-                .font(.system(size: appearance.tabTitleFontSize - 1, weight: .heavy))
-        }
-        .foregroundStyle(TabBarColors.activeText(for: appearance))
-        .padding(.horizontal, 8)
-        .frame(height: max(20, appearance.tabItemHeight - 8))
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(TabBarColors.activeIndicator(for: appearance).opacity(0.22))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(TabBarColors.activeIndicator(for: appearance).opacity(0.55), lineWidth: 1)
-                )
-        )
-        .overlay(alignment: .topTrailing) {
-            if hasBackgroundActivity {
-                Circle()
-                    .fill(TabBarColors.notificationBadge(for: appearance))
-                    .frame(width: 7, height: 7)
-                    .offset(x: 3, y: -3)
-            }
-        }
-        .saturation(tabBarSaturation)
-        .accessibilityLabel("Show all tabs")
-        .accessibilityValue("\(pane.tabs.count) tabs")
     }
 
     @ViewBuilder
