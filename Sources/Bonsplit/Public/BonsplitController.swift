@@ -100,6 +100,7 @@ public final class BonsplitController {
         isLoading: Bool = false,
         isPinned: Bool = false,
         customColorHex: String? = nil,
+        displayOrdinal: Int? = nil,
         inPane pane: PaneID? = nil
     ) -> TabID? {
         let tabId = TabID()
@@ -114,7 +115,8 @@ public final class BonsplitController {
             showsNotificationBadge: showsNotificationBadge,
             isLoading: isLoading,
             isPinned: isPinned,
-            customColorHex: customColorHex
+            customColorHex: customColorHex,
+            displayOrdinal: displayOrdinal
         )
         let targetPane = pane ?? focusedPaneId ?? PaneID(id: internalController.rootNode.allPaneIds.first!.id)
 
@@ -152,7 +154,8 @@ public final class BonsplitController {
             showsNotificationBadge: showsNotificationBadge,
             isLoading: isLoading,
             isPinned: isPinned,
-            customColorHex: customColorHex
+            customColorHex: customColorHex,
+            displayOrdinal: displayOrdinal
         )
         internalController.addTab(tabItem, toPane: PaneID(id: targetPane.id), atIndex: insertIndex)
 
@@ -217,6 +220,8 @@ public final class BonsplitController {
     ///   - isPinned: New pinned state (pass nil to keep current)
     ///   - customColorHex: New custom accent color (pass nil to keep current,
     ///     pass `.some(nil)` to clear, `.some(hex)` to set)
+    ///   - displayOrdinal: New host-assigned tab number (pass nil to keep current,
+    ///     pass `.some(nil)` to clear, `.some(n)` to set)
     public func updateTab(
         _ tabId: TabID,
         title: String? = nil,
@@ -228,7 +233,8 @@ public final class BonsplitController {
         showsNotificationBadge: Bool? = nil,
         isLoading: Bool? = nil,
         isPinned: Bool? = nil,
-        customColorHex: String?? = nil
+        customColorHex: String?? = nil,
+        displayOrdinal: Int?? = nil
     ) {
         guard let (pane, tabIndex) = findTabInternal(tabId) else { return }
 
@@ -261,6 +267,9 @@ public final class BonsplitController {
         }
         if let customColorHex = customColorHex {
             pane.tabs[tabIndex].customColorHex = customColorHex
+        }
+        if let displayOrdinal = displayOrdinal {
+            pane.tabs[tabIndex].displayOrdinal = displayOrdinal
         }
     }
 
@@ -438,7 +447,8 @@ public final class BonsplitController {
                 isDirty: tab.isDirty,
                 showsNotificationBadge: tab.showsNotificationBadge,
                 isLoading: tab.isLoading,
-                isPinned: tab.isPinned
+                isPinned: tab.isPinned,
+                displayOrdinal: tab.displayOrdinal
             )
         } else {
             internalTab = nil
@@ -500,7 +510,8 @@ public final class BonsplitController {
             isDirty: tab.isDirty,
             showsNotificationBadge: tab.showsNotificationBadge,
             isLoading: tab.isLoading,
-            isPinned: tab.isPinned
+            isPinned: tab.isPinned,
+            displayOrdinal: tab.displayOrdinal
         )
 
         // Perform split with insertion side.

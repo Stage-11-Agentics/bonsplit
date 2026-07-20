@@ -242,6 +242,10 @@ extension BonsplitConfiguration {
         /// Height of the selected-tab active-state underbar.
         public var tabActiveIndicatorHeight: CGFloat
 
+        /// When true, tabs with a `displayOrdinal` render it as an "N: " title
+        /// prefix so operators can address a tab by its spoken number.
+        public var showTabOrdinals: Bool
+
         // MARK: - Split toolbar (trailing-edge new-tab + split + close buttons)
 
         /// SF Symbol point size used inside each `SplitToolbarButton`. Drives
@@ -339,6 +343,7 @@ extension BonsplitConfiguration {
             tabDirtyIndicatorSize: CGFloat = 8,
             tabNotificationBadgeSize: CGFloat = 6,
             tabActiveIndicatorHeight: CGFloat = 3,
+            showTabOrdinals: Bool = false,
             splitToolbarButtonIconSize: CGFloat = 12,
             splitToolbarButtonFrameSize: CGFloat = 22,
             splitToolbarSeparatorHeight: CGFloat = 18,
@@ -367,6 +372,7 @@ extension BonsplitConfiguration {
             self.tabDirtyIndicatorSize = tabDirtyIndicatorSize
             self.tabNotificationBadgeSize = tabNotificationBadgeSize
             self.tabActiveIndicatorHeight = tabActiveIndicatorHeight
+            self.showTabOrdinals = showTabOrdinals
             self.splitToolbarButtonIconSize = splitToolbarButtonIconSize
             self.splitToolbarButtonFrameSize = splitToolbarButtonFrameSize
             self.splitToolbarSeparatorHeight = splitToolbarSeparatorHeight

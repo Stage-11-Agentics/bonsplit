@@ -208,7 +208,7 @@ struct TabItemView: View {
                     .onChange(of: tab.icon) { _ in updateGlobeFallback() }
                 }
 
-                Text(tab.title)
+                Text(tab.displayedTitle(showOrdinals: appearance.showTabOrdinals))
                     .font(.system(size: appearance.tabTitleFontSize, weight: isSelected ? .semibold : .regular))
                     .lineLimit(1)
                     .truncationMode(.tail)

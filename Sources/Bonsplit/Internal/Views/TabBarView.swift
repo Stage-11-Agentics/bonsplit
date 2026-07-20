@@ -729,7 +729,7 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// Value the collapse decision depends on, beyond raw width: the set of tab
     /// titles plus the active selection. Recompute the mode when any change.
     private var collapseDecisionSignature: [String] {
-        pane.tabs.map { "\($0.id.uuidString)\u{1}\($0.title)" }
+        pane.tabs.map { "\($0.id.uuidString)\u{1}\($0.displayedTitle(showOrdinals: appearance.showTabOrdinals))" }
             + ["sel:\(pane.selectedTabId?.uuidString ?? "-")"]
     }
 
@@ -794,7 +794,7 @@ struct TabBarView<TrailingAccessory: View>: View {
         let maxW = appearance.tabMaxWidth
         var total: CGFloat = 0
         for tab in pane.tabs {
-            let natural = perTabFixedCost + measuredTitleWidth(tab.title, bold: pane.selectedTabId == tab.id)
+            let natural = perTabFixedCost + measuredTitleWidth(tab.displayedTitle(showOrdinals: appearance.showTabOrdinals), bold: pane.selectedTabId == tab.id)
             total += min(maxW, max(floor, natural))
         }
         if pane.tabs.count > 1 {
@@ -866,7 +866,7 @@ struct TabBarView<TrailingAccessory: View>: View {
         let minW: CGFloat = 240
         let maxW: CGFloat = 380
         let longest = pane.tabs.reduce(CGFloat(0)) { acc, tab in
-            max(acc, measuredTitleWidth(tab.title, bold: pane.selectedTabId == tab.id))
+            max(acc, measuredTitleWidth(tab.displayedTitle(showOrdinals: appearance.showTabOrdinals), bold: pane.selectedTabId == tab.id))
         }
         // title + leading marker + trailing close + paddings
         return min(maxW, max(minW, longest + 96))
@@ -931,7 +931,7 @@ struct TabBarView<TrailingAccessory: View>: View {
     @ViewBuilder
     private func collapsedControlChip(_ tier: TabStripLayoutTier) -> some View {
         HStack(spacing: 6) {
-            Text(activeTab?.title ?? "")
+            Text(activeTab?.displayedTitle(showOrdinals: appearance.showTabOrdinals) ?? "")
                 .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -1056,7 +1056,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                 )
                 .frame(width: 7, height: 7)
 
-            Text(tab.title)
+            Text(tab.displayedTitle(showOrdinals: appearance.showTabOrdinals))
                 .font(.system(size: appearance.tabTitleFontSize + 1, weight: isSelected ? .semibold : .regular))
                 .lineLimit(1)
                 .truncationMode(.tail)

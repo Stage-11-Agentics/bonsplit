@@ -174,6 +174,39 @@ final class BonsplitTests: XCTestCase {
         XCTAssertNil(controller.tab(tabId)?.customColorHex)
     }
 
+    @MainActor
+    func testCreateTabWithDisplayOrdinalExposesValueToConsumer() {
+        let controller = BonsplitController()
+        let tabId = controller.createTab(title: "Numbered", icon: "doc", displayOrdinal: 292)!
+
+        XCTAssertEqual(controller.tab(tabId)?.displayOrdinal, 292)
+
+        // Default nil = "keep current" — an unrelated update must not clobber.
+        controller.updateTab(tabId, title: "Renamed")
+        XCTAssertEqual(controller.tab(tabId)?.displayOrdinal, 292)
+    }
+
+    func testDisplayedTitleAppliesOrdinalPrefixOnlyWhenEnabled() {
+        let numbered = TabItem(id: UUID(), title: "agent", displayOrdinal: 7)
+        let plain = TabItem(id: UUID(), title: "agent")
+
+        XCTAssertEqual(numbered.displayedTitle(showOrdinals: true), "7: agent")
+        XCTAssertEqual(numbered.displayedTitle(showOrdinals: false), "agent")
+        XCTAssertEqual(plain.displayedTitle(showOrdinals: true), "agent")
+        XCTAssertEqual(plain.displayedTitle(showOrdinals: false), "agent")
+    }
+
+    func testTabItemCodableRoundTripPreservesDisplayOrdinal() throws {
+        let original = TabItem(id: UUID(), title: "Round trip", displayOrdinal: 41)
+        let decoded = try JSONDecoder().decode(TabItem.self, from: JSONEncoder().encode(original))
+        XCTAssertEqual(decoded.displayOrdinal, 41)
+
+        // Nil ordinal must be omitted from JSON so legacy payloads stay decodable.
+        let withoutOrdinal = TabItem(id: UUID(), title: "Plain")
+        let json = try XCTUnwrap(String(data: JSONEncoder().encode(withoutOrdinal), encoding: .utf8))
+        XCTAssertFalse(json.contains("\"displayOrdinal\""))
+    }
+
     func testTabItemCodableRoundTripPreservesCustomColorHex() throws {
         let original = TabItem(
             id: UUID(),

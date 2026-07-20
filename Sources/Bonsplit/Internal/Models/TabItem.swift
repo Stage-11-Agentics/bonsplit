@@ -29,6 +29,9 @@ struct TabItem: Identifiable, Hashable, Codable {
     /// consumers that want a host-controlled identity marker can set this;
     /// rendering applies it as a restrained accent in the tab strip.
     var customColorHex: String?
+    /// Optional host-assigned tab number, rendered as an "N: " title prefix
+    /// when `Appearance.showTabOrdinals` is on.
+    var displayOrdinal: Int?
 
     init(
         id: UUID = UUID(),
@@ -41,7 +44,8 @@ struct TabItem: Identifiable, Hashable, Codable {
         showsNotificationBadge: Bool = false,
         isLoading: Bool = false,
         isPinned: Bool = false,
-        customColorHex: String? = nil
+        customColorHex: String? = nil,
+        displayOrdinal: Int? = nil
     ) {
         self.id = id
         self.title = title
@@ -54,6 +58,14 @@ struct TabItem: Identifiable, Hashable, Codable {
         self.isLoading = isLoading
         self.isPinned = isPinned
         self.customColorHex = customColorHex
+        self.displayOrdinal = displayOrdinal
+    }
+
+    /// Title as rendered in the tab strip: the ordinal prefix ("N: ") when the
+    /// appearance enables ordinals and the host assigned one, else the raw title.
+    func displayedTitle(showOrdinals: Bool) -> String {
+        guard showOrdinals, let ordinal = displayOrdinal else { return title }
+        return "\(ordinal): \(title)"
     }
 
     func hash(into hasher: inout Hasher) {
@@ -76,6 +88,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         case isLoading
         case isPinned
         case customColorHex
+        case displayOrdinal
     }
 
     init(from decoder: Decoder) throws {
@@ -91,6 +104,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         self.isLoading = try c.decodeIfPresent(Bool.self, forKey: .isLoading) ?? false
         self.isPinned = try c.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         self.customColorHex = try c.decodeIfPresent(String.self, forKey: .customColorHex)
+        self.displayOrdinal = try c.decodeIfPresent(Int.self, forKey: .displayOrdinal)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -106,6 +120,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         try c.encode(isLoading, forKey: .isLoading)
         try c.encode(isPinned, forKey: .isPinned)
         try c.encodeIfPresent(customColorHex, forKey: .customColorHex)
+        try c.encodeIfPresent(displayOrdinal, forKey: .displayOrdinal)
     }
 }
 
