@@ -191,6 +191,16 @@ final class BonsplitTests: XCTestCase {
         XCTAssertNil(controller.tab(tabId)?.activityState)
     }
 
+    func testActivityAccessibilityValuesCoverOverflowPresentationStates() {
+        XCTAssertFalse(TabActivityAccessibility.value(for: .running).isEmpty)
+        XCTAssertFalse(TabActivityAccessibility.value(for: .idle).isEmpty)
+        XCTAssertFalse(TabActivityAccessibility.value(for: .cold).isEmpty)
+        XCTAssertFalse(TabActivityAccessibility.value(for: .waiting).isEmpty)
+        XCTAssertTrue(TabActivityAccessibility.value(for: nil).isEmpty)
+        XCTAssertFalse(TabActivityAccessibility.help(for: .waiting).isEmpty)
+        XCTAssertTrue(TabActivityAccessibility.help(for: .running).isEmpty)
+    }
+
     @MainActor
     func testCreateTabWithDisplayOrdinalExposesValueToConsumer() {
         let controller = BonsplitController()

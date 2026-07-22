@@ -1101,6 +1101,8 @@ struct TabBarView<TrailingAccessory: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
+            .accessibilityValue(TabActivityAccessibility.value(for: tab.activityState))
+            .accessibilityHint(TabActivityAccessibility.help(for: tab.activityState))
 
             if !tab.isPinned {
                 Button {
@@ -1113,7 +1115,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                         DispatchQueue.main.async {
                             withTransaction(Transaction(animation: nil)) {
                                 if let selectedTabId {
-                                    pane.selectTab(selectedTabId)
+                                    controller.selectTab(TabID(id: selectedTabId))
                                 }
                             }
                         }

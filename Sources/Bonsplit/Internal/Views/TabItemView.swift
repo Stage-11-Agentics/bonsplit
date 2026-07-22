@@ -126,6 +126,32 @@ enum TabActivityMarkMetrics {
     }
 }
 
+enum TabActivityAccessibility {
+    static func value(for state: BonsplitTabActivityState?) -> String {
+        switch state {
+        case .running:
+            return localizedString("tab.activity.running", default: "Running")
+        case .idle:
+            return localizedString("tab.activity.idle", default: "Idle")
+        case .cold:
+            return localizedString("tab.activity.cold", default: "Cold")
+        case .waiting:
+            return localizedString("tab.activity.waiting", default: "Waiting for your response")
+        case nil:
+            return ""
+        }
+    }
+
+    static func help(for state: BonsplitTabActivityState?) -> String {
+        guard state == .waiting else { return "" }
+        return localizedString("tab.activity.waiting.help", default: "This surface needs your response.")
+    }
+
+    private static func localizedString(_ key: String, default value: String) -> String {
+        Bundle.module.localizedString(forKey: key, value: value, table: nil)
+    }
+}
+
 enum SimplifiedTabGeometry {
     static let unmarkedLeadingInset: CGFloat = 6
     static let closeHitSize = CGSize(width: 28, height: 29)
@@ -681,23 +707,12 @@ struct TabItemView: View {
     }
 
     private var activityAccessibilityValue: String? {
-        switch tab.activityState {
-        case .running:
-            return localizedString("tab.activity.running", default: "Running")
-        case .idle:
-            return localizedString("tab.activity.idle", default: "Idle")
-        case .cold:
-            return localizedString("tab.activity.cold", default: "Cold")
-        case .waiting:
-            return localizedString("tab.activity.waiting", default: "Waiting for your response")
-        case nil:
-            return nil
-        }
+        let value = TabActivityAccessibility.value(for: tab.activityState)
+        return value.isEmpty ? nil : value
     }
 
     private var activityAccessibilityHelp: String {
-        guard tab.activityState == .waiting else { return "" }
-        return localizedString("tab.activity.waiting.help", default: "This surface needs your response.")
+        TabActivityAccessibility.help(for: tab.activityState)
     }
 
     @ViewBuilder
