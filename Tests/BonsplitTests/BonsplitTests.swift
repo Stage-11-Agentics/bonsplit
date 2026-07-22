@@ -122,6 +122,22 @@ final class BonsplitTests: XCTestCase {
         }
     }
 
+    private final class VetoedBackgroundCloseDelegateSpy: BonsplitDelegate {
+        let closingTabId: TabID
+
+        init(closingTabId: TabID) {
+            self.closingTabId = closingTabId
+        }
+
+        @MainActor
+        func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+            DispatchQueue.main.async {
+                controller.selectTab(self.closingTabId)
+            }
+            return false
+        }
+    }
+
     @MainActor
     func testControllerCreation() {
         let controller = BonsplitController()
@@ -219,9 +235,20 @@ final class BonsplitTests: XCTestCase {
         XCTAssertFalse(TabActivityAccessibility.help(for: .waiting).isEmpty)
         XCTAssertTrue(TabActivityAccessibility.help(for: .running).isEmpty)
         XCTAssertTrue(
-            CollapsedTabAccessibility.value(tabCount: 7, activityState: .running)
+            CollapsedTabAccessibility.value(
+                tabCount: 7,
+                activityState: .running,
+                hasBackgroundWaiting: false
+            )
                 .contains(TabActivityAccessibility.value(for: .running))
         )
+        let hiddenWaitingValue = CollapsedTabAccessibility.value(
+            tabCount: 7,
+            activityState: .idle,
+            hasBackgroundWaiting: true
+        )
+        XCTAssertTrue(hiddenWaitingValue.contains(TabActivityAccessibility.value(for: .idle)))
+        XCTAssertTrue(hiddenWaitingValue.contains(TabActivityAccessibility.value(for: .waiting)))
     }
 
     @MainActor
@@ -264,6 +291,46 @@ final class BonsplitTests: XCTestCase {
         XCTAssertNil(controller.tab(closingTabId))
         XCTAssertEqual(controller.selectedTab(inPane: pane.id)?.id, selectedTabId)
         XCTAssertEqual(delegate.selectedTabIds.last, selectedTabId)
+    }
+
+    @MainActor
+    func testRenderedCollapsedCloseLeavesVetoedConfirmationSelectionAlone() throws {
+        let controller = BonsplitController()
+        let pane = try XCTUnwrap(controller.internalController.rootNode.allPanes.first)
+        let selectedTabId = try XCTUnwrap(controller.createTab(title: "Selected"))
+        let closingTabId = try XCTUnwrap(controller.createTab(title: "Needs confirmation"))
+        controller.selectTab(selectedTabId)
+
+        let delegate = VetoedBackgroundCloseDelegateSpy(closingTabId: closingTabId)
+        controller.delegate = delegate
+        let closingTab = try XCTUnwrap(pane.tabs.first { $0.id == closingTabId.id })
+        let hostingView = NSHostingView(rootView: CollapsedTabCloseButton(
+            tab: closingTab,
+            pane: pane,
+            controller: controller,
+            appearance: .default
+        ))
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: SimplifiedTabGeometry.closeHitSize),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        hostingView.frame = contentView.bounds
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+        pumpLayout(hostingView) { hostingView.fittingSize.width > 0 }
+
+        try sendLeftMouseClick(
+            in: hostingView,
+            at: NSPoint(x: hostingView.bounds.midX, y: hostingView.bounds.midY)
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNotNil(controller.tab(closingTabId))
+        XCTAssertEqual(controller.selectedTab(inPane: pane.id)?.id, closingTabId)
     }
 
     @MainActor

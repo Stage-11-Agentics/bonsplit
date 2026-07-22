@@ -320,10 +320,20 @@ private enum TabStripLayoutTier {
 }
 
 enum CollapsedTabAccessibility {
-    static func value(tabCount: Int, activityState: BonsplitTabActivityState?) -> String {
+    static func value(
+        tabCount: Int,
+        activityState: BonsplitTabActivityState?,
+        hasBackgroundWaiting: Bool
+    ) -> String {
+        var parts = ["\(tabCount) tabs"]
         let activity = TabActivityAccessibility.value(for: activityState)
-        guard !activity.isEmpty else { return "\(tabCount) tabs" }
-        return "\(tabCount) tabs, \(activity)"
+        if !activity.isEmpty {
+            parts.append(activity)
+        }
+        if hasBackgroundWaiting, activityState != .waiting {
+            parts.append(TabActivityAccessibility.value(for: .waiting))
+        }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -336,11 +346,12 @@ struct CollapsedTabCloseButton: View {
     var body: some View {
         Button {
             let selectedTabId = pane.selectedTabId
+            var didClose = false
             withTransaction(Transaction(animation: nil)) {
                 controller.onTabCloseRequest?(TabID(id: tab.id), pane.id)
-                _ = controller.closeTab(TabID(id: tab.id), inPane: pane.id)
+                didClose = controller.closeTab(TabID(id: tab.id), inPane: pane.id)
             }
-            if selectedTabId != tab.id {
+            if didClose, selectedTabId != tab.id {
                 DispatchQueue.main.async {
                     withTransaction(Transaction(animation: nil)) {
                         if let selectedTabId {
@@ -800,6 +811,11 @@ struct TabBarView<TrailingAccessory: View>: View {
         }
     }
 
+    private var hasBackgroundWaiting: Bool {
+        let activeId = activeTab?.id
+        return pane.tabs.contains { $0.id != activeId && $0.activityState == .waiting }
+    }
+
     private func measuredTitleWidth(_ title: String, bold: Bool) -> CGFloat {
         let weight: NSFont.Weight = bold ? .semibold : .regular
         let font = NSFont.systemFont(ofSize: appearance.tabTitleFontSize, weight: weight)
@@ -1032,9 +1048,12 @@ struct TabBarView<TrailingAccessory: View>: View {
         .accessibilityLabel("Show all tabs")
         .accessibilityValue(CollapsedTabAccessibility.value(
             tabCount: pane.tabs.count,
-            activityState: activeTab?.activityState
+            activityState: activeTab?.activityState,
+            hasBackgroundWaiting: hasBackgroundWaiting
         ))
-        .accessibilityHint(TabActivityAccessibility.help(for: activeTab?.activityState))
+        .accessibilityHint(TabActivityAccessibility.help(
+            for: activeTab?.activityState == .waiting || hasBackgroundWaiting ? .waiting : nil
+        ))
         .popover(isPresented: $isDropdownOpen, arrowEdge: .bottom) {
             if tier == .narrow {
                 collapsedDropdownContent      // controls row + tab list
