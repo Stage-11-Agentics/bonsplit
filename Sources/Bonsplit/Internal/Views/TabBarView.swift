@@ -1104,9 +1104,19 @@ struct TabBarView<TrailingAccessory: View>: View {
 
             if !tab.isPinned {
                 Button {
+                    let selectedTabId = pane.selectedTabId
                     withTransaction(Transaction(animation: nil)) {
                         controller.onTabCloseRequest?(TabID(id: tab.id), pane.id)
                         _ = controller.closeTab(TabID(id: tab.id), inPane: pane.id)
+                    }
+                    if selectedTabId != tab.id {
+                        DispatchQueue.main.async {
+                            withTransaction(Transaction(animation: nil)) {
+                                if let selectedTabId {
+                                    pane.selectTab(selectedTabId)
+                                }
+                            }
+                        }
                     }
                 } label: {
                     Text("×")
