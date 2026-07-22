@@ -135,15 +135,27 @@ enum SimplifiedTabGeometry {
 struct TabActivityMark: View {
     let state: BonsplitTabActivityState
     let appearance: BonsplitConfiguration.Appearance
+    private let reduceMotionOverride: Bool?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    init(
+        state: BonsplitTabActivityState,
+        appearance: BonsplitConfiguration.Appearance,
+        reduceMotionOverride: Bool? = nil
+    ) {
+        self.state = state
+        self.appearance = appearance
+        self.reduceMotionOverride = reduceMotionOverride
+    }
+
     var body: some View {
         let size = TabActivityMarkMetrics.visibleSize(for: state)
+        let shouldReduceMotion = reduceMotionOverride ?? reduceMotion
         Group {
             switch state {
             case .running:
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { context in
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: shouldReduceMotion)) { context in
                     Circle()
                         .stroke(TabBarColors.activity(.running, for: appearance).opacity(0.38), lineWidth: 1)
                         .overlay {
@@ -152,7 +164,7 @@ struct TabActivityMark: View {
                                 .stroke(TabBarColors.activity(.running, for: appearance), lineWidth: 1)
                         }
                         .rotationEffect(
-                            reduceMotion
+                            shouldReduceMotion
                                 ? .zero
                                 : .degrees(context.date.timeIntervalSinceReferenceDate
                                     .truncatingRemainder(dividingBy: 2.4) / 2.4 * 360)

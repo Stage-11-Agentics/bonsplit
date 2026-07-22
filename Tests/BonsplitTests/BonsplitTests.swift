@@ -1330,6 +1330,37 @@ final class BonsplitTests: XCTestCase {
     }
 
     @MainActor
+    func testRunningActivityMarkStopsAnimatingWithReduceMotion() throws {
+        let hostingView = NSHostingView(
+            rootView: ZStack {
+                Color.black
+                TabActivityMark(state: .running, appearance: .default, reduceMotionOverride: true)
+            }
+            .frame(width: 24, height: 24)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 24, height: 24),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            return XCTFail("Expected window content view")
+        }
+        hostingView.frame = contentView.bounds
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+        pumpLayout(hostingView, until: { hostingView.fittingSize.width > 0 })
+
+        let firstFrame = try XCTUnwrap(renderedBitmapData(in: hostingView))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        let secondFrame = try XCTUnwrap(renderedBitmapData(in: hostingView))
+
+        XCTAssertEqual(firstFrame, secondFrame)
+    }
+
+    @MainActor
     func testTrailingCloseClosesUnselectedTabWithoutSelectingIt() throws {
         let appearance = BonsplitConfiguration.Appearance(
             tabMinWidth: 200,
@@ -1815,6 +1846,16 @@ final class BonsplitTests: XCTestCase {
               x < bitmap.pixelsWide,
               y < bitmap.pixelsHigh else { return nil }
         return bitmap.colorAt(x: x, y: y)
+    }
+
+    @MainActor
+    private func renderedBitmapData(in view: NSView) -> Data? {
+        let integralBounds = view.bounds.integral
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: integralBounds) else { return nil }
+        bitmap.size = integralBounds.size
+        view.cacheDisplay(in: integralBounds, to: bitmap)
+        guard let bitmapData = bitmap.bitmapData else { return nil }
+        return Data(bytes: bitmapData, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
     }
 
     @MainActor
