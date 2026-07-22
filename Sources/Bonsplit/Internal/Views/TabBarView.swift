@@ -1059,35 +1059,48 @@ struct TabBarView<TrailingAccessory: View>: View {
     @ViewBuilder
     private func collapsedTabRow(_ tab: TabItem) -> some View {
         let isSelected = pane.selectedTabId == tab.id
-        HStack(spacing: 8) {
-            ZStack {
-                if let state = tab.activityState {
-                    TabActivityMark(state: state, appearance: appearance)
-                } else {
-                    Circle()
-                        .fill(
-                            isSelected
-                                ? TabBarColors.activeIndicator(for: appearance)
-                                : ((tab.showsNotificationBadge || tab.isDirty)
-                                    ? TabBarColors.notificationBadge(for: appearance)
-                                    : Color.clear)
-                        )
-                        .frame(width: 7, height: 7)
+        HStack(spacing: 0) {
+            Button {
+                withTransaction(Transaction(animation: nil)) {
+                    pane.selectTab(tab.id)
+                    controller.focusPane(pane.id)
                 }
+                isDropdownOpen = false
+            } label: {
+                HStack(spacing: 8) {
+                    ZStack {
+                        if let state = tab.activityState {
+                            TabActivityMark(state: state, appearance: appearance)
+                        } else {
+                            Circle()
+                                .fill(
+                                    isSelected
+                                        ? TabBarColors.activeIndicator(for: appearance)
+                                        : ((tab.showsNotificationBadge || tab.isDirty)
+                                            ? TabBarColors.notificationBadge(for: appearance)
+                                            : Color.clear)
+                                )
+                                .frame(width: 7, height: 7)
+                        }
+                    }
+                    .frame(width: 17, height: 17)
+
+                    Text(tab.displayedTitle(showOrdinals: appearance.showTabOrdinals))
+                        .font(.system(size: appearance.tabTitleFontSize + 1, weight: isSelected ? .semibold : .regular))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(
+                            isSelected
+                                ? TabBarColors.activeText(for: appearance)
+                                : TabBarColors.inactiveText(for: appearance)
+                        )
+
+                    Spacer(minLength: 8)
+                }
+                .contentShape(Rectangle())
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(width: 17, height: 17)
-
-            Text(tab.displayedTitle(showOrdinals: appearance.showTabOrdinals))
-                .font(.system(size: appearance.tabTitleFontSize + 1, weight: isSelected ? .semibold : .regular))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(
-                    isSelected
-                        ? TabBarColors.activeText(for: appearance)
-                        : TabBarColors.inactiveText(for: appearance)
-                )
-
-            Spacer(minLength: 8)
+            .buttonStyle(.plain)
 
             if !tab.isPinned {
                 Button {
@@ -1118,13 +1131,6 @@ struct TabBarView<TrailingAccessory: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(isSelected ? TabBarColors.activeTabBackground(for: appearance) : Color.clear)
         .contentShape(Rectangle())
-        .onTapGesture {
-            withTransaction(Transaction(animation: nil)) {
-                pane.selectTab(tab.id)
-                controller.focusPane(pane.id)
-            }
-            isDropdownOpen = false
-        }
         .onDrag { createItemProvider(for: tab) }
     }
 
