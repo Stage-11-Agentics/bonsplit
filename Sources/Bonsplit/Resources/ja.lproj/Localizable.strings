@@ -5,3 +5,8 @@
 "command.tabColor.title" = "タブカラー";
 "command.tabColor.clearColor" = "カラーをクリア";
 "command.tabColor.chooseCustom" = "カスタムカラーを選択…";
+"tab.activity.running" = "実行中";
+"tab.activity.idle" = "アイドル";
+"tab.activity.cold" = "コールド";
+"tab.activity.waiting" = "応答を待っています";
+"tab.activity.waiting.help" = "このサーフェスには応答が必要です。";

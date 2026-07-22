@@ -729,7 +729,9 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// Value the collapse decision depends on, beyond raw width: the set of tab
     /// titles plus the active selection. Recompute the mode when any change.
     private var collapseDecisionSignature: [String] {
-        pane.tabs.map { "\($0.id.uuidString)\u{1}\($0.displayedTitle(showOrdinals: appearance.showTabOrdinals))" }
+        pane.tabs.map {
+            "\($0.id.uuidString)\u{1}\($0.displayedTitle(showOrdinals: appearance.showTabOrdinals))\u{1}\($0.activityState?.rawValue ?? "-")"
+        }
             + ["sel:\(pane.selectedTabId?.uuidString ?? "-")"]
     }
 
@@ -743,7 +745,10 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// Any non-active tab asking for attention (unread/activity or dirty).
     private var hasBackgroundActivity: Bool {
         let activeId = activeTab?.id
-        return pane.tabs.contains { $0.id != activeId && ($0.showsNotificationBadge || $0.isDirty) }
+        return pane.tabs.contains {
+            $0.id != activeId
+                && ($0.activityState == .waiting || $0.showsNotificationBadge || $0.isDirty)
+        }
     }
 
     private func measuredTitleWidth(_ title: String, bold: Bool) -> CGFloat {
@@ -752,11 +757,12 @@ struct TabBarView<TrailingAccessory: View>: View {
         return ceil((title as NSString).size(withAttributes: [.font: font]).width)
     }
 
-    /// Fixed (non-title) horizontal cost of one tab in the strip: leading close
-    /// affordance + content spacing + horizontal padding on both sides.
-    private var perTabFixedCost: CGFloat {
-        let closeSlot = appearance.tabCloseIconSize + 10
-        return appearance.tabHorizontalPadding * 2 + appearance.tabContentSpacing + closeSlot
+    private func perTabFixedCost(for tab: TabItem) -> CGFloat {
+        let leading = tab.activityState.map(TabActivityMarkMetrics.leadingAccessoryWidth)
+            ?? SimplifiedTabGeometry.unmarkedLeadingInset
+        return leading
+            + SimplifiedTabGeometry.closeHitSize.width
+            + SimplifiedTabGeometry.closeTrailingInset
     }
 
     /// Estimated width of the trailing chrome cluster (surface-spawn + split +
@@ -794,7 +800,11 @@ struct TabBarView<TrailingAccessory: View>: View {
         let maxW = appearance.tabMaxWidth
         var total: CGFloat = 0
         for tab in pane.tabs {
-            let natural = perTabFixedCost + measuredTitleWidth(tab.displayedTitle(showOrdinals: appearance.showTabOrdinals), bold: pane.selectedTabId == tab.id)
+            let natural = perTabFixedCost(for: tab)
+                + measuredTitleWidth(
+                    tab.displayedTitle(showOrdinals: appearance.showTabOrdinals),
+                    bold: pane.selectedTabId == tab.id
+                )
             total += min(maxW, max(floor, natural))
         }
         if pane.tabs.count > 1 {
@@ -931,6 +941,10 @@ struct TabBarView<TrailingAccessory: View>: View {
     @ViewBuilder
     private func collapsedControlChip(_ tier: TabStripLayoutTier) -> some View {
         HStack(spacing: 6) {
+            if let state = activeTab?.activityState {
+                TabActivityMark(state: state, appearance: appearance)
+            }
+
             Text(activeTab?.displayedTitle(showOrdinals: appearance.showTabOrdinals) ?? "")
                 .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
                 .lineLimit(1)
@@ -1046,15 +1060,22 @@ struct TabBarView<TrailingAccessory: View>: View {
     private func collapsedTabRow(_ tab: TabItem) -> some View {
         let isSelected = pane.selectedTabId == tab.id
         HStack(spacing: 8) {
-            Circle()
-                .fill(
-                    isSelected
-                        ? TabBarColors.activeIndicator(for: appearance)
-                        : ((tab.showsNotificationBadge || tab.isDirty)
-                            ? TabBarColors.notificationBadge(for: appearance)
-                            : Color.clear)
-                )
-                .frame(width: 7, height: 7)
+            ZStack {
+                if let state = tab.activityState {
+                    TabActivityMark(state: state, appearance: appearance)
+                } else {
+                    Circle()
+                        .fill(
+                            isSelected
+                                ? TabBarColors.activeIndicator(for: appearance)
+                                : ((tab.showsNotificationBadge || tab.isDirty)
+                                    ? TabBarColors.notificationBadge(for: appearance)
+                                    : Color.clear)
+                        )
+                        .frame(width: 7, height: 7)
+                }
+            }
+            .frame(width: 17, height: 17)
 
             Text(tab.displayedTitle(showOrdinals: appearance.showTabOrdinals))
                 .font(.system(size: appearance.tabTitleFontSize + 1, weight: isSelected ? .semibold : .regular))
@@ -1075,14 +1096,21 @@ struct TabBarView<TrailingAccessory: View>: View {
                         _ = controller.closeTab(TabID(id: tab.id), inPane: pane.id)
                     }
                 } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: appearance.tabCloseIconSize, weight: .semibold))
+                    Text("×")
+                        .font(.system(size: 12, weight: .regular))
                         .foregroundStyle(TabBarColors.inactiveText(for: appearance))
-                        .frame(width: 18, height: 18)
+                        .frame(
+                            width: SimplifiedTabGeometry.closeHitSize.width,
+                            height: SimplifiedTabGeometry.closeHitSize.height
+                        )
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Close tab")
+                .accessibilityLabel(Bundle.module.localizedString(
+                    forKey: "command.closeTab.title",
+                    value: "Close Tab",
+                    table: nil
+                ))
             }
         }
         .padding(.horizontal, 10)

@@ -175,6 +175,23 @@ final class BonsplitTests: XCTestCase {
     }
 
     @MainActor
+    func testCreateAndUpdateTabActivityState() {
+        let controller = BonsplitController()
+        let tabId = controller.createTab(title: "Agent", activityState: .running)!
+
+        XCTAssertEqual(controller.tab(tabId)?.activityState, .running)
+
+        controller.updateTab(tabId, activityState: .some(.waiting))
+        XCTAssertEqual(controller.tab(tabId)?.activityState, .waiting)
+
+        controller.updateTab(tabId, title: "Still waiting")
+        XCTAssertEqual(controller.tab(tabId)?.activityState, .waiting)
+
+        controller.updateTab(tabId, activityState: .some(nil))
+        XCTAssertNil(controller.tab(tabId)?.activityState)
+    }
+
+    @MainActor
     func testCreateTabWithDisplayOrdinalExposesValueToConsumer() {
         let controller = BonsplitController()
         let tabId = controller.createTab(title: "Numbered", icon: "doc", displayOrdinal: 292)!
@@ -205,6 +222,17 @@ final class BonsplitTests: XCTestCase {
         let withoutOrdinal = TabItem(id: UUID(), title: "Plain")
         let json = try XCTUnwrap(String(data: JSONEncoder().encode(withoutOrdinal), encoding: .utf8))
         XCTAssertFalse(json.contains("\"displayOrdinal\""))
+    }
+
+    func testTabItemCodablePreservesOptionalActivityState() throws {
+        let active = TabItem(id: UUID(), title: "Agent", activityState: .idle)
+        let decoded = try JSONDecoder().decode(TabItem.self, from: JSONEncoder().encode(active))
+        XCTAssertEqual(decoded.activityState, .idle)
+
+        let legacy = TabItem(id: UUID(), title: "Terminal")
+        let legacyJSON = try JSONEncoder().encode(legacy)
+        XCTAssertNil(try JSONDecoder().decode(TabItem.self, from: legacyJSON).activityState)
+        XCTAssertFalse(try XCTUnwrap(String(data: legacyJSON, encoding: .utf8)).contains("\"activityState\""))
     }
 
     func testTabItemCodableRoundTripPreservesCustomColorHex() throws {
@@ -765,6 +793,20 @@ final class BonsplitTests: XCTestCase {
     }
 
     @MainActor
+    func testSplitPanePreservesActivityState() {
+        let controller = BonsplitController()
+        _ = controller.createTab(title: "Base")
+        let sourcePaneId = controller.focusedPaneId!
+        let waitingTab = Bonsplit.Tab(title: "Waiting", activityState: .waiting)
+
+        guard let newPaneId = controller.splitPane(sourcePaneId, orientation: .horizontal, withTab: waitingTab) else {
+            return XCTFail("Expected splitPane to return new pane")
+        }
+
+        XCTAssertEqual(controller.tabs(inPane: newPaneId).first?.activityState, .waiting)
+    }
+
+    @MainActor
     func testSplitPaneWithInsertSidePreservesCustomTitleFlag() {
         let controller = BonsplitController()
         _ = controller.createTab(title: "Base")
@@ -1256,6 +1298,107 @@ final class BonsplitTests: XCTestCase {
 
         XCTAssertEqual(range.lowerBound, 112)
         XCTAssertEqual(range.upperBound, 112)
+    }
+
+    func testActivityMarksAndTrailingCloseUseLockedGeometry() {
+        XCTAssertEqual(TabActivityMarkMetrics.visibleSize(for: .running), 10)
+        XCTAssertEqual(TabActivityMarkMetrics.visibleSize(for: .idle), 8)
+        XCTAssertEqual(TabActivityMarkMetrics.visibleSize(for: .cold), 6)
+        XCTAssertEqual(TabActivityMarkMetrics.visibleSize(for: .waiting), 17)
+        XCTAssertEqual(SimplifiedTabGeometry.closeHitSize.width, 28)
+        XCTAssertEqual(SimplifiedTabGeometry.closeHitSize.height, 29)
+        XCTAssertGreaterThanOrEqual(SimplifiedTabGeometry.closeHitSize.width, 28)
+        XCTAssertGreaterThanOrEqual(SimplifiedTabGeometry.closeHitSize.height, 29)
+    }
+
+    func testActivityColorsUseHostOverrides() {
+        let appearance = BonsplitConfiguration.Appearance(
+            tabActivityColors: .init(
+                runningHex: "#326D9E",
+                idleHex: "#357B61",
+                coldHex: "#7F8289",
+                waitingHex: "#9B7415",
+                waitingInkHex: "#FFFDF8"
+            )
+        )
+
+        XCTAssertEqual(TabBarColors.activity(.running, for: appearance), Color(nsColor: NSColor(bonsplitHex: "#326D9E")!))
+        XCTAssertEqual(TabBarColors.activity(.idle, for: appearance), Color(nsColor: NSColor(bonsplitHex: "#357B61")!))
+        XCTAssertEqual(TabBarColors.activity(.cold, for: appearance), Color(nsColor: NSColor(bonsplitHex: "#7F8289")!))
+        XCTAssertEqual(TabBarColors.activity(.waiting, for: appearance), Color(nsColor: NSColor(bonsplitHex: "#9B7415")!))
+        XCTAssertEqual(TabBarColors.waitingInk(for: appearance), Color(nsColor: NSColor(bonsplitHex: "#FFFDF8")!))
+    }
+
+    @MainActor
+    func testTrailingCloseClosesUnselectedTabWithoutSelectingIt() throws {
+        let appearance = BonsplitConfiguration.Appearance(
+            tabMinWidth: 200,
+            tabMaxWidth: 200,
+            tabItemHeight: 29
+        )
+        let tab = TabItem(title: "Background build", activityState: .running)
+        var selectionCount = 0
+        var closeCount = 0
+        let contextMenuState = TabContextMenuState(
+            isPinned: false,
+            isUnread: false,
+            isBrowser: false,
+            isTerminal: true,
+            hasCustomTitle: false,
+            hasCustomColor: false,
+            canCloseToLeft: false,
+            canCloseToRight: false,
+            canCloseOthers: false,
+            canMoveToLeftPane: false,
+            canMoveToRightPane: false,
+            isZoomed: false,
+            hasSplits: false,
+            shortcuts: [:],
+            tabColorPalette: [],
+            surfaceRef: nil
+        )
+        let hostingView = NSHostingView(rootView: TabItemView(
+            tab: tab,
+            isSelected: false,
+            showsZoomIndicator: false,
+            appearance: appearance,
+            saturation: 1,
+            controlShortcutDigit: nil,
+            showsControlShortcutHint: false,
+            shortcutModifierSymbol: "⌃",
+            contextMenuState: contextMenuState,
+            useSimplifiedTabUX: true,
+            flashGeneration: 0,
+            onSelect: { selectionCount += 1 },
+            onClose: { closeCount += 1 },
+            onZoomToggle: {},
+            onContextAction: { _ in },
+            onSetTabColor: { _ in }
+        ))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 29),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            return XCTFail("Expected window content view")
+        }
+        hostingView.frame = contentView.bounds
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+        pumpLayout(hostingView, until: { hostingView.fittingSize.width > 0 })
+
+        let closeCenter = NSPoint(
+            x: hostingView.bounds.maxX - SimplifiedTabGeometry.closeTrailingInset - SimplifiedTabGeometry.closeHitSize.width / 2,
+            y: hostingView.bounds.midY
+        )
+        try sendLeftMouseClick(in: hostingView, at: closeCenter)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(closeCount, 1)
+        XCTAssertEqual(selectionCount, 0)
     }
 
     func testTabBarSeparatorSegmentsClampGapIntoBounds() {

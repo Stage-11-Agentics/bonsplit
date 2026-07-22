@@ -99,6 +99,87 @@ enum TabItemStyling {
     }
 }
 
+enum TabActivityMarkMetrics {
+    static func visibleSize(for state: BonsplitTabActivityState) -> CGFloat {
+        switch state {
+        case .running: return 10
+        case .idle: return 8
+        case .cold: return 6
+        case .waiting: return 17
+        }
+    }
+
+    static func leadingEdgeInset(for state: BonsplitTabActivityState) -> CGFloat {
+        switch state {
+        case .running, .waiting: return 4
+        case .idle: return 5
+        case .cold: return 6
+        }
+    }
+
+    static func titleSpacing(for state: BonsplitTabActivityState) -> CGFloat {
+        leadingEdgeInset(for: state)
+    }
+
+    static func leadingAccessoryWidth(for state: BonsplitTabActivityState) -> CGFloat {
+        leadingEdgeInset(for: state) + visibleSize(for: state) + titleSpacing(for: state)
+    }
+}
+
+enum SimplifiedTabGeometry {
+    static let unmarkedLeadingInset: CGFloat = 6
+    static let closeHitSize = CGSize(width: 28, height: 29)
+    static let closeTrailingInset: CGFloat = 3
+}
+
+struct TabActivityMark: View {
+    let state: BonsplitTabActivityState
+    let appearance: BonsplitConfiguration.Appearance
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let size = TabActivityMarkMetrics.visibleSize(for: state)
+        Group {
+            switch state {
+            case .running:
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { context in
+                    Circle()
+                        .stroke(TabBarColors.activity(.running, for: appearance).opacity(0.38), lineWidth: 1)
+                        .overlay {
+                            Circle()
+                                .trim(from: 0, to: 0.28)
+                                .stroke(TabBarColors.activity(.running, for: appearance), lineWidth: 1)
+                        }
+                        .rotationEffect(
+                            reduceMotion
+                                ? .zero
+                                : .degrees(context.date.timeIntervalSinceReferenceDate
+                                    .truncatingRemainder(dividingBy: 2.4) / 2.4 * 360)
+                        )
+                }
+            case .idle:
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(TabBarColors.activity(.idle, for: appearance).opacity(0.82))
+            case .cold:
+                Circle()
+                    .fill(TabBarColors.activity(.cold, for: appearance).opacity(0.48))
+            case .waiting:
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(TabBarColors.activity(.waiting, for: appearance))
+                    .overlay {
+                        Text("W")
+                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                            .foregroundStyle(TabBarColors.waitingInk(for: appearance))
+                            .frame(width: size, height: size, alignment: .center)
+                    }
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
 /// Individual tab view with icon, title, close button, and dirty indicator
 struct TabItemView: View {
     let tab: TabItem
@@ -110,7 +191,7 @@ struct TabItemView: View {
     let showsControlShortcutHint: Bool
     let shortcutModifierSymbol: String
     let contextMenuState: TabContextMenuState
-    /// Render the always-visible close X on the leading edge of the tab,
+    /// Render the always-visible close X on the trailing edge of the tab,
     /// and collapse the right-click menu to Close Tab / Close Pane.
     /// Hosts that want the legacy hover-trailing X + full menu leave this
     /// off (default behaviour for new embedders).
@@ -141,13 +222,66 @@ struct TabItemView: View {
     @AppStorage(TabControlShortcutHintDebugSettings.alwaysShowKey) private var alwaysShowShortcutHints = TabControlShortcutHintDebugSettings.defaultAlwaysShow
 
     var body: some View {
-        HStack(spacing: useSimplifiedTabUX ? appearance.tabContentSpacing : 0) {
-            // C11-26: when simplified UX is on, anchor the close X on the
-            // left edge of the tab so it's never eaten by an adjacent pane
-            // separator and never scrolls off-screen with long titles. The
-            // legacy trailing close (hover-only) is suppressed below.
+        accessibleTabContent
+    }
+
+    private var laidOutTabContent: some View {
+        tabContent
+            .padding(.leading, useSimplifiedTabUX ? 0 : appearance.tabHorizontalPadding)
+            .padding(.trailing, useSimplifiedTabUX ? SimplifiedTabGeometry.closeTrailingInset : appearance.tabHorizontalPadding)
+            .offset(y: isSelected ? 0.5 : 0)
+            .frame(
+                minWidth: tabWidthRange.lowerBound,
+                maxWidth: tabWidthRange.upperBound,
+                minHeight: appearance.tabItemHeight,
+                maxHeight: appearance.tabItemHeight
+            )
+            .padding(.bottom, isSelected ? 1 : 0)
+            .background(tabBackground.saturation(saturation))
+            .overlay {
+                Rectangle()
+                    .fill(TabBarColors.activeIndicator(for: appearance).opacity(flashOpacity))
+                    .allowsHitTesting(false)
+            }
+    }
+
+    private var interactiveTabContent: some View {
+        laidOutTabContent
+            .onChange(of: flashGeneration) { _, newValue in
+                guard newValue > 0, newValue != lastObservedFlashGeneration else { return }
+                lastObservedFlashGeneration = newValue
+                runFlashAnimation(generation: newValue)
+            }
+            .animation(.easeInOut(duration: 0.14), value: showsShortcutHint)
+            .contentShape(Rectangle())
+            .background(MiddleClickMonitorView(onMiddleClick: {
+                guard !tab.isPinned else { return }
+                onClose()
+            }))
+            .onTapGesture {
+                onSelect()
+            }
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .contextMenu {
+                contextMenuContent
+            }
+    }
+
+    private var accessibleTabContent: some View {
+        interactiveTabContent
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(tab.title)
+            .accessibilityValue(accessibilityValue)
+            .accessibilityHint(activityAccessibilityHelp)
+            .accessibilityAddTraits(accessibilityTraits)
+    }
+
+    private var tabContent: some View {
+        HStack(spacing: 0) {
             if useSimplifiedTabUX {
-                leadingCloseAccessory
+                leadingActivityAccessory
             }
             // Icon + title block uses the standard spacing, but keep the close affordance tight.
             HStack(spacing: appearance.tabContentSpacing) {
@@ -157,11 +291,8 @@ struct TabItemView: View {
                     : TabBarColors.inactiveText(for: appearance)
                 let faviconImage = renderedFaviconImage ?? tab.iconImageData.flatMap { NSImage(data: $0) }
 
-                // C11-26: the simplified UX drops the per-tab leading icon
-                // (terminal/markdown/browser glyph and favicons) and gives
-                // that space to a bigger close X. Operators reported the
-                // per-surface-type glyph wasn't a useful identifier; the
-                // title is what they read.
+                // Simplified tabs reserve the leading slot for host activity
+                // state instead of per-surface glyphs and favicons.
                 if !useSimplifiedTabUX {
                     Group {
                         if tab.isLoading {
@@ -251,60 +382,20 @@ struct TabItemView: View {
 
             Spacer(minLength: 0)
 
-            // Close button / dirty indicator / shortcut hint share the same trailing slot.
-            trailingAccessory
+            if useSimplifiedTabUX {
+                simplifiedTrailingAccessory
+            } else {
+                trailingAccessory
+            }
         }
-        .padding(.horizontal, appearance.tabHorizontalPadding)
-        .offset(y: isSelected ? 0.5 : 0)
-        .frame(
-            minWidth: tabWidthRange.lowerBound,
-            maxWidth: tabWidthRange.upperBound,
-            minHeight: appearance.tabItemHeight,
-            maxHeight: appearance.tabItemHeight
-        )
-        .padding(.bottom, isSelected ? 1 : 0)
-        .background(tabBackground.saturation(saturation))
-        .overlay {
-            // Visual-only flash layer. Tinted accent fill that reads through
-            // both selected and inactive tab backgrounds. `allowsHitTesting`
-            // is false so the pulse never intercepts clicks.
-            Rectangle()
-                .fill(TabBarColors.activeIndicator(for: appearance).opacity(flashOpacity))
-                .allowsHitTesting(false)
-        }
-        .onChange(of: flashGeneration) { _, newValue in
-            // The parent only delivers a non-zero generation to the targeted
-            // tab; siblings stay at 0 and never animate.
-            guard newValue > 0, newValue != lastObservedFlashGeneration else { return }
-            lastObservedFlashGeneration = newValue
-            runFlashAnimation(generation: newValue)
-        }
-        .animation(.easeInOut(duration: 0.14), value: showsShortcutHint)
-        .contentShape(Rectangle())
-        // Middle click to close (macOS convention).
-        // Uses an AppKit event monitor so it doesn't interfere with left click selection or drag/reorder.
-        .background(MiddleClickMonitorView(onMiddleClick: {
-            guard !tab.isPinned else { return }
-            onClose()
-        }))
-        .onTapGesture {
-            onSelect()
-        }
-        .onHover { hovering in
-            // Keep icon rendering stable while hovering; only accessory/background elements animate.
-            isHovered = hovering
-        }
-        .contextMenu {
-            contextMenuContent
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(tab.title)
-        .accessibilityValue(accessibilityValue)
-        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     private var tabWidthRange: ClosedRange<CGFloat> {
         TabItemStyling.widthRange(for: appearance)
+    }
+
+    private var accessibilityTraits: AccessibilityTraits {
+        isSelected ? [.isButton, .isSelected] : .isButton
     }
 
     private func runFlashAnimation(generation: Int) {
@@ -376,49 +467,111 @@ struct TabItemView: View {
         return ceil(textWidth) + 8
     }
 
-    /// C11-26: left-anchored, always-visible close button. Rendered only
-    /// when `useSimplifiedTabUX` is true. Pinned and non-closeable tabs
-    /// render an empty frame so the title block stays aligned across tabs.
-    /// Sized to fill the visual space the per-tab icon used to occupy
-    /// (which simplified mode also drops) — glyph at `tabIconSize`, slot
-    /// at `tabIconSize + 8` for breathing room. Roughly matches Finder /
-    /// Safari's hit target rather than the legacy 9pt trailing X.
     @ViewBuilder
-    private var leadingCloseAccessory: some View {
-        let canClose = !tab.isPinned
-        let glyphSize = appearance.tabIconSize
-        let slotSize = max(appearance.tabItemHeight - 6, glyphSize + 8)
-        ZStack {
-            if canClose {
-                Button {
-                    onClose()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: glyphSize, weight: .semibold))
-                        .foregroundStyle(
-                            isCloseHovered
-                                ? TabBarColors.activeText(for: appearance)
-                                : TabBarColors.inactiveText(for: appearance).opacity(0.7)
-                        )
-                        .frame(width: slotSize, height: slotSize)
-                        .background(
-                            Circle()
-                                .fill(
-                                    isCloseHovered
-                                        ? TabBarColors.hoveredTabBackground(for: appearance)
-                                        : .clear
-                                )
-                        )
-                }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    isCloseHovered = hovering
-                }
-                .saturation(saturation)
-                .accessibilityLabel("Close Tab")
+    private var leadingActivityAccessory: some View {
+        if let state = tab.activityState {
+            HStack(spacing: 0) {
+                Color.clear
+                    .frame(width: TabActivityMarkMetrics.leadingEdgeInset(for: state))
+                TabActivityMark(state: state, appearance: appearance)
+                Color.clear
+                    .frame(width: TabActivityMarkMetrics.titleSpacing(for: state))
             }
+            .frame(
+                width: TabActivityMarkMetrics.leadingAccessoryWidth(for: state),
+                height: appearance.tabItemHeight
+            )
+        } else {
+            Color.clear
+                .frame(
+                    width: SimplifiedTabGeometry.unmarkedLeadingInset,
+                    height: appearance.tabItemHeight
+                )
         }
-        .frame(width: slotSize, height: slotSize)
+    }
+
+    @ViewBuilder
+    private var simplifiedTrailingAccessory: some View {
+        HStack(spacing: 0) {
+            if let shortcutHintLabel, showsShortcutHint {
+                Text(shortcutHintLabel)
+                    .font(.system(size: accessoryFontSize, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .foregroundStyle(
+                        isSelected
+                            ? TabBarColors.activeText(for: appearance)
+                            : TabBarColors.inactiveText(for: appearance)
+                    )
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(.regularMaterial)
+                            .overlay(
+                                Capsule(style: .continuous)
+                                    .stroke(Color.white.opacity(0.30), lineWidth: 0.8)
+                            )
+                    )
+                    .allowsHitTesting(false)
+            }
+
+            ZStack(alignment: .topLeading) {
+                if !tab.isPinned {
+                    Button {
+                        onClose()
+                    } label: {
+                        Text("×")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundStyle(
+                                isCloseHovered
+                                    ? TabBarColors.activeText(for: appearance)
+                                    : TabBarColors.inactiveText(for: appearance).opacity(0.7)
+                            )
+                            .frame(
+                                width: SimplifiedTabGeometry.closeHitSize.width,
+                                height: SimplifiedTabGeometry.closeHitSize.height
+                            )
+                            .background(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(
+                                        isCloseHovered
+                                            ? TabBarColors.hoveredTabBackground(for: appearance)
+                                            : .clear
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        isCloseHovered = hovering
+                    }
+                    .saturation(saturation)
+                    .accessibilityLabel(localizedString("command.closeTab.title", default: "Close Tab"))
+                }
+
+                if tab.isDirty || (tab.showsNotificationBadge && tab.activityState != .waiting) {
+                    HStack(spacing: 2) {
+                        if tab.showsNotificationBadge && tab.activityState != .waiting {
+                            Circle()
+                                .fill(TabBarColors.notificationBadge(for: appearance))
+                                .frame(width: appearance.tabNotificationBadgeSize, height: appearance.tabNotificationBadgeSize)
+                        }
+                        if tab.isDirty {
+                            Circle()
+                                .fill(TabBarColors.dirtyIndicator(for: appearance))
+                                .frame(width: appearance.tabDirtyIndicatorSize, height: appearance.tabDirtyIndicatorSize)
+                        }
+                    }
+                    .offset(x: -1, y: 1)
+                    .allowsHitTesting(false)
+                }
+            }
+            .frame(
+                width: SimplifiedTabGeometry.closeHitSize.width,
+                height: SimplifiedTabGeometry.closeHitSize.height
+            )
+        }
         .animation(.easeInOut(duration: TabBarMetrics.hoverDuration), value: isCloseHovered)
     }
 
@@ -506,12 +659,33 @@ struct TabItemView: View {
 
     private var accessibilityValue: String {
         var parts: [String] = []
+        if let activityAccessibilityValue { parts.append(activityAccessibilityValue) }
         if tab.isLoading { parts.append("Loading") }
         if tab.isPinned { parts.append("Pinned") }
         if tab.showsNotificationBadge { parts.append("Unread") }
         if tab.isDirty { parts.append("Modified") }
         if showsZoomIndicator { parts.append("Zoomed") }
         return parts.joined(separator: ", ")
+    }
+
+    private var activityAccessibilityValue: String? {
+        switch tab.activityState {
+        case .running:
+            return localizedString("tab.activity.running", default: "Running")
+        case .idle:
+            return localizedString("tab.activity.idle", default: "Idle")
+        case .cold:
+            return localizedString("tab.activity.cold", default: "Cold")
+        case .waiting:
+            return localizedString("tab.activity.waiting", default: "Waiting for your response")
+        case nil:
+            return nil
+        }
+    }
+
+    private var activityAccessibilityHelp: String {
+        guard tab.activityState == .waiting else { return "" }
+        return localizedString("tab.activity.waiting.help", default: "This surface needs your response.")
     }
 
     @ViewBuilder
@@ -767,9 +941,10 @@ struct TabItemView: View {
     private var closeOrDirtyIndicator: some View {
         ZStack {
             // Dirty indicator (shown when dirty and not hovering, hidden for selected tab)
-            if (!isSelected && !isHovered && !isCloseHovered) && (tab.isDirty || tab.showsNotificationBadge) {
+            if (!isSelected && !isHovered && !isCloseHovered)
+                && (tab.isDirty || (tab.showsNotificationBadge && tab.activityState != .waiting)) {
                 HStack(spacing: 2) {
-                    if tab.showsNotificationBadge {
+                    if tab.showsNotificationBadge && tab.activityState != .waiting {
                         Circle()
                             .fill(TabBarColors.notificationBadge(for: appearance))
                             .frame(width: appearance.tabNotificationBadgeSize, height: appearance.tabNotificationBadgeSize)
@@ -784,7 +959,8 @@ struct TabItemView: View {
             }
 
             if tab.isPinned {
-                if isSelected || isHovered || isCloseHovered || (!tab.isDirty && !tab.showsNotificationBadge) {
+                if isSelected || isHovered || isCloseHovered
+                    || (!tab.isDirty && (!tab.showsNotificationBadge || tab.activityState == .waiting)) {
                     Image(systemName: "pin.fill")
                         .font(.system(size: appearance.tabCloseIconSize, weight: .semibold))
                         .foregroundStyle(TabBarColors.inactiveText(for: appearance))
@@ -793,8 +969,8 @@ struct TabItemView: View {
                 }
             } else if !useSimplifiedTabUX && (isSelected || isHovered || isCloseHovered) {
                 // Close button (always visible on active tab, shown on hover for others).
-                // C11-26: the simplified UX renders the close X in the leading
-                // slot (always-visible, hit-collision-safe). Don't double up.
+                // Simplified tabs render their always-visible close X in the
+                // dedicated trailing slot. Don't double up here.
                 Button {
                     onClose()
                 } label: {

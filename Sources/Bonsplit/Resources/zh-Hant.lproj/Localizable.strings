@@ -3,3 +3,8 @@
 "command.tabColor.title" = "標籤頁顏色";
 "command.tabColor.clearColor" = "清除顏色";
 "command.tabColor.chooseCustom" = "選擇自訂顏色…";
+"tab.activity.running" = "執行中";
+"tab.activity.idle" = "閒置";
+"tab.activity.cold" = "冷態";
+"tab.activity.waiting" = "正在等待您的回應";
+"tab.activity.waiting.help" = "此介面需要您的回應。";

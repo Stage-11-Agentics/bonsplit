@@ -3,3 +3,8 @@
 "command.tabColor.title" = "Цвет вкладки";
 "command.tabColor.clearColor" = "Очистить цвет";
 "command.tabColor.chooseCustom" = "Выбрать свой цвет…";
+"tab.activity.running" = "Работает";
+"tab.activity.idle" = "Простой";
+"tab.activity.cold" = "Холодная";
+"tab.activity.waiting" = "Ожидает вашего ответа";
+"tab.activity.waiting.help" = "Этой поверхности требуется ваш ответ.";

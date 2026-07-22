@@ -5,3 +5,8 @@
 "command.tabColor.title" = "Tab Color";
 "command.tabColor.clearColor" = "Clear Color";
 "command.tabColor.chooseCustom" = "Choose Custom Color…";
+"tab.activity.running" = "Running";
+"tab.activity.idle" = "Idle";
+"tab.activity.cold" = "Cold";
+"tab.activity.waiting" = "Waiting for your response";
+"tab.activity.waiting.help" = "This surface needs your response.";

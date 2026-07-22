@@ -212,6 +212,39 @@ enum TabBarColors {
         return notificationBadge
     }
 
+    static func activity(
+        _ state: BonsplitTabActivityState,
+        for appearance: BonsplitConfiguration.Appearance
+    ) -> Color {
+        let colors = appearance.tabActivityColors
+        let override: String?
+        let fallback: NSColor
+        switch state {
+        case .running:
+            override = colors.runningHex
+            fallback = .systemBlue
+        case .idle:
+            override = colors.idleHex
+            fallback = .systemGreen
+        case .cold:
+            override = colors.coldHex
+            fallback = .secondaryLabelColor
+        case .waiting:
+            override = colors.waitingHex
+            fallback = .systemYellow
+        }
+        return Color(nsColor: override.flatMap { NSColor(bonsplitHex: $0) } ?? fallback)
+    }
+
+    static func waitingInk(for appearance: BonsplitConfiguration.Appearance) -> Color {
+        let colors = appearance.tabActivityColors
+        if let override = colors.waitingInkHex.flatMap({ NSColor(bonsplitHex: $0) }) {
+            return Color(nsColor: override)
+        }
+        let background = colors.waitingHex.flatMap { NSColor(bonsplitHex: $0) } ?? .systemYellow
+        return Color(nsColor: background.isBonsplitLightColor ? .black : .white)
+    }
+
     // MARK: - Shadows
 
     static var tabShadow: Color {

@@ -101,6 +101,7 @@ public final class BonsplitController {
         isPinned: Bool = false,
         customColorHex: String? = nil,
         displayOrdinal: Int? = nil,
+        activityState: BonsplitTabActivityState? = nil,
         inPane pane: PaneID? = nil
     ) -> TabID? {
         let tabId = TabID()
@@ -116,7 +117,8 @@ public final class BonsplitController {
             isLoading: isLoading,
             isPinned: isPinned,
             customColorHex: customColorHex,
-            displayOrdinal: displayOrdinal
+            displayOrdinal: displayOrdinal,
+            activityState: activityState
         )
         let targetPane = pane ?? focusedPaneId ?? PaneID(id: internalController.rootNode.allPaneIds.first!.id)
 
@@ -155,7 +157,8 @@ public final class BonsplitController {
             isLoading: isLoading,
             isPinned: isPinned,
             customColorHex: customColorHex,
-            displayOrdinal: displayOrdinal
+            displayOrdinal: displayOrdinal,
+            activityState: activityState
         )
         internalController.addTab(tabItem, toPane: PaneID(id: targetPane.id), atIndex: insertIndex)
 
@@ -234,7 +237,8 @@ public final class BonsplitController {
         isLoading: Bool? = nil,
         isPinned: Bool? = nil,
         customColorHex: String?? = nil,
-        displayOrdinal: Int?? = nil
+        displayOrdinal: Int?? = nil,
+        activityState: BonsplitTabActivityState?? = nil
     ) {
         guard let (pane, tabIndex) = findTabInternal(tabId) else { return }
 
@@ -270,6 +274,9 @@ public final class BonsplitController {
         }
         if let displayOrdinal = displayOrdinal {
             pane.tabs[tabIndex].displayOrdinal = displayOrdinal
+        }
+        if let activityState = activityState {
+            pane.tabs[tabIndex].activityState = activityState
         }
     }
 
@@ -448,7 +455,8 @@ public final class BonsplitController {
                 showsNotificationBadge: tab.showsNotificationBadge,
                 isLoading: tab.isLoading,
                 isPinned: tab.isPinned,
-                displayOrdinal: tab.displayOrdinal
+                displayOrdinal: tab.displayOrdinal,
+                activityState: tab.activityState
             )
         } else {
             internalTab = nil
@@ -511,7 +519,8 @@ public final class BonsplitController {
             showsNotificationBadge: tab.showsNotificationBadge,
             isLoading: tab.isLoading,
             isPinned: tab.isPinned,
-            displayOrdinal: tab.displayOrdinal
+            displayOrdinal: tab.displayOrdinal,
+            activityState: tab.activityState
         )
 
         // Perform split with insertion side.

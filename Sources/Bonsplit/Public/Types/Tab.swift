@@ -24,6 +24,7 @@ public struct Tab: Identifiable, Hashable, Sendable {
     /// Optional host-assigned tab number, rendered as an "N: " title prefix
     /// when `Appearance.showTabOrdinals` is on.
     public let displayOrdinal: Int?
+    public let activityState: BonsplitTabActivityState?
 
     public init(
         id: TabID = TabID(),
@@ -37,7 +38,8 @@ public struct Tab: Identifiable, Hashable, Sendable {
         isLoading: Bool = false,
         isPinned: Bool = false,
         customColorHex: String? = nil,
-        displayOrdinal: Int? = nil
+        displayOrdinal: Int? = nil,
+        activityState: BonsplitTabActivityState? = nil
     ) {
         self.id = id
         self.title = title
@@ -51,6 +53,7 @@ public struct Tab: Identifiable, Hashable, Sendable {
         self.isPinned = isPinned
         self.customColorHex = customColorHex
         self.displayOrdinal = displayOrdinal
+        self.activityState = activityState
     }
 
     internal init(from tabItem: TabItem) {
@@ -66,5 +69,6 @@ public struct Tab: Identifiable, Hashable, Sendable {
         self.isPinned = tabItem.isPinned
         self.customColorHex = tabItem.customColorHex
         self.displayOrdinal = tabItem.displayOrdinal
+        self.activityState = tabItem.activityState
     }
 }

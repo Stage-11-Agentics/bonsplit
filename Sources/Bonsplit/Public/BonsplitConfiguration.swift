@@ -57,7 +57,7 @@ public struct BonsplitConfiguration: Sendable {
     /// minimal two-item set: Close Tab and Close Pane. Hosts that want the
     /// full menu (rename, close-others, move, pin, color, …) leave this off.
     /// The reduced menu trades feature breadth for clarity and aims to keep
-    /// the close gestures aligned with the always-visible left-anchored X.
+    /// the close gestures aligned with the always-visible trailing X.
     public var simplifiedTabContextMenu: Bool
 
     /// Whether the Browser (globe) surface-spawn button is shown in each pane's
@@ -183,6 +183,28 @@ extension BonsplitConfiguration {
             }
         }
 
+        public struct TabActivityColors: Sendable {
+            public var runningHex: String?
+            public var idleHex: String?
+            public var coldHex: String?
+            public var waitingHex: String?
+            public var waitingInkHex: String?
+
+            public init(
+                runningHex: String? = nil,
+                idleHex: String? = nil,
+                coldHex: String? = nil,
+                waitingHex: String? = nil,
+                waitingInkHex: String? = nil
+            ) {
+                self.runningHex = runningHex
+                self.idleHex = idleHex
+                self.coldHex = coldHex
+                self.waitingHex = waitingHex
+                self.waitingInkHex = waitingInkHex
+            }
+        }
+
         /// Style knobs for pane dividers (the horizontal/vertical splitters rendered by
         /// `NSSplitView`). Sibling to `ChromeColors` so future additions (insets, opacity,
         /// dashed/solid style) can land without breaking the colors-only struct.
@@ -299,6 +321,8 @@ extension BonsplitConfiguration {
         /// Optional color overrides for tab/pane chrome.
         public var chromeColors: ChromeColors
 
+        public var tabActivityColors: TabActivityColors
+
         /// Style knobs for pane dividers.
         public var dividerStyle: DividerStyle
 
@@ -357,6 +381,7 @@ extension BonsplitConfiguration {
             animationDuration: Double = 0.15,
             enableAnimations: Bool = true,
             chromeColors: ChromeColors = .init(),
+            tabActivityColors: TabActivityColors = .init(),
             dividerStyle: DividerStyle = .init()
         ) {
             self.tabBarHeight = tabBarHeight
@@ -386,6 +411,7 @@ extension BonsplitConfiguration {
             self.animationDuration = animationDuration
             self.enableAnimations = enableAnimations
             self.chromeColors = chromeColors
+            self.tabActivityColors = tabActivityColors
             self.dividerStyle = dividerStyle
         }
     }

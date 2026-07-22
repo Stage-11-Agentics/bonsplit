@@ -3,3 +3,8 @@
 "command.tabColor.title" = "탭 색상";
 "command.tabColor.clearColor" = "색상 지우기";
 "command.tabColor.chooseCustom" = "사용자 지정 색상 선택…";
+"tab.activity.running" = "실행 중";
+"tab.activity.idle" = "유휴";
+"tab.activity.cold" = "콜드";
+"tab.activity.waiting" = "사용자의 응답을 기다리는 중";
+"tab.activity.waiting.help" = "이 서피스에는 사용자의 응답이 필요합니다.";

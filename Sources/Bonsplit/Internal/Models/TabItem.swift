@@ -32,6 +32,7 @@ struct TabItem: Identifiable, Hashable, Codable {
     /// Optional host-assigned tab number, rendered as an "N: " title prefix
     /// when `Appearance.showTabOrdinals` is on.
     var displayOrdinal: Int?
+    var activityState: BonsplitTabActivityState?
 
     init(
         id: UUID = UUID(),
@@ -45,7 +46,8 @@ struct TabItem: Identifiable, Hashable, Codable {
         isLoading: Bool = false,
         isPinned: Bool = false,
         customColorHex: String? = nil,
-        displayOrdinal: Int? = nil
+        displayOrdinal: Int? = nil,
+        activityState: BonsplitTabActivityState? = nil
     ) {
         self.id = id
         self.title = title
@@ -59,6 +61,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         self.isPinned = isPinned
         self.customColorHex = customColorHex
         self.displayOrdinal = displayOrdinal
+        self.activityState = activityState
     }
 
     /// Title as rendered in the tab strip: the ordinal prefix ("N: ") when the
@@ -89,6 +92,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         case isPinned
         case customColorHex
         case displayOrdinal
+        case activityState
     }
 
     init(from decoder: Decoder) throws {
@@ -105,6 +109,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         self.isPinned = try c.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         self.customColorHex = try c.decodeIfPresent(String.self, forKey: .customColorHex)
         self.displayOrdinal = try c.decodeIfPresent(Int.self, forKey: .displayOrdinal)
+        self.activityState = try c.decodeIfPresent(BonsplitTabActivityState.self, forKey: .activityState)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -121,6 +126,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         try c.encode(isPinned, forKey: .isPinned)
         try c.encodeIfPresent(customColorHex, forKey: .customColorHex)
         try c.encodeIfPresent(displayOrdinal, forKey: .displayOrdinal)
+        try c.encodeIfPresent(activityState, forKey: .activityState)
     }
 }
 
