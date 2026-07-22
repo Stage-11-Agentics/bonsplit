@@ -319,6 +319,55 @@ private enum TabStripLayoutTier {
     case narrow    // active title only; controls + tab list in the dropdown
 }
 
+enum CollapsedTabAccessibility {
+    static func value(tabCount: Int, activityState: BonsplitTabActivityState?) -> String {
+        let activity = TabActivityAccessibility.value(for: activityState)
+        guard !activity.isEmpty else { return "\(tabCount) tabs" }
+        return "\(tabCount) tabs, \(activity)"
+    }
+}
+
+struct CollapsedTabCloseButton: View {
+    let tab: TabItem
+    let pane: PaneState
+    let controller: BonsplitController
+    let appearance: BonsplitConfiguration.Appearance
+
+    var body: some View {
+        Button {
+            let selectedTabId = pane.selectedTabId
+            withTransaction(Transaction(animation: nil)) {
+                controller.onTabCloseRequest?(TabID(id: tab.id), pane.id)
+                _ = controller.closeTab(TabID(id: tab.id), inPane: pane.id)
+            }
+            if selectedTabId != tab.id {
+                DispatchQueue.main.async {
+                    withTransaction(Transaction(animation: nil)) {
+                        if let selectedTabId {
+                            controller.selectTab(TabID(id: selectedTabId))
+                        }
+                    }
+                }
+            }
+        } label: {
+            Text("×")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(TabBarColors.inactiveText(for: appearance))
+                .frame(
+                    width: SimplifiedTabGeometry.closeHitSize.width,
+                    height: SimplifiedTabGeometry.closeHitSize.height
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Bundle.module.localizedString(
+            forKey: "command.closeTab.title",
+            value: "Close Tab",
+            table: nil
+        ))
+    }
+}
+
 struct TabBarView<TrailingAccessory: View>: View {
     @Environment(BonsplitController.self) private var controller
     @Environment(SplitViewController.self) private var splitViewController
@@ -981,7 +1030,11 @@ struct TabBarView<TrailingAccessory: View>: View {
         )
         .saturation(tabBarSaturation)
         .accessibilityLabel("Show all tabs")
-        .accessibilityValue("\(pane.tabs.count) tabs")
+        .accessibilityValue(CollapsedTabAccessibility.value(
+            tabCount: pane.tabs.count,
+            activityState: activeTab?.activityState
+        ))
+        .accessibilityHint(TabActivityAccessibility.help(for: activeTab?.activityState))
         .popover(isPresented: $isDropdownOpen, arrowEdge: .bottom) {
             if tier == .narrow {
                 collapsedDropdownContent      // controls row + tab list
@@ -1105,37 +1158,12 @@ struct TabBarView<TrailingAccessory: View>: View {
             .accessibilityHint(TabActivityAccessibility.help(for: tab.activityState))
 
             if !tab.isPinned {
-                Button {
-                    let selectedTabId = pane.selectedTabId
-                    withTransaction(Transaction(animation: nil)) {
-                        controller.onTabCloseRequest?(TabID(id: tab.id), pane.id)
-                        _ = controller.closeTab(TabID(id: tab.id), inPane: pane.id)
-                    }
-                    if selectedTabId != tab.id {
-                        DispatchQueue.main.async {
-                            withTransaction(Transaction(animation: nil)) {
-                                if let selectedTabId {
-                                    controller.selectTab(TabID(id: selectedTabId))
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    Text("×")
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(TabBarColors.inactiveText(for: appearance))
-                        .frame(
-                            width: SimplifiedTabGeometry.closeHitSize.width,
-                            height: SimplifiedTabGeometry.closeHitSize.height
-                        )
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Bundle.module.localizedString(
-                    forKey: "command.closeTab.title",
-                    value: "Close Tab",
-                    table: nil
-                ))
+                CollapsedTabCloseButton(
+                    tab: tab,
+                    pane: pane,
+                    controller: controller,
+                    appearance: appearance
+                )
             }
         }
         .padding(.horizontal, 10)

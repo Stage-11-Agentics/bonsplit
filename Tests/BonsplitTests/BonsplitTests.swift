@@ -103,6 +103,25 @@ final class BonsplitTests: XCTestCase {
         }
     }
 
+    private final class BackgroundCloseSelectionDelegateSpy: BonsplitDelegate {
+        let replacementTabId: TabID
+        private(set) var selectedTabIds: [TabID] = []
+
+        init(replacementTabId: TabID) {
+            self.replacementTabId = replacementTabId
+        }
+
+        @MainActor
+        func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+            controller.selectTab(replacementTabId)
+        }
+
+        @MainActor
+        func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
+            selectedTabIds.append(tab.id)
+        }
+    }
+
     @MainActor
     func testControllerCreation() {
         let controller = BonsplitController()
@@ -199,6 +218,52 @@ final class BonsplitTests: XCTestCase {
         XCTAssertTrue(TabActivityAccessibility.value(for: nil).isEmpty)
         XCTAssertFalse(TabActivityAccessibility.help(for: .waiting).isEmpty)
         XCTAssertTrue(TabActivityAccessibility.help(for: .running).isEmpty)
+        XCTAssertTrue(
+            CollapsedTabAccessibility.value(tabCount: 7, activityState: .running)
+                .contains(TabActivityAccessibility.value(for: .running))
+        )
+    }
+
+    @MainActor
+    func testRenderedCollapsedCloseRestoresSelectionThroughDelegate() throws {
+        let controller = BonsplitController()
+        let pane = try XCTUnwrap(controller.internalController.rootNode.allPanes.first)
+        let selectedTabId = try XCTUnwrap(controller.createTab(title: "Selected"))
+        let replacementTabId = try XCTUnwrap(controller.createTab(title: "Replacement"))
+        let closingTabId = try XCTUnwrap(controller.createTab(title: "Background"))
+        controller.selectTab(selectedTabId)
+
+        let delegate = BackgroundCloseSelectionDelegateSpy(replacementTabId: replacementTabId)
+        controller.delegate = delegate
+        let closingTab = try XCTUnwrap(pane.tabs.first { $0.id == closingTabId.id })
+        let hostingView = NSHostingView(rootView: CollapsedTabCloseButton(
+            tab: closingTab,
+            pane: pane,
+            controller: controller,
+            appearance: .default
+        ))
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: SimplifiedTabGeometry.closeHitSize),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        hostingView.frame = contentView.bounds
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+        pumpLayout(hostingView) { hostingView.fittingSize.width > 0 }
+
+        try sendLeftMouseClick(
+            in: hostingView,
+            at: NSPoint(x: hostingView.bounds.midX, y: hostingView.bounds.midY)
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNil(controller.tab(closingTabId))
+        XCTAssertEqual(controller.selectedTab(inPane: pane.id)?.id, selectedTabId)
+        XCTAssertEqual(delegate.selectedTabIds.last, selectedTabId)
     }
 
     @MainActor
