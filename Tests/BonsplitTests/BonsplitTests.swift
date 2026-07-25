@@ -1443,10 +1443,12 @@ final class BonsplitTests: XCTestCase {
     }
 
     func testActivityMarksAndTrailingCloseUseLockedGeometry() {
-        XCTAssertEqual(TabActivityMarkMetrics.visibleSize(for: .running), 10)
-        XCTAssertEqual(TabActivityMarkMetrics.visibleSize(for: .idle), 8)
-        XCTAssertEqual(TabActivityMarkMetrics.visibleSize(for: .cold), 6)
-        XCTAssertEqual(TabActivityMarkMetrics.visibleSize(for: .waiting), 17)
+        // Every state occupies the same slot so the title never shifts on a
+        // state change: equal visible size and equal leading accessory width.
+        for state in BonsplitTabActivityState.allCases {
+            XCTAssertEqual(TabActivityMarkMetrics.visibleSize(for: state), 10)
+            XCTAssertEqual(TabActivityMarkMetrics.leadingAccessoryWidth(for: state), 18)
+        }
         XCTAssertEqual(SimplifiedTabGeometry.closeHitSize.width, 28)
         XCTAssertEqual(SimplifiedTabGeometry.closeHitSize.height, 29)
         XCTAssertGreaterThanOrEqual(SimplifiedTabGeometry.closeHitSize.width, 28)
@@ -1472,11 +1474,11 @@ final class BonsplitTests: XCTestCase {
     }
 
     @MainActor
-    func testRunningActivityMarkStopsAnimatingWithReduceMotion() throws {
+    func testRunningActivityMarkNeverAnimates() throws {
         let hostingView = NSHostingView(
             rootView: ZStack {
                 Color.black
-                TabActivityMark(state: .running, appearance: .default, reduceMotionOverride: true)
+                TabActivityMark(state: .running, appearance: .default)
             }
             .frame(width: 24, height: 24)
         )

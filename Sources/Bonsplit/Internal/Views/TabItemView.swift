@@ -100,21 +100,20 @@ enum TabItemStyling {
 }
 
 enum TabActivityMarkMetrics {
+    /// Side of the drawn cell, and the thickness of the `cold` line.
+    static let cellSide: CGFloat = 9
+    static let coldLineThickness: CGFloat = 2
+
+    /// Every state occupies the same slot, so a tab's title never shifts
+    /// horizontally when its surface changes state.
     static func visibleSize(for state: BonsplitTabActivityState) -> CGFloat {
-        switch state {
-        case .running: return 10
-        case .idle: return 8
-        case .cold: return 6
-        case .waiting: return 17
-        }
+        _ = state
+        return 10
     }
 
     static func leadingEdgeInset(for state: BonsplitTabActivityState) -> CGFloat {
-        switch state {
-        case .running, .waiting: return 4
-        case .idle: return 5
-        case .cold: return 6
-        }
+        _ = state
+        return 4
     }
 
     static func titleSpacing(for state: BonsplitTabActivityState) -> CGFloat {
@@ -158,59 +157,34 @@ enum SimplifiedTabGeometry {
     static let closeTrailingInset: CGFloat = 3
 }
 
+/// Agent-state mark: a hard-edged terminal cell. Fill state carries meaning —
+/// solid for running, hollow for idle, a flat line for cold, solid gold for
+/// waiting — so the state survives greyscale and a color-blind reader.
+///
+/// Nothing here animates. The mark is drawn once per state change, which keeps
+/// continuous per-tab redraw off the tab-bar render path.
 struct TabActivityMark: View {
     let state: BonsplitTabActivityState
     let appearance: BonsplitConfiguration.Appearance
-    private let reduceMotionOverride: Bool?
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    init(
-        state: BonsplitTabActivityState,
-        appearance: BonsplitConfiguration.Appearance,
-        reduceMotionOverride: Bool? = nil
-    ) {
-        self.state = state
-        self.appearance = appearance
-        self.reduceMotionOverride = reduceMotionOverride
-    }
 
     var body: some View {
         let size = TabActivityMarkMetrics.visibleSize(for: state)
-        let shouldReduceMotion = reduceMotionOverride ?? reduceMotion
+        let side = TabActivityMarkMetrics.cellSide
+        let color = TabBarColors.activity(state, for: appearance)
         Group {
             switch state {
-            case .running:
-                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: shouldReduceMotion)) { context in
-                    Circle()
-                        .stroke(TabBarColors.activity(.running, for: appearance).opacity(0.38), lineWidth: 1)
-                        .overlay {
-                            Circle()
-                                .trim(from: 0, to: 0.28)
-                                .stroke(TabBarColors.activity(.running, for: appearance), lineWidth: 1)
-                        }
-                        .rotationEffect(
-                            shouldReduceMotion
-                                ? .zero
-                                : .degrees(context.date.timeIntervalSinceReferenceDate
-                                    .truncatingRemainder(dividingBy: 2.4) / 2.4 * 360)
-                        )
-                }
+            case .running, .waiting:
+                Rectangle()
+                    .fill(color)
+                    .frame(width: side, height: side)
             case .idle:
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(TabBarColors.activity(.idle, for: appearance).opacity(0.82))
+                Rectangle()
+                    .strokeBorder(color, lineWidth: 1)
+                    .frame(width: side, height: side)
             case .cold:
-                Circle()
-                    .fill(TabBarColors.activity(.cold, for: appearance).opacity(0.48))
-            case .waiting:
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(TabBarColors.activity(.waiting, for: appearance))
-                    .overlay {
-                        Text("W")
-                            .font(.system(size: 8, weight: .bold, design: .monospaced))
-                            .foregroundStyle(TabBarColors.waitingInk(for: appearance))
-                            .frame(width: size, height: size, alignment: .center)
-                    }
+                Rectangle()
+                    .fill(color)
+                    .frame(width: side, height: TabActivityMarkMetrics.coldLineThickness)
             }
         }
         .frame(width: size, height: size)
