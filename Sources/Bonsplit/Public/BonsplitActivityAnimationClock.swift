@@ -4,10 +4,38 @@ import Foundation
 ///
 /// Hosts decide whether a mark receives a channel at all. Bonsplit owns only
 /// the generic sampling and drawing mechanics.
-public enum BonsplitActivityMarkMotion: Equatable, Sendable {
+public enum BonsplitActivityMarkMotion: String, Codable, Equatable, Sendable {
     case steppedFill
     case easedDip
     case binaryFlash
+    case breathe
+}
+
+/// Policy-free presentation supplied by a Bonsplit host for one activity mark.
+///
+/// Bonsplit interprets only colors and renderer motion. Product semantics such
+/// as "flagged", "suppressed", accessibility, and user settings remain owned by
+/// the host.
+public struct BonsplitTabActivityPresentation: Codable, Equatable, Hashable, Sendable {
+    public let colorOverrideHex: String?
+    public let motion: BonsplitActivityMarkMotion?
+    public let alternateCoreColorHex: String?
+    public let alternatesWithBaseColor: Bool
+    public let suppressesDefaultMotion: Bool
+
+    public init(
+        colorOverrideHex: String? = nil,
+        motion: BonsplitActivityMarkMotion? = nil,
+        alternateCoreColorHex: String? = nil,
+        alternatesWithBaseColor: Bool = false,
+        suppressesDefaultMotion: Bool = false
+    ) {
+        self.colorOverrideHex = colorOverrideHex
+        self.motion = motion
+        self.alternateCoreColorHex = alternateCoreColorHex
+        self.alternatesWithBaseColor = alternatesWithBaseColor
+        self.suppressesDefaultMotion = suppressesDefaultMotion
+    }
 }
 
 /// Pure animation sampling shared by Bonsplit and host-owned mark renderers.
@@ -16,6 +44,7 @@ public enum BonsplitActivityMarkAnimation {
     public static let workingCycle: TimeInterval = 4
     public static let waitingCycle: TimeInterval = 1.2
     public static let binaryFlashCycle: TimeInterval = 0.4
+    public static let breatheCycle: TimeInterval = 1.8
 
     /// Stable FNV-1a hash over the UUID bytes.
     ///
@@ -66,6 +95,12 @@ public enum BonsplitActivityMarkAnimation {
     /// Hard half-cycle used with a host-supplied alternate core color.
     public static func binaryFlashShowsAlternate(at elapsed: TimeInterval, id: UUID) -> Bool {
         phase(at: elapsed, id: id, cycle: binaryFlashCycle) >= 0.5
+    }
+
+    /// Gentle whole-mark waveform for host-emphasized non-waiting states.
+    public static func breatheOpacity(at elapsed: TimeInterval, id: UUID) -> Double {
+        let unit = phase(at: elapsed, id: id, cycle: breatheCycle)
+        return 0.65 + 0.35 * (0.5 - 0.5 * cos(2 * .pi * unit))
     }
 }
 

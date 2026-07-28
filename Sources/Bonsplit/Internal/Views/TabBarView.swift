@@ -403,6 +403,8 @@ struct TabBarView<TrailingAccessory: View>: View {
     @Environment(BonsplitController.self) private var controller
     @Environment(SplitViewController.self) private var splitViewController
     @Environment(\.bonsplitTabBarLayoutMetricsHandler) private var layoutMetricsHandler
+    @Environment(\.bonsplitActivityAnimationEnabled) private var activityAnimationEnabled
+    @Environment(\.bonsplitExplicitActivityAnimationEnabled) private var explicitActivityAnimationEnabled
     
     @Bindable var pane: PaneState
     let isFocused: Bool
@@ -1036,7 +1038,7 @@ struct TabBarView<TrailingAccessory: View>: View {
     private func collapsedControlChip(_ tier: TabStripLayoutTier) -> some View {
         HStack(spacing: 6) {
             if let state = activeTab?.activityState {
-                TabActivityMark(state: state, appearance: appearance)
+                collapsedActivityMark(for: activeTab!, state: state)
             }
 
             Text(activeTab?.displayedTitle(showOrdinals: appearance.showTabOrdinals) ?? "")
@@ -1171,7 +1173,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                 HStack(spacing: 8) {
                     ZStack {
                         if let state = tab.activityState {
-                            TabActivityMark(state: state, appearance: appearance)
+                            collapsedActivityMark(for: tab, state: state)
                         } else {
                             Circle()
                                 .fill(
@@ -1220,6 +1222,33 @@ struct TabBarView<TrailingAccessory: View>: View {
         .background(isSelected ? TabBarColors.activeTabBackground(for: appearance) : Color.clear)
         .contentShape(Rectangle())
         .onDrag { createItemProvider(for: tab) }
+    }
+
+    private func collapsedActivityMark(
+        for tab: TabItem,
+        state: BonsplitTabActivityState
+    ) -> some View {
+        let presentation = tab.activityPresentation
+        let explicitMotion = explicitActivityAnimationEnabled ? presentation?.motion : nil
+        let defaultMotion = TabActivityMarkMotionPolicy.defaultMotion(
+            for: state,
+            isEnabled: activityAnimationEnabled && presentation?.suppressesDefaultMotion != true
+        )
+        return TabActivityMark(
+            state: state,
+            appearance: appearance,
+            phaseId: tab.id,
+            colorOverride: presentation?.colorOverrideHex
+                .flatMap(NSColor.init(bonsplitHex:))
+                .map(Color.init(nsColor:)),
+            motion: presentation == nil ? defaultMotion : explicitMotion,
+            alternateCoreColor: presentation?.alternateCoreColorHex
+                .flatMap(NSColor.init(bonsplitHex:))
+                .map(Color.init(nsColor:))
+                ?? (presentation?.alternatesWithBaseColor == true
+                    ? TabBarColors.activity(state, for: appearance)
+                    : nil)
+        )
     }
 
     /// The single controls row at the top of the dropdown: the same actions as

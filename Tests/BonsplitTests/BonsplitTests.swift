@@ -1539,6 +1539,36 @@ final class BonsplitTests: XCTestCase {
                 id: id
             )
         )
+        XCTAssertEqual(
+            BonsplitActivityMarkAnimation.breatheOpacity(
+                at: elapsed(at: 0, cycle: BonsplitActivityMarkAnimation.breatheCycle),
+                id: id
+            ),
+            0.65,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(
+            BonsplitActivityMarkAnimation.breatheOpacity(
+                at: elapsed(at: 0.5, cycle: BonsplitActivityMarkAnimation.breatheCycle),
+                id: id
+            ),
+            1,
+            accuracy: 0.000_001
+        )
+    }
+
+    func testActivityPresentationRoundTripsWithoutHostSemantics() throws {
+        let presentation = BonsplitTabActivityPresentation(
+            colorOverrideHex: "#9D8AD9",
+            motion: .binaryFlash,
+            alternatesWithBaseColor: true,
+            suppressesDefaultMotion: true
+        )
+        let data = try JSONEncoder().encode(presentation)
+        XCTAssertEqual(
+            try JSONDecoder().decode(BonsplitTabActivityPresentation.self, from: data),
+            presentation
+        )
     }
 
     func testActivityMarkVisibilityExcludesOpaqueTrailingChrome() {

@@ -33,6 +33,7 @@ struct TabItem: Identifiable, Hashable, Codable {
     /// when `Appearance.showTabOrdinals` is on.
     var displayOrdinal: Int?
     var activityState: BonsplitTabActivityState?
+    var activityPresentation: BonsplitTabActivityPresentation?
 
     init(
         id: UUID = UUID(),
@@ -47,7 +48,8 @@ struct TabItem: Identifiable, Hashable, Codable {
         isPinned: Bool = false,
         customColorHex: String? = nil,
         displayOrdinal: Int? = nil,
-        activityState: BonsplitTabActivityState? = nil
+        activityState: BonsplitTabActivityState? = nil,
+        activityPresentation: BonsplitTabActivityPresentation? = nil
     ) {
         self.id = id
         self.title = title
@@ -62,6 +64,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         self.customColorHex = customColorHex
         self.displayOrdinal = displayOrdinal
         self.activityState = activityState
+        self.activityPresentation = activityPresentation
     }
 
     /// Title as rendered in the tab strip: the ordinal prefix ("N: ") when the
@@ -93,6 +96,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         case customColorHex
         case displayOrdinal
         case activityState
+        case activityPresentation
     }
 
     init(from decoder: Decoder) throws {
@@ -110,6 +114,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         self.customColorHex = try c.decodeIfPresent(String.self, forKey: .customColorHex)
         self.displayOrdinal = try c.decodeIfPresent(Int.self, forKey: .displayOrdinal)
         self.activityState = try c.decodeIfPresent(BonsplitTabActivityState.self, forKey: .activityState)
+        self.activityPresentation = try c.decodeIfPresent(BonsplitTabActivityPresentation.self, forKey: .activityPresentation)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -127,6 +132,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         try c.encodeIfPresent(customColorHex, forKey: .customColorHex)
         try c.encodeIfPresent(displayOrdinal, forKey: .displayOrdinal)
         try c.encodeIfPresent(activityState, forKey: .activityState)
+        try c.encodeIfPresent(activityPresentation, forKey: .activityPresentation)
     }
 }
 

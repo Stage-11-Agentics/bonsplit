@@ -243,12 +243,14 @@ private struct TabActivityMarkLeaf: View {
     @State private var visibleWorkingDots = 9
     @State private var waitingCoreOpacity = 1.0
     @State private var showsAlternateCore = false
+    @State private var markOpacity = 1.0
 
     private var motionSignature: Int {
         switch motion {
         case .steppedFill: return 1
         case .easedDip: return 2
         case .binaryFlash: return 3
+        case .breathe: return 4
         case nil: return 0
         }
     }
@@ -257,6 +259,7 @@ private struct TabActivityMarkLeaf: View {
         let size = TabActivityMarkMetrics.visibleSize(for: state)
         markShape
             .frame(width: size, height: size)
+            .opacity(markOpacity)
             .accessibilityHidden(true)
             .onAppear { refreshClockSubscription() }
             .onChange(of: motionSignature) { _, _ in refreshClockSubscription() }
@@ -368,6 +371,7 @@ private struct TabActivityMarkLeaf: View {
             visibleWorkingDots = 9
             waitingCoreOpacity = 1
             showsAlternateCore = false
+            markOpacity = 1
         }
     }
 
@@ -405,6 +409,15 @@ private struct TabActivityMarkLeaf: View {
             withTransaction(transaction) {
                 showsAlternateCore = showsAlternate
             }
+
+        case .breathe:
+            let opacity = BonsplitActivityMarkAnimation.breatheOpacity(
+                at: elapsed,
+                id: phaseId
+            )
+            withAnimation(.linear(duration: BonsplitActivityMarkAnimation.clockInterval)) {
+                markOpacity = opacity
+            }
         }
     }
 }
@@ -413,6 +426,8 @@ private struct TabActivityMarkLeaf: View {
 struct TabItemView: View {
     @Environment(\.bonsplitActivityAnimationEnabled)
     private var activityAnimationEnabled
+    @Environment(\.bonsplitExplicitActivityAnimationEnabled)
+    private var explicitActivityAnimationEnabled
 
     let tab: TabItem
     let isSelected: Bool
@@ -713,10 +728,16 @@ struct TabItemView: View {
                     state: state,
                     appearance: appearance,
                     phaseId: tab.id,
-                    motion: TabActivityMarkMotionPolicy.defaultMotion(
-                        for: state,
-                        isEnabled: activityAnimationEnabled && isActivityMarkVisible
-                    )
+                    colorOverride: tab.activityPresentation?.colorOverrideHex
+                        .flatMap(NSColor.init(bonsplitHex:))
+                        .map(Color.init(nsColor:)),
+                    motion: resolvedActivityMotion(for: state),
+                    alternateCoreColor: tab.activityPresentation?.alternateCoreColorHex
+                        .flatMap(NSColor.init(bonsplitHex:))
+                        .map(Color.init(nsColor:))
+                        ?? (tab.activityPresentation?.alternatesWithBaseColor == true
+                            ? TabBarColors.activity(state, for: appearance)
+                            : nil)
                 )
                 .background {
                     GeometryReader { proxy in
@@ -749,6 +770,20 @@ struct TabItemView: View {
     private func updateActivityMarkVisibility(_ isVisible: Bool) {
         guard isVisible != isActivityMarkVisible else { return }
         isActivityMarkVisible = isVisible
+    }
+
+    private func resolvedActivityMotion(
+        for state: BonsplitTabActivityState
+    ) -> BonsplitActivityMarkMotion? {
+        guard isActivityMarkVisible else { return nil }
+        if let presentation = tab.activityPresentation {
+            guard explicitActivityAnimationEnabled else { return nil }
+            return presentation.motion
+        }
+        return TabActivityMarkMotionPolicy.defaultMotion(
+            for: state,
+            isEnabled: activityAnimationEnabled
+        )
     }
 
     @ViewBuilder
