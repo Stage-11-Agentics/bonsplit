@@ -155,6 +155,18 @@ enum TabActivityAccessibility {
     }
 }
 
+struct TabActivityMarkVisibilityInput: Equatable {
+    let frame: CGRect
+    let visibleRightEdge: CGFloat
+
+    var isVisible: Bool {
+        TabBarStyling.isActivityMarkVisible(
+            frame: frame,
+            visibleRightEdge: visibleRightEdge
+        )
+    }
+}
+
 enum SimplifiedTabGeometry {
     static let unmarkedLeadingInset: CGFloat = 6
     static let closeHitSize = CGSize(width: 28, height: 29)
@@ -708,13 +720,13 @@ struct TabItemView: View {
                 )
                 .background {
                     GeometryReader { proxy in
-                        let frame = proxy.frame(in: .named("tabScroll"))
+                        let visibilityInput = TabActivityMarkVisibilityInput(
+                            frame: proxy.frame(in: .named("tabScroll")),
+                            visibleRightEdge: activityAnimationVisibleRightEdge
+                        )
                         Color.clear
-                            .onAppear {
-                                updateActivityMarkVisibility(frame: frame)
-                            }
-                            .onChange(of: frame) { _, newFrame in
-                                updateActivityMarkVisibility(frame: newFrame)
+                            .onChange(of: visibilityInput, initial: true) { _, newInput in
+                                updateActivityMarkVisibility(newInput.isVisible)
                             }
                     }
                 }
@@ -734,11 +746,7 @@ struct TabItemView: View {
         }
     }
 
-    private func updateActivityMarkVisibility(frame: CGRect) {
-        let isVisible = TabBarStyling.isActivityMarkVisible(
-            frame: frame,
-            visibleRightEdge: activityAnimationVisibleRightEdge
-        )
+    private func updateActivityMarkVisibility(_ isVisible: Bool) {
         guard isVisible != isActivityMarkVisible else { return }
         isActivityMarkVisible = isVisible
     }

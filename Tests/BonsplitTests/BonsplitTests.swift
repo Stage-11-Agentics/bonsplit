@@ -1582,6 +1582,19 @@ final class BonsplitTests: XCTestCase {
             ),
             216
         )
+
+        let stationaryMark = CGRect(x: 250, y: 0, width: 9, height: 9)
+        let chromeHidden = TabActivityMarkVisibilityInput(
+            frame: stationaryMark,
+            visibleRightEdge: 300
+        )
+        let chromeRevealed = TabActivityMarkVisibilityInput(
+            frame: stationaryMark,
+            visibleRightEdge: 216
+        )
+        XCTAssertNotEqual(chromeHidden, chromeRevealed)
+        XCTAssertTrue(chromeHidden.isVisible)
+        XCTAssertFalse(chromeRevealed.isVisible)
     }
 
     @MainActor
