@@ -1562,7 +1562,8 @@ final class BonsplitTests: XCTestCase {
             colorOverrideHex: "#9D8AD9",
             motion: .binaryFlash,
             alternatesWithBaseColor: true,
-            suppressesDefaultMotion: true
+            suppressesDefaultMotion: true,
+            accessibilityValue: "Escalated: Needs review"
         )
         let data = try JSONEncoder().encode(presentation)
         XCTAssertEqual(

@@ -1204,7 +1204,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
-            .accessibilityValue(TabActivityAccessibility.value(for: tab.activityState))
+            .accessibilityValue(collapsedAccessibilityValue(for: tab))
             .accessibilityHint(TabActivityAccessibility.help(for: tab.activityState))
 
             if !tab.isPinned {
@@ -1249,6 +1249,18 @@ struct TabBarView<TrailingAccessory: View>: View {
                     ? TabBarColors.activity(state, for: appearance)
                     : nil)
         )
+    }
+
+    private func collapsedAccessibilityValue(for tab: TabItem) -> String {
+        [
+            tab.activityPresentation?.accessibilityValue,
+            TabActivityAccessibility.value(for: tab.activityState),
+        ]
+        .compactMap { value in
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }
+        .joined(separator: ", ")
     }
 
     /// The single controls row at the top of the dropdown: the same actions as

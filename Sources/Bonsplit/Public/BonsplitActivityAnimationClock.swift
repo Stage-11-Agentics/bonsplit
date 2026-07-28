@@ -22,19 +22,22 @@ public struct BonsplitTabActivityPresentation: Codable, Equatable, Hashable, Sen
     public let alternateCoreColorHex: String?
     public let alternatesWithBaseColor: Bool
     public let suppressesDefaultMotion: Bool
+    public let accessibilityValue: String?
 
     public init(
         colorOverrideHex: String? = nil,
         motion: BonsplitActivityMarkMotion? = nil,
         alternateCoreColorHex: String? = nil,
         alternatesWithBaseColor: Bool = false,
-        suppressesDefaultMotion: Bool = false
+        suppressesDefaultMotion: Bool = false,
+        accessibilityValue: String? = nil
     ) {
         self.colorOverrideHex = colorOverrideHex
         self.motion = motion
         self.alternateCoreColorHex = alternateCoreColorHex
         self.alternatesWithBaseColor = alternatesWithBaseColor
         self.suppressesDefaultMotion = suppressesDefaultMotion
+        self.accessibilityValue = accessibilityValue
     }
 }
 

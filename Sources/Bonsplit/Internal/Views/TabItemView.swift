@@ -955,6 +955,10 @@ struct TabItemView: View {
 
     private var accessibilityValue: String {
         var parts: [String] = []
+        if let value = tab.activityPresentation?.accessibilityValue,
+           !value.isEmpty {
+            parts.append(value)
+        }
         if let activityAccessibilityValue { parts.append(activityAccessibilityValue) }
         if tab.isLoading { parts.append("Loading") }
         if tab.isPinned { parts.append("Pinned") }
