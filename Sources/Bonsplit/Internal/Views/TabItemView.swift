@@ -431,6 +431,9 @@ private struct TabActivityMarkLeaf: View {
 
 /// Individual tab view with icon, title, close button, and dirty indicator
 struct TabItemView: View {
+    @Environment(\.bonsplitActivityAnimationEnabled)
+    private var activityAnimationEnabled
+
     let tab: TabItem
     let isSelected: Bool
     let showsZoomIndicator: Bool
@@ -730,7 +733,7 @@ struct TabItemView: View {
                     state: state,
                     appearance: appearance,
                     phaseId: tab.id,
-                    animationEligible: isActivityMarkVisible
+                    animationEligible: activityAnimationEnabled && isActivityMarkVisible
                 )
                 .background {
                     GeometryReader { proxy in
