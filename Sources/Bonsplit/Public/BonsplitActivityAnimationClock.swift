@@ -58,11 +58,11 @@ public enum BonsplitActivityMarkAnimation {
     /// Number of typewriter-order dots currently present.
     ///
     /// Ranks zero through eight appear at 0.4-second beats. The ninth dot is
-    /// therefore present by 3.2 seconds and the full grid holds until the hard
+    /// therefore present by 3.6 seconds and the full grid holds until the hard
     /// reset at the four-second boundary.
     public static func visibleWorkingDots(at elapsed: TimeInterval, id: UUID) -> Int {
         let cyclePosition = phase(at: elapsed, id: id, cycle: workingCycle) * workingCycle
-        return min(9, Int(cyclePosition / 0.4) + 1)
+        return min(9, Int(cyclePosition / 0.4))
     }
 
     /// Ease-in-out waiting-core waveform: 1 -> 0.15 -> 1 over 1.2 seconds.

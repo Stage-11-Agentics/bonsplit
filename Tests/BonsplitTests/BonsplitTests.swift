@@ -1473,6 +1473,74 @@ final class BonsplitTests: XCTestCase {
         XCTAssertEqual(TabBarColors.waitingInk(for: appearance), Color(nsColor: NSColor(bonsplitHex: "#FFFDF8")!))
     }
 
+    func testActivityMarkAnimationSamplesLockedCycles() {
+        let id = UUID(uuidString: "4F3D18A0-CE1C-4DC4-9151-447304364C1B")!
+
+        func elapsed(at unitPhase: Double, cycle: TimeInterval) -> TimeInterval {
+            let offset = BonsplitActivityMarkAnimation.stableUnitPhase(for: id) * cycle
+            let target = unitPhase * cycle
+            return target >= offset ? target - offset : target - offset + cycle
+        }
+
+        XCTAssertEqual(
+            BonsplitActivityMarkAnimation.visibleWorkingDots(
+                at: elapsed(at: 0.05, cycle: BonsplitActivityMarkAnimation.workingCycle),
+                id: id
+            ),
+            0
+        )
+        XCTAssertEqual(
+            BonsplitActivityMarkAnimation.visibleWorkingDots(
+                at: elapsed(at: 0.15, cycle: BonsplitActivityMarkAnimation.workingCycle),
+                id: id
+            ),
+            1
+        )
+        XCTAssertEqual(
+            BonsplitActivityMarkAnimation.visibleWorkingDots(
+                at: elapsed(at: 0.85, cycle: BonsplitActivityMarkAnimation.workingCycle),
+                id: id
+            ),
+            8
+        )
+        XCTAssertEqual(
+            BonsplitActivityMarkAnimation.visibleWorkingDots(
+                at: elapsed(at: 0.95, cycle: BonsplitActivityMarkAnimation.workingCycle),
+                id: id
+            ),
+            9
+        )
+
+        XCTAssertEqual(
+            BonsplitActivityMarkAnimation.waitingCoreOpacity(
+                at: elapsed(at: 0.25, cycle: BonsplitActivityMarkAnimation.waitingCycle),
+                id: id
+            ),
+            0.575,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(
+            BonsplitActivityMarkAnimation.waitingCoreOpacity(
+                at: elapsed(at: 0.5, cycle: BonsplitActivityMarkAnimation.waitingCycle),
+                id: id
+            ),
+            0.15,
+            accuracy: 0.000_001
+        )
+        XCTAssertFalse(
+            BonsplitActivityMarkAnimation.flaggedWaitingShowsWhite(
+                at: elapsed(at: 0.25, cycle: BonsplitActivityMarkAnimation.flaggedWaitingCycle),
+                id: id
+            )
+        )
+        XCTAssertTrue(
+            BonsplitActivityMarkAnimation.flaggedWaitingShowsWhite(
+                at: elapsed(at: 0.75, cycle: BonsplitActivityMarkAnimation.flaggedWaitingCycle),
+                id: id
+            )
+        )
+    }
+
     @MainActor
     func testRunningActivityMarkCanRenderStatically() throws {
         let hostingView = NSHostingView(
