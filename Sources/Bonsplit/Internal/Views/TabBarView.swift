@@ -240,6 +240,26 @@ enum TabBarStyling {
         return isMinimalMode ? 0 : max(0, effectiveChromeWidth)
     }
 
+    static func activityAnimationVisibleRightEdge(
+        containerWidth: CGFloat,
+        effectiveChromeWidth: CGFloat,
+        isMinimalMode: Bool,
+        isHoveringTabBar: Bool
+    ) -> CGFloat {
+        let chromeIsVisible = !isMinimalMode || isHoveringTabBar
+        let obscuredWidth = chromeIsVisible ? max(0, effectiveChromeWidth) : 0
+        return max(0, containerWidth - obscuredWidth)
+    }
+
+    static func isActivityMarkVisible(
+        frame: CGRect,
+        visibleRightEdge: CGFloat
+    ) -> Bool {
+        visibleRightEdge > 0
+            && frame.maxX > 0
+            && frame.minX < visibleRightEdge
+    }
+
     static func preferredScrollTarget(
         selectedTabId: UUID?,
         contentWidth: CGFloat,
@@ -465,6 +485,15 @@ struct TabBarView<TrailingAccessory: View>: View {
         resolvedEffectiveChromeWidth(
             trailingAccessoryWidth: trailingAccessoryWidth,
             splitButtonsIntrinsicWidth: splitButtonsIntrinsicWidth
+        )
+    }
+
+    private var activityAnimationVisibleRightEdge: CGFloat {
+        TabBarStyling.activityAnimationVisibleRightEdge(
+            containerWidth: containerWidth,
+            effectiveChromeWidth: currentEffectiveChromeWidth,
+            isMinimalMode: isMinimalMode,
+            isHoveringTabBar: isHoveringTabBar
         )
     }
 
@@ -1271,7 +1300,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             showsControlShortcutHint: showsControlShortcutHints,
             shortcutModifierSymbol: controlKeyMonitor.shortcutModifierSymbol,
             contextMenuState: contextMenuState,
-            activityAnimationViewportWidth: containerWidth,
+            activityAnimationVisibleRightEdge: activityAnimationVisibleRightEdge,
             useSimplifiedTabUX: controller.configuration.simplifiedTabContextMenu,
             flashGeneration: (pane.flashTabId == tab.id) ? pane.flashTabGeneration : 0,
             onSelect: {

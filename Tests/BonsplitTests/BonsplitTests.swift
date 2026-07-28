@@ -1528,16 +1528,59 @@ final class BonsplitTests: XCTestCase {
             accuracy: 0.000_001
         )
         XCTAssertFalse(
-            BonsplitActivityMarkAnimation.flaggedWaitingShowsWhite(
-                at: elapsed(at: 0.25, cycle: BonsplitActivityMarkAnimation.flaggedWaitingCycle),
+            BonsplitActivityMarkAnimation.binaryFlashShowsAlternate(
+                at: elapsed(at: 0.25, cycle: BonsplitActivityMarkAnimation.binaryFlashCycle),
                 id: id
             )
         )
         XCTAssertTrue(
-            BonsplitActivityMarkAnimation.flaggedWaitingShowsWhite(
-                at: elapsed(at: 0.75, cycle: BonsplitActivityMarkAnimation.flaggedWaitingCycle),
+            BonsplitActivityMarkAnimation.binaryFlashShowsAlternate(
+                at: elapsed(at: 0.75, cycle: BonsplitActivityMarkAnimation.binaryFlashCycle),
                 id: id
             )
+        )
+    }
+
+    func testActivityMarkVisibilityExcludesOpaqueTrailingChrome() {
+        XCTAssertEqual(
+            TabBarStyling.activityAnimationVisibleRightEdge(
+                containerWidth: 300,
+                effectiveChromeWidth: 84,
+                isMinimalMode: false,
+                isHoveringTabBar: false
+            ),
+            216
+        )
+        XCTAssertFalse(
+            TabBarStyling.isActivityMarkVisible(
+                frame: CGRect(x: 216, y: 0, width: 9, height: 9),
+                visibleRightEdge: 216
+            )
+        )
+        XCTAssertTrue(
+            TabBarStyling.isActivityMarkVisible(
+                frame: CGRect(x: 215.5, y: 0, width: 9, height: 9),
+                visibleRightEdge: 216
+            )
+        )
+
+        XCTAssertEqual(
+            TabBarStyling.activityAnimationVisibleRightEdge(
+                containerWidth: 300,
+                effectiveChromeWidth: 84,
+                isMinimalMode: true,
+                isHoveringTabBar: false
+            ),
+            300
+        )
+        XCTAssertEqual(
+            TabBarStyling.activityAnimationVisibleRightEdge(
+                containerWidth: 300,
+                effectiveChromeWidth: 84,
+                isMinimalMode: true,
+                isHoveringTabBar: true
+            ),
+            216
         )
     }
 
@@ -1548,8 +1591,7 @@ final class BonsplitTests: XCTestCase {
                 Color.black
                 TabActivityMark(
                     state: .running,
-                    appearance: .default,
-                    animationEligible: false
+                    appearance: .default
                 )
             }
             .frame(width: 24, height: 24)
@@ -1614,7 +1656,7 @@ final class BonsplitTests: XCTestCase {
             showsControlShortcutHint: false,
             shortcutModifierSymbol: "⌃",
             contextMenuState: contextMenuState,
-            activityAnimationViewportWidth: 0,
+            activityAnimationVisibleRightEdge: 0,
             useSimplifiedTabUX: true,
             flashGeneration: 0,
             onSelect: { selectionCount += 1 },

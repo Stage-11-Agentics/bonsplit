@@ -1,23 +1,13 @@
-import AppKit
 import Foundation
 
-/// Shared user-default contract for activity-mark motion.
+/// Policy-free motion channels supported by the activity-mark renderer.
 ///
-/// Animation is the default, so the persisted value describes the opt-out.
-/// Hosts can bind this key directly in their Settings UI.
-public enum BonsplitActivityMarkSettings {
-    public static let staticMarksKey = "staticActivityMarks"
-    public static let defaultStaticMarks = false
-}
-
-/// The three motion channels supported by the shape vocabulary.
-///
-/// `flaggedWaiting` is separate because its hard core flash replaces the
-/// ordinary waiting dip. Flagged working deliberately uses `working`.
-public enum BonsplitActivityMarkMotion: Sendable {
-    case working
-    case waiting
-    case flaggedWaiting
+/// Hosts decide whether a mark receives a channel at all. Bonsplit owns only
+/// the generic sampling and drawing mechanics.
+public enum BonsplitActivityMarkMotion: Equatable, Sendable {
+    case steppedFill
+    case easedDip
+    case binaryFlash
 }
 
 /// Pure animation sampling shared by Bonsplit and host-owned mark renderers.
@@ -25,7 +15,7 @@ public enum BonsplitActivityMarkAnimation {
     public static let clockInterval: TimeInterval = 0.2
     public static let workingCycle: TimeInterval = 4
     public static let waitingCycle: TimeInterval = 1.2
-    public static let flaggedWaitingCycle: TimeInterval = 0.4
+    public static let binaryFlashCycle: TimeInterval = 0.4
 
     /// Stable FNV-1a hash over the UUID bytes.
     ///
@@ -73,18 +63,19 @@ public enum BonsplitActivityMarkAnimation {
         return 1 - 0.85 * eased
     }
 
-    /// Hard violet/white half-cycle for the flagged-waiting core.
-    public static func flaggedWaitingShowsWhite(at elapsed: TimeInterval, id: UUID) -> Bool {
-        phase(at: elapsed, id: id, cycle: flaggedWaitingCycle) >= 0.5
+    /// Hard half-cycle used with a host-supplied alternate core color.
+    public static func binaryFlashShowsAlternate(at elapsed: TimeInterval, id: UUID) -> Bool {
+        phase(at: elapsed, id: id, cycle: binaryFlashCycle) >= 0.5
     }
 }
 
 /// The one process-wide activity-mark clock.
 ///
-/// Leaves register callbacks only while they are visible and eligible. The
-/// clock owns the sole timer, stops it when no leaves are registered, and
-/// pauses it while the application is inactive. A callback receives system
-/// uptime so every renderer samples the same timebase.
+/// Leaves register callbacks only while their host considers them eligible.
+/// The clock owns the sole timer and stops it when no leaves are registered.
+/// Application lifecycle, accessibility, and settings policy remain entirely
+/// host-owned. A callback receives system uptime so every renderer samples the
+/// same timebase.
 @MainActor
 public final class BonsplitActivityAnimationClock {
     public static let shared = BonsplitActivityAnimationClock()
@@ -93,40 +84,10 @@ public final class BonsplitActivityAnimationClock {
 
     private var handlers: [UUID: Handler] = [:]
     private var timer: Timer?
-    private var notificationTokens: [NSObjectProtocol] = []
-    private var isApplicationActive: Bool
 
-    private init(notificationCenter: NotificationCenter = .default) {
-        isApplicationActive = NSApp?.isActive ?? true
-        notificationTokens = [
-            notificationCenter.addObserver(
-                forName: NSApplication.didBecomeActiveNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in
-                    self?.isApplicationActive = true
-                    self?.startTimerIfNeeded()
-                    self?.publish()
-                }
-            },
-            notificationCenter.addObserver(
-                forName: NSApplication.didResignActiveNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in
-                    self?.isApplicationActive = false
-                    self?.stopTimer()
-                }
-            },
-        ]
-    }
+    private init() {}
 
     deinit {
-        for token in notificationTokens {
-            NotificationCenter.default.removeObserver(token)
-        }
         timer?.invalidate()
     }
 
@@ -147,7 +108,7 @@ public final class BonsplitActivityAnimationClock {
     }
 
     private func startTimerIfNeeded() {
-        guard isApplicationActive, !handlers.isEmpty, timer == nil else { return }
+        guard !handlers.isEmpty, timer == nil else { return }
         let timer = Timer(
             timeInterval: BonsplitActivityMarkAnimation.clockInterval,
             repeats: true
@@ -166,7 +127,6 @@ public final class BonsplitActivityAnimationClock {
     }
 
     private func publish() {
-        guard isApplicationActive else { return }
         let elapsed = ProcessInfo.processInfo.systemUptime
         for handler in handlers.values {
             handler(elapsed)
