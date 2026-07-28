@@ -1271,6 +1271,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             showsControlShortcutHint: showsControlShortcutHints,
             shortcutModifierSymbol: controlKeyMonitor.shortcutModifierSymbol,
             contextMenuState: contextMenuState,
+            activityAnimationViewportWidth: containerWidth,
             useSimplifiedTabUX: controller.configuration.simplifiedTabContextMenu,
             flashGeneration: (pane.flashTabId == tab.id) ? pane.flashTabGeneration : 0,
             onSelect: {

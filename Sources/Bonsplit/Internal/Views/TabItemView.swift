@@ -103,6 +103,10 @@ enum TabActivityMarkMetrics {
     /// Side of the drawn cell, and the thickness of the `cold` line.
     static let cellSide: CGFloat = 9
     static let coldLineThickness: CGFloat = 2
+    static let waitingFrameThickness: CGFloat = 1.5
+    static let waitingCoreSide: CGFloat = 4
+    static let workingDotSide: CGFloat = 2
+    static let workingDotSpacing: CGFloat = 1
 
     /// Every state occupies the same slot, so a tab's title never shifts
     /// horizontally when its surface changes state.
@@ -157,38 +161,271 @@ enum SimplifiedTabGeometry {
     static let closeTrailingInset: CGFloat = 3
 }
 
-/// Agent-state mark: a hard-edged terminal cell. Fill state carries meaning —
-/// solid for running, hollow for idle, a flat line for cold, solid gold for
-/// waiting — so the state survives greyscale and a color-blind reader.
+private enum TabActivityMarkPresentation {
+    static let flaggedColor = Color(
+        nsColor: NSColor(
+            srgbRed: 0x9D / 255,
+            green: 0x8A / 255,
+            blue: 0xD9 / 255,
+            alpha: 1
+        )
+    )
+
+    static func projectedState(
+        _ state: BonsplitTabActivityState,
+        flagged: Bool,
+        suppressed: Bool
+    ) -> BonsplitTabActivityState {
+        suppressed && !flagged && state == .waiting ? .idle : state
+    }
+}
+
+/// Agent-state mark: a hard-edged terminal cell whose shape alone carries the
+/// lifecycle — a typed dot grid for running, frame plus payload for waiting,
+/// an empty frame for idle, and a collapsed line for cold.
 ///
-/// Nothing here animates. The mark is drawn once per state change, which keeps
-/// continuous per-tab redraw off the tab-bar render path.
+/// Animation is leaf-isolated here. The process-wide clock is shared with host
+/// renderers, so no tab owns a timer and no clock tick reaches the tab row.
 struct TabActivityMark: View {
+    private static let defaultPhaseId = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+
     let state: BonsplitTabActivityState
     let appearance: BonsplitConfiguration.Appearance
+    let phaseId: UUID
+    let flagged: Bool
+    let suppressed: Bool
+    let animationEligible: Bool
+
+    init(
+        state: BonsplitTabActivityState,
+        appearance: BonsplitConfiguration.Appearance,
+        phaseId: UUID = Self.defaultPhaseId,
+        flagged: Bool = false,
+        suppressed: Bool = false,
+        animationEligible: Bool = false
+    ) {
+        self.state = state
+        self.appearance = appearance
+        self.phaseId = phaseId
+        self.flagged = flagged
+        self.suppressed = suppressed
+        self.animationEligible = animationEligible
+    }
+
+    var body: some View {
+        let projectedState = TabActivityMarkPresentation.projectedState(
+            state,
+            flagged: flagged,
+            suppressed: suppressed
+        )
+        TabActivityMarkLeaf(
+            state: projectedState,
+            color: flagged
+                ? TabActivityMarkPresentation.flaggedColor
+                : TabBarColors.activity(projectedState, for: appearance),
+            phaseId: phaseId,
+            flagged: flagged,
+            suppressed: suppressed,
+            animationEligible: animationEligible
+        )
+    }
+}
+
+private struct TabActivityMarkLeaf: View {
+    let state: BonsplitTabActivityState
+    let color: Color
+    let phaseId: UUID
+    let flagged: Bool
+    let suppressed: Bool
+    let animationEligible: Bool
+
+    @AppStorage(BonsplitActivityMarkSettings.staticMarksKey)
+    private var staticMarks = BonsplitActivityMarkSettings.defaultStaticMarks
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var clockToken: UUID?
+    @State private var visibleWorkingDots = 9
+    @State private var waitingCoreOpacity = 1.0
+    @State private var flaggedWaitingShowsWhite = false
+
+    private var motion: BonsplitActivityMarkMotion? {
+        guard animationEligible, !reduceMotion else { return nil }
+        if flagged {
+            switch state {
+            case .running: return .working
+            case .waiting: return .flaggedWaiting
+            case .idle, .cold: return nil
+            }
+        }
+        guard !suppressed, !staticMarks else { return nil }
+        switch state {
+        case .running: return .working
+        case .waiting: return .waiting
+        case .idle, .cold: return nil
+        }
+    }
+
+    private var motionSignature: Int {
+        switch motion {
+        case .working: return 1
+        case .waiting: return 2
+        case .flaggedWaiting: return 3
+        case nil: return 0
+        }
+    }
 
     var body: some View {
         let size = TabActivityMarkMetrics.visibleSize(for: state)
-        let side = TabActivityMarkMetrics.cellSide
-        let color = TabBarColors.activity(state, for: appearance)
-        Group {
-            switch state {
-            case .running, .waiting:
+        markShape
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+            .onAppear { refreshClockSubscription() }
+            .onChange(of: motionSignature) { _, _ in refreshClockSubscription() }
+            .onChange(of: phaseId) { _, _ in refreshClockSubscription() }
+            .onDisappear { unsubscribeFromClock() }
+    }
+
+    @ViewBuilder
+    private var markShape: some View {
+        switch state {
+        case .running:
+            ZStack {
+                Rectangle()
+                    .fill(color.opacity(0.25))
+                    .frame(
+                        width: TabActivityMarkMetrics.cellSide,
+                        height: TabActivityMarkMetrics.cellSide
+                    )
+                VStack(spacing: TabActivityMarkMetrics.workingDotSpacing) {
+                    ForEach(0..<3, id: \.self) { row in
+                        HStack(spacing: TabActivityMarkMetrics.workingDotSpacing) {
+                            ForEach(0..<3, id: \.self) { column in
+                                let rank = (2 - row) * 3 + column
+                                Rectangle()
+                                    .fill(color)
+                                    .frame(
+                                        width: TabActivityMarkMetrics.workingDotSide,
+                                        height: TabActivityMarkMetrics.workingDotSide
+                                    )
+                                    .opacity(rank < visibleWorkingDots ? 1 : 0)
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(
+                width: TabActivityMarkMetrics.cellSide,
+                height: TabActivityMarkMetrics.cellSide
+            )
+
+        case .waiting:
+            ZStack {
+                Rectangle()
+                    .strokeBorder(
+                        color,
+                        lineWidth: TabActivityMarkMetrics.waitingFrameThickness
+                    )
                 Rectangle()
                     .fill(color)
-                    .frame(width: side, height: side)
-            case .idle:
-                Rectangle()
-                    .strokeBorder(color, lineWidth: 1)
-                    .frame(width: side, height: side)
-            case .cold:
-                Rectangle()
-                    .fill(color)
-                    .frame(width: side, height: TabActivityMarkMetrics.coldLineThickness)
+                    .frame(
+                        width: TabActivityMarkMetrics.waitingCoreSide,
+                        height: TabActivityMarkMetrics.waitingCoreSide
+                    )
+                    .opacity(flagged ? 1 : waitingCoreOpacity)
+                if flagged {
+                    Rectangle()
+                        .fill(Color.white)
+                        .frame(
+                            width: TabActivityMarkMetrics.waitingCoreSide,
+                            height: TabActivityMarkMetrics.waitingCoreSide
+                        )
+                        .opacity(flaggedWaitingShowsWhite ? 1 : 0)
+                }
+            }
+            .frame(
+                width: TabActivityMarkMetrics.cellSide,
+                height: TabActivityMarkMetrics.cellSide
+            )
+
+        case .idle:
+            Rectangle()
+                .strokeBorder(color, lineWidth: 1)
+                .frame(
+                    width: TabActivityMarkMetrics.cellSide,
+                    height: TabActivityMarkMetrics.cellSide
+                )
+
+        case .cold:
+            Rectangle()
+                .fill(color)
+                .frame(
+                    width: TabActivityMarkMetrics.cellSide,
+                    height: TabActivityMarkMetrics.coldLineThickness
+                )
+        }
+    }
+
+    private func refreshClockSubscription() {
+        unsubscribeFromClock()
+        guard let motion else {
+            resetToStaticState()
+            return
+        }
+        clockToken = BonsplitActivityAnimationClock.shared.subscribe { elapsed in
+            apply(elapsed: elapsed, motion: motion)
+        }
+    }
+
+    private func unsubscribeFromClock() {
+        guard let clockToken else { return }
+        BonsplitActivityAnimationClock.shared.unsubscribe(clockToken)
+        self.clockToken = nil
+    }
+
+    private func resetToStaticState() {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            visibleWorkingDots = 9
+            waitingCoreOpacity = 1
+            flaggedWaitingShowsWhite = false
+        }
+    }
+
+    private func apply(elapsed: TimeInterval, motion: BonsplitActivityMarkMotion) {
+        switch motion {
+        case .working:
+            let dots = BonsplitActivityMarkAnimation.visibleWorkingDots(
+                at: elapsed,
+                id: phaseId
+            )
+            guard dots != visibleWorkingDots else { return }
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                visibleWorkingDots = dots
+            }
+
+        case .waiting:
+            let opacity = BonsplitActivityMarkAnimation.waitingCoreOpacity(
+                at: elapsed,
+                id: phaseId
+            )
+            withAnimation(.linear(duration: BonsplitActivityMarkAnimation.clockInterval)) {
+                waitingCoreOpacity = opacity
+            }
+
+        case .flaggedWaiting:
+            let showsWhite = BonsplitActivityMarkAnimation.flaggedWaitingShowsWhite(
+                at: elapsed,
+                id: phaseId
+            )
+            guard showsWhite != flaggedWaitingShowsWhite else { return }
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                flaggedWaitingShowsWhite = showsWhite
             }
         }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
     }
 }
 
@@ -203,6 +440,9 @@ struct TabItemView: View {
     let showsControlShortcutHint: Bool
     let shortcutModifierSymbol: String
     let contextMenuState: TabContextMenuState
+    /// Width of the named tab-scroll viewport. Activity motion registers only
+    /// while this tab's mark intersects that viewport.
+    let activityAnimationViewportWidth: CGFloat
     /// Render the always-visible close X on the trailing edge of the tab,
     /// and collapse the right-click menu to Close Tab / Close Pane.
     /// Hosts that want the legacy hover-trailing X + full menu leave this
@@ -229,6 +469,7 @@ struct TabItemView: View {
     @State private var lastLoadingStoppedAt: Date?
     @State private var renderedFaviconData: Data?
     @State private var renderedFaviconImage: NSImage?
+    @State private var isActivityMarkVisible = false
     @AppStorage(TabControlShortcutHintDebugSettings.xKey) private var controlShortcutHintXOffset = TabControlShortcutHintDebugSettings.defaultX
     @AppStorage(TabControlShortcutHintDebugSettings.yKey) private var controlShortcutHintYOffset = TabControlShortcutHintDebugSettings.defaultY
     @AppStorage(TabControlShortcutHintDebugSettings.alwaysShowKey) private var alwaysShowShortcutHints = TabControlShortcutHintDebugSettings.defaultAlwaysShow
@@ -485,7 +726,24 @@ struct TabItemView: View {
             HStack(spacing: 0) {
                 Color.clear
                     .frame(width: TabActivityMarkMetrics.leadingEdgeInset(for: state))
-                TabActivityMark(state: state, appearance: appearance)
+                TabActivityMark(
+                    state: state,
+                    appearance: appearance,
+                    phaseId: tab.id,
+                    animationEligible: isActivityMarkVisible
+                )
+                .background {
+                    GeometryReader { proxy in
+                        let frame = proxy.frame(in: .named("tabScroll"))
+                        Color.clear
+                            .onAppear {
+                                updateActivityMarkVisibility(frame: frame)
+                            }
+                            .onChange(of: frame) { _, newFrame in
+                                updateActivityMarkVisibility(frame: newFrame)
+                            }
+                    }
+                }
                 Color.clear
                     .frame(width: TabActivityMarkMetrics.titleSpacing(for: state))
             }
@@ -500,6 +758,14 @@ struct TabItemView: View {
                     height: appearance.tabItemHeight
                 )
         }
+    }
+
+    private func updateActivityMarkVisibility(frame: CGRect) {
+        let isVisible = activityAnimationViewportWidth > 0
+            && frame.maxX > 0
+            && frame.minX < activityAnimationViewportWidth
+        guard isVisible != isActivityMarkVisible else { return }
+        isActivityMarkVisible = isVisible
     }
 
     @ViewBuilder

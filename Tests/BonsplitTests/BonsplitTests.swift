@@ -1474,11 +1474,15 @@ final class BonsplitTests: XCTestCase {
     }
 
     @MainActor
-    func testRunningActivityMarkNeverAnimates() throws {
+    func testRunningActivityMarkCanRenderStatically() throws {
         let hostingView = NSHostingView(
             rootView: ZStack {
                 Color.black
-                TabActivityMark(state: .running, appearance: .default)
+                TabActivityMark(
+                    state: .running,
+                    appearance: .default,
+                    animationEligible: false
+                )
             }
             .frame(width: 24, height: 24)
         )
@@ -1542,6 +1546,7 @@ final class BonsplitTests: XCTestCase {
             showsControlShortcutHint: false,
             shortcutModifierSymbol: "⌃",
             contextMenuState: contextMenuState,
+            activityAnimationViewportWidth: 0,
             useSimplifiedTabUX: true,
             flashGeneration: 0,
             onSelect: { selectionCount += 1 },
