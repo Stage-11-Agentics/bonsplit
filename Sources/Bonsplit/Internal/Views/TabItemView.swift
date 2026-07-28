@@ -230,6 +230,21 @@ enum TabActivityMarkMotionPolicy {
         case .idle, .cold: return nil
         }
     }
+
+    /// Resolve host presentation without treating the mere presence of color
+    /// or accessibility detail as an implicit request to freeze motion.
+    static func resolvedMotion(
+        for state: BonsplitTabActivityState,
+        defaultMotionEnabled: Bool,
+        explicitMotionEnabled: Bool,
+        presentation: BonsplitTabActivityPresentation?
+    ) -> BonsplitActivityMarkMotion? {
+        if let explicitMotion = presentation?.motion {
+            return explicitMotionEnabled ? explicitMotion : nil
+        }
+        guard presentation?.suppressesDefaultMotion != true else { return nil }
+        return defaultMotion(for: state, isEnabled: defaultMotionEnabled)
+    }
 }
 
 private struct TabActivityMarkLeaf: View {
@@ -776,13 +791,11 @@ struct TabItemView: View {
         for state: BonsplitTabActivityState
     ) -> BonsplitActivityMarkMotion? {
         guard isActivityMarkVisible else { return nil }
-        if let presentation = tab.activityPresentation {
-            guard explicitActivityAnimationEnabled else { return nil }
-            return presentation.motion
-        }
-        return TabActivityMarkMotionPolicy.defaultMotion(
+        return TabActivityMarkMotionPolicy.resolvedMotion(
             for: state,
-            isEnabled: activityAnimationEnabled
+            defaultMotionEnabled: activityAnimationEnabled,
+            explicitMotionEnabled: explicitActivityAnimationEnabled,
+            presentation: tab.activityPresentation
         )
     }
 

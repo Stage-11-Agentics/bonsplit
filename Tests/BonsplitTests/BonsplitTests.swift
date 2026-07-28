@@ -1572,6 +1572,67 @@ final class BonsplitTests: XCTestCase {
         )
     }
 
+    func testExpandedActivityMotionPreservesDefaultForColorAndAccessibilityPresentation() {
+        let presentation = BonsplitTabActivityPresentation(
+            colorOverrideHex: "#9D8AD9",
+            accessibilityValue: "Escalated"
+        )
+        XCTAssertEqual(
+            TabActivityMarkMotionPolicy.resolvedMotion(
+                for: .running,
+                defaultMotionEnabled: true,
+                explicitMotionEnabled: true,
+                presentation: presentation
+            ),
+            .steppedFill
+        )
+        XCTAssertEqual(
+            TabActivityMarkMotionPolicy.resolvedMotion(
+                for: .waiting,
+                defaultMotionEnabled: true,
+                explicitMotionEnabled: true,
+                presentation: presentation
+            ),
+            .easedDip
+        )
+    }
+
+    func testCollapsedActivityMotionHonorsExplicitMotionAndExplicitSuppression() {
+        XCTAssertEqual(
+            TabActivityMarkMotionPolicy.resolvedMotion(
+                for: .running,
+                defaultMotionEnabled: true,
+                explicitMotionEnabled: true,
+                presentation: BonsplitTabActivityPresentation(
+                    motion: .breathe,
+                    suppressesDefaultMotion: true
+                )
+            ),
+            .breathe,
+            "An explicit host channel wins even when default motion is suppressed"
+        )
+        XCTAssertNil(
+            TabActivityMarkMotionPolicy.resolvedMotion(
+                for: .waiting,
+                defaultMotionEnabled: true,
+                explicitMotionEnabled: true,
+                presentation: BonsplitTabActivityPresentation(
+                    suppressesDefaultMotion: true
+                )
+            ),
+            "A presentation must explicitly suppress default motion to freeze it"
+        )
+        XCTAssertNil(
+            TabActivityMarkMotionPolicy.resolvedMotion(
+                for: .waiting,
+                defaultMotionEnabled: true,
+                explicitMotionEnabled: false,
+                presentation: BonsplitTabActivityPresentation(motion: .binaryFlash)
+            ),
+            "Reduce-motion host policy disables explicit channels without falling back"
+        )
+    }
+
     func testActivityMarkVisibilityExcludesOpaqueTrailingChrome() {
         XCTAssertEqual(
             TabBarStyling.activityAnimationVisibleRightEdge(

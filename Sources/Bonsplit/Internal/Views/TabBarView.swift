@@ -1229,10 +1229,11 @@ struct TabBarView<TrailingAccessory: View>: View {
         state: BonsplitTabActivityState
     ) -> some View {
         let presentation = tab.activityPresentation
-        let explicitMotion = explicitActivityAnimationEnabled ? presentation?.motion : nil
-        let defaultMotion = TabActivityMarkMotionPolicy.defaultMotion(
+        let resolvedMotion = TabActivityMarkMotionPolicy.resolvedMotion(
             for: state,
-            isEnabled: activityAnimationEnabled && presentation?.suppressesDefaultMotion != true
+            defaultMotionEnabled: activityAnimationEnabled,
+            explicitMotionEnabled: explicitActivityAnimationEnabled,
+            presentation: presentation
         )
         return TabActivityMark(
             state: state,
@@ -1241,7 +1242,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             colorOverride: presentation?.colorOverrideHex
                 .flatMap(NSColor.init(bonsplitHex:))
                 .map(Color.init(nsColor:)),
-            motion: presentation == nil ? defaultMotion : explicitMotion,
+            motion: resolvedMotion,
             alternateCoreColor: presentation?.alternateCoreColorHex
                 .flatMap(NSColor.init(bonsplitHex:))
                 .map(Color.init(nsColor:))
