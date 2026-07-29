@@ -150,8 +150,65 @@ enum TabActivityAccessibility {
         return localizedString("tab.activity.waiting.help", default: "This surface needs your response.")
     }
 
+    static func composedValue(
+        state: BonsplitTabActivityState?,
+        presentationValue: String?,
+        isLoading: Bool,
+        isPinned: Bool,
+        showsNotificationBadge: Bool,
+        isDirty: Bool,
+        showsZoomIndicator: Bool
+    ) -> String {
+        var parts: [String] = []
+        if let presentationValue, !presentationValue.isEmpty {
+            parts.append(presentationValue)
+        } else {
+            let stateValue = value(for: state)
+            if !stateValue.isEmpty {
+                parts.append(stateValue)
+            }
+        }
+        if isLoading { parts.append("Loading") }
+        if isPinned { parts.append("Pinned") }
+        if showsNotificationBadge { parts.append("Unread") }
+        if isDirty { parts.append("Modified") }
+        if showsZoomIndicator { parts.append("Zoomed") }
+        return parts.joined(separator: ", ")
+    }
+
     private static func localizedString(_ key: String, default value: String) -> String {
         Bundle.module.localizedString(forKey: key, value: value, table: nil)
+    }
+}
+
+private struct TabActivityHelpTarget<Content: View>: View {
+    let help: BonsplitTabActivityHelp
+    @ViewBuilder let content: () -> Content
+
+    @State private var tooltipText: String
+
+    init(
+        help: BonsplitTabActivityHelp,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.help = help
+        self.content = content
+        _tooltipText = State(initialValue: ([help.stateLabel] + help.detailLines).joined(separator: "\n"))
+    }
+
+    var body: some View {
+        content()
+            .contentShape(Rectangle())
+            .onAppear { refreshTooltip() }
+            .onHover { hovering in
+                guard hovering else { return }
+                refreshTooltip()
+            }
+            .help(tooltipText)
+    }
+
+    private func refreshTooltip() {
+        tooltipText = BonsplitTabActivityHelpFormatter.text(for: help, at: Date())
     }
 }
 
@@ -483,6 +540,7 @@ struct TabItemView: View {
     @State private var renderedFaviconData: Data?
     @State private var renderedFaviconImage: NSImage?
     @State private var isActivityMarkVisible = false
+    @State private var refreshedActivityAccessibilityValue: String?
     @AppStorage(TabControlShortcutHintDebugSettings.xKey) private var controlShortcutHintXOffset = TabControlShortcutHintDebugSettings.defaultX
     @AppStorage(TabControlShortcutHintDebugSettings.yKey) private var controlShortcutHintYOffset = TabControlShortcutHintDebugSettings.defaultY
     @AppStorage(TabControlShortcutHintDebugSettings.alwaysShowKey) private var alwaysShowShortcutHints = TabControlShortcutHintDebugSettings.defaultAlwaysShow
@@ -529,6 +587,9 @@ struct TabItemView: View {
             }
             .onHover { hovering in
                 isHovered = hovering
+                if hovering {
+                    refreshActivityAccessibilityValue()
+                }
             }
             .contextMenu {
                 contextMenuContent
@@ -542,6 +603,10 @@ struct TabItemView: View {
             .accessibilityValue(accessibilityValue)
             .accessibilityHint(activityAccessibilityHelp)
             .accessibilityAddTraits(accessibilityTraits)
+            .onAppear { refreshActivityAccessibilityValue() }
+            .onChange(of: tab.activityPresentation?.help) { _, _ in
+                refreshActivityAccessibilityValue()
+            }
     }
 
     private var tabContent: some View {
@@ -736,43 +801,51 @@ struct TabItemView: View {
     @ViewBuilder
     private var leadingActivityAccessory: some View {
         if let state = tab.activityState {
-            HStack(spacing: 0) {
-                Color.clear
-                    .frame(width: TabActivityMarkMetrics.leadingEdgeInset(for: state))
-                TabActivityMark(
-                    state: state,
-                    appearance: appearance,
-                    phaseId: tab.id,
-                    colorOverride: tab.activityPresentation?.colorOverrideHex
-                        .flatMap(NSColor.init(bonsplitHex:))
-                        .map(Color.init(nsColor:)),
-                    motion: resolvedActivityMotion(for: state),
-                    alternateCoreColor: tab.activityPresentation?.alternateCoreColorHex
-                        .flatMap(NSColor.init(bonsplitHex:))
-                        .map(Color.init(nsColor:))
-                        ?? (tab.activityPresentation?.alternatesWithBaseColor == true
-                            ? TabBarColors.activity(state, for: appearance)
-                            : nil)
-                )
-                .background {
-                    GeometryReader { proxy in
-                        let visibilityInput = TabActivityMarkVisibilityInput(
-                            frame: proxy.frame(in: .named("tabScroll")),
-                            visibleRightEdge: activityAnimationVisibleRightEdge
-                        )
-                        Color.clear
-                            .onChange(of: visibilityInput, initial: true) { _, newInput in
-                                updateActivityMarkVisibility(newInput.isVisible)
-                            }
+            let mark = HStack(spacing: 0) {
+                    Color.clear
+                        .frame(width: TabActivityMarkMetrics.leadingEdgeInset(for: state))
+                    TabActivityMark(
+                        state: state,
+                        appearance: appearance,
+                        phaseId: tab.id,
+                        colorOverride: tab.activityPresentation?.colorOverrideHex
+                            .flatMap(NSColor.init(bonsplitHex:))
+                            .map(Color.init(nsColor:)),
+                        motion: resolvedActivityMotion(for: state),
+                        alternateCoreColor: tab.activityPresentation?.alternateCoreColorHex
+                            .flatMap(NSColor.init(bonsplitHex:))
+                            .map(Color.init(nsColor:))
+                            ?? (tab.activityPresentation?.alternatesWithBaseColor == true
+                                ? TabBarColors.activity(state, for: appearance)
+                                : nil)
+                    )
+                    .background {
+                        GeometryReader { proxy in
+                            let visibilityInput = TabActivityMarkVisibilityInput(
+                                frame: proxy.frame(in: .named("tabScroll")),
+                                visibleRightEdge: activityAnimationVisibleRightEdge
+                            )
+                            Color.clear
+                                .onChange(of: visibilityInput, initial: true) { _, newInput in
+                                    updateActivityMarkVisibility(newInput.isVisible)
+                                }
+                        }
                     }
+                    Color.clear
+                        .frame(width: TabActivityMarkMetrics.titleSpacing(for: state))
                 }
-                Color.clear
-                    .frame(width: TabActivityMarkMetrics.titleSpacing(for: state))
+                .frame(
+                    width: TabActivityMarkMetrics.leadingAccessoryWidth(for: state),
+                    height: appearance.tabItemHeight
+                )
+
+            if let help = tab.activityPresentation?.help {
+                TabActivityHelpTarget(help: help) {
+                    mark
+                }
+            } else {
+                mark
             }
-            .frame(
-                width: TabActivityMarkMetrics.leadingAccessoryWidth(for: state),
-                height: appearance.tabItemHeight
-            )
         } else {
             Color.clear
                 .frame(
@@ -967,27 +1040,32 @@ struct TabItemView: View {
     }
 
     private var accessibilityValue: String {
-        var parts: [String] = []
-        if let value = tab.activityPresentation?.accessibilityValue,
-           !value.isEmpty {
-            parts.append(value)
-        }
-        if let activityAccessibilityValue { parts.append(activityAccessibilityValue) }
-        if tab.isLoading { parts.append("Loading") }
-        if tab.isPinned { parts.append("Pinned") }
-        if tab.showsNotificationBadge { parts.append("Unread") }
-        if tab.isDirty { parts.append("Modified") }
-        if showsZoomIndicator { parts.append("Zoomed") }
-        return parts.joined(separator: ", ")
-    }
-
-    private var activityAccessibilityValue: String? {
-        let value = TabActivityAccessibility.value(for: tab.activityState)
-        return value.isEmpty ? nil : value
+        TabActivityAccessibility.composedValue(
+            state: tab.activityState,
+            presentationValue: refreshedActivityAccessibilityValue
+                ?? tab.activityPresentation?.accessibilityValue,
+            isLoading: tab.isLoading,
+            isPinned: tab.isPinned,
+            showsNotificationBadge: tab.showsNotificationBadge,
+            isDirty: tab.isDirty,
+            showsZoomIndicator: showsZoomIndicator
+        )
     }
 
     private var activityAccessibilityHelp: String {
         TabActivityAccessibility.help(for: tab.activityState)
+    }
+
+    private func refreshActivityAccessibilityValue() {
+        guard let help = tab.activityPresentation?.help else {
+            refreshedActivityAccessibilityValue = nil
+            return
+        }
+        refreshedActivityAccessibilityValue =
+            BonsplitTabActivityHelpFormatter.accessibilityValue(
+                for: help,
+                at: Date()
+            )
     }
 
     @ViewBuilder

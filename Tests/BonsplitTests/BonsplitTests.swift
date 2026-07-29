@@ -1558,17 +1558,101 @@ final class BonsplitTests: XCTestCase {
     }
 
     func testActivityPresentationRoundTripsWithoutHostSemantics() throws {
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let presentation = BonsplitTabActivityPresentation(
             colorOverrideHex: "#9D8AD9",
             motion: .binaryFlash,
             alternatesWithBaseColor: true,
             suppressesDefaultMotion: true,
-            accessibilityValue: "Escalated: Needs review"
+            accessibilityValue: "Escalated: Needs review",
+            help: BonsplitTabActivityHelp(
+                stateLabel: "Waiting",
+                startedAt: startedAt,
+                durationFormat: "%1$@ for %2$@",
+                detailLines: ["Escalated: Needs review"]
+            )
         )
         let data = try JSONEncoder().encode(presentation)
         XCTAssertEqual(
             try JSONDecoder().decode(BonsplitTabActivityPresentation.self, from: data),
             presentation
+        )
+    }
+
+    func testActivityHelpFormatsElapsedTimeAndAccessibilityInSemanticOrder() {
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let help = BonsplitTabActivityHelp(
+            stateLabel: "Idle",
+            startedAt: startedAt,
+            durationFormat: "%1$@ for %2$@",
+            detailLines: ["Flagged: Needs review", "Suppressed"]
+        )
+        let now = startedAt.addingTimeInterval(7 * 60)
+
+        XCTAssertEqual(
+            BonsplitTabActivityHelpFormatter.text(
+                for: help,
+                at: now,
+                locale: Locale(identifier: "en_US")
+            ),
+            "Idle for 7 minutes\nFlagged: Needs review\nSuppressed"
+        )
+        XCTAssertEqual(
+            BonsplitTabActivityHelpFormatter.accessibilityValue(
+                for: help,
+                at: now,
+                locale: Locale(identifier: "en_US")
+            ),
+            "Idle for 7 minutes, Flagged: Needs review, Suppressed"
+        )
+    }
+
+    func testActivityHelpNeverFabricatesZeroDuration() {
+        let startedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let help = BonsplitTabActivityHelp(
+            stateLabel: "Cold",
+            startedAt: startedAt,
+            durationFormat: "%1$@ for %2$@"
+        )
+
+        XCTAssertEqual(
+            BonsplitTabActivityHelpFormatter.text(for: help, at: startedAt),
+            "Cold"
+        )
+        XCTAssertEqual(
+            BonsplitTabActivityHelpFormatter.text(
+                for: help,
+                at: startedAt.addingTimeInterval(59),
+                locale: Locale(identifier: "en_US")
+            ),
+            "Cold for 59 seconds"
+        )
+    }
+
+    func testRenderedTabAccessibilityUsesHostSemanticOrderWithoutDuplicatingState() {
+        XCTAssertEqual(
+            TabActivityAccessibility.composedValue(
+                state: .idle,
+                presentationValue: "Idle for 7 minutes, Flagged: Needs review, Suppressed",
+                isLoading: false,
+                isPinned: true,
+                showsNotificationBadge: false,
+                isDirty: false,
+                showsZoomIndicator: false
+            ),
+            "Idle for 7 minutes, Flagged: Needs review, Suppressed, Pinned"
+        )
+        XCTAssertEqual(
+            TabActivityAccessibility.composedValue(
+                state: .waiting,
+                presentationValue: nil,
+                isLoading: false,
+                isPinned: false,
+                showsNotificationBadge: true,
+                isDirty: false,
+                showsZoomIndicator: false
+            ),
+            "\(TabActivityAccessibility.value(for: .waiting)), Unread"
         )
     }
 

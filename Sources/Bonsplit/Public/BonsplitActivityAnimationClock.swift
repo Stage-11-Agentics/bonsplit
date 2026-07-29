@@ -11,6 +11,86 @@ public enum BonsplitActivityMarkMotion: String, Codable, Equatable, Sendable {
     case breathe
 }
 
+/// Policy-free help supplied by a Bonsplit host for one activity mark.
+///
+/// The host owns every product word and the meaning of `startedAt`; Bonsplit
+/// only formats elapsed wall-clock time on hover and joins the supplied lines.
+public struct BonsplitTabActivityHelp: Codable, Equatable, Hashable, Sendable {
+    public let stateLabel: String
+    public let startedAt: Date?
+    public let durationFormat: String
+    public let detailLines: [String]
+
+    public init(
+        stateLabel: String,
+        startedAt: Date? = nil,
+        durationFormat: String,
+        detailLines: [String] = []
+    ) {
+        self.stateLabel = stateLabel
+        self.startedAt = startedAt
+        self.durationFormat = durationFormat
+        self.detailLines = detailLines
+    }
+}
+
+/// Pure formatter used by the native tooltip and by hosts that need matching
+/// accessibility or details text.
+public enum BonsplitTabActivityHelpFormatter {
+    public static func text(
+        for help: BonsplitTabActivityHelp,
+        at now: Date,
+        locale: Locale = .current
+    ) -> String {
+        let stateLine: String
+        if let startedAt = help.startedAt,
+           now > startedAt,
+           let duration = elapsedDescription(from: startedAt, to: now, locale: locale) {
+            stateLine = String(
+                format: help.durationFormat,
+                locale: locale,
+                help.stateLabel,
+                duration
+            )
+        } else {
+            stateLine = help.stateLabel
+        }
+
+        return ([stateLine] + help.detailLines.filter { !$0.isEmpty })
+            .joined(separator: "\n")
+    }
+
+    public static func accessibilityValue(
+        for help: BonsplitTabActivityHelp,
+        at now: Date,
+        locale: Locale = .current
+    ) -> String {
+        text(for: help, at: now, locale: locale)
+            .split(separator: "\n")
+            .joined(separator: ", ")
+    }
+
+    private static func elapsedDescription(
+        from startedAt: Date,
+        to now: Date,
+        locale: Locale
+    ) -> String? {
+        let elapsed = now.timeIntervalSince(startedAt)
+        guard elapsed >= 1 else { return nil }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = locale
+
+        let formatter = DateComponentsFormatter()
+        formatter.calendar = calendar
+        formatter.allowedUnits = [.day, .hour, .minute, .second]
+        formatter.unitsStyle = .full
+        formatter.maximumUnitCount = 1
+        formatter.zeroFormattingBehavior = .dropAll
+        return formatter.string(from: elapsed)
+    }
+}
+
 /// Policy-free presentation supplied by a Bonsplit host for one activity mark.
 ///
 /// Bonsplit interprets only colors and renderer motion. Product semantics such
@@ -23,6 +103,7 @@ public struct BonsplitTabActivityPresentation: Codable, Equatable, Hashable, Sen
     public let alternatesWithBaseColor: Bool
     public let suppressesDefaultMotion: Bool
     public let accessibilityValue: String?
+    public let help: BonsplitTabActivityHelp?
 
     public init(
         colorOverrideHex: String? = nil,
@@ -30,7 +111,8 @@ public struct BonsplitTabActivityPresentation: Codable, Equatable, Hashable, Sen
         alternateCoreColorHex: String? = nil,
         alternatesWithBaseColor: Bool = false,
         suppressesDefaultMotion: Bool = false,
-        accessibilityValue: String? = nil
+        accessibilityValue: String? = nil,
+        help: BonsplitTabActivityHelp? = nil
     ) {
         self.colorOverrideHex = colorOverrideHex
         self.motion = motion
@@ -38,6 +120,7 @@ public struct BonsplitTabActivityPresentation: Codable, Equatable, Hashable, Sen
         self.alternatesWithBaseColor = alternatesWithBaseColor
         self.suppressesDefaultMotion = suppressesDefaultMotion
         self.accessibilityValue = accessibilityValue
+        self.help = help
     }
 }
 
