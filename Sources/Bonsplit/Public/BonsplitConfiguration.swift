@@ -127,6 +127,8 @@ public struct BonsplitConfiguration: Sendable {
 extension BonsplitConfiguration {
     public struct SplitButtonTooltips: Sendable, Equatable {
         public var newAgent: String
+        /// Tooltip for the caret beside the agent button (opens the launch picker).
+        public var chooseAgent: String
         public var newTerminal: String
         public var newBrowser: String
         public var newMarkdown: String
@@ -139,6 +141,7 @@ extension BonsplitConfiguration {
 
         public init(
             newAgent: String = "New Agent",
+            chooseAgent: String = "Choose Agent…",
             newTerminal: String = "New Terminal",
             newBrowser: String = "New Browser",
             newMarkdown: String = "New Markdown",
@@ -148,6 +151,7 @@ extension BonsplitConfiguration {
             closePane: String = "Close Pane"
         ) {
             self.newAgent = newAgent
+            self.chooseAgent = chooseAgent
             self.newTerminal = newTerminal
             self.newBrowser = newBrowser
             self.newMarkdown = newMarkdown

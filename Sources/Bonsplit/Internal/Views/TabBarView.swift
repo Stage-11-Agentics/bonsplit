@@ -1273,14 +1273,11 @@ struct TabBarView<TrailingAccessory: View>: View {
         let canClosePane = controller.allPaneIds.count > 1
             || controller.configuration.allowCloseLastPane
         HStack(spacing: 4) {
-            SplitToolbarButton(systemImage: "", labelText: "A", tooltip: tooltips.newAgent, appearance: appearance) {
-                controller.requestNewTab(kind: "agent", inPane: pane.id)
-                isDropdownOpen = false
-            }
-            .overlay(
-                RightClickCatchView { buttonScreenRect in
-                    controller.rightClickNewTabButton(kind: "agent", inPane: pane.id, buttonScreenRect: buttonScreenRect)
-                }
+            AgentSpawnButtonCluster(
+                controller: controller,
+                paneId: pane.id,
+                appearance: appearance,
+                afterAction: { isDropdownOpen = false }
             )
 
             SplitToolbarButton(systemImage: "terminal", tooltip: tooltips.newTerminal, appearance: appearance) {
@@ -1580,18 +1577,10 @@ struct TabBarView<TrailingAccessory: View>: View {
             // button and makes the two regions visually distinct.
             splitButtonsGroupSeparator
 
-            SplitToolbarButton(
-                systemImage: "",
-                labelText: "A",
-                tooltip: tooltips.newAgent,
+            AgentSpawnButtonCluster(
+                controller: controller,
+                paneId: pane.id,
                 appearance: appearance
-            ) {
-                controller.requestNewTab(kind: "agent", inPane: pane.id)
-            }
-            .overlay(
-                RightClickCatchView { buttonScreenRect in
-                    controller.rightClickNewTabButton(kind: "agent", inPane: pane.id, buttonScreenRect: buttonScreenRect)
-                }
             )
 
             SplitToolbarButton(
@@ -1820,6 +1809,62 @@ extension TabBarView where TrailingAccessory == EmptyView {
             showSplitButtons: showSplitButtons,
             trailingAccessory: { _, _ in EmptyView() }
         )
+    }
+}
+
+/// The agent spawn control — the split-button idiom that keeps the one-click
+/// launch and makes the launch picker discoverable: the "A" zone launches the
+/// default on click (press-and-hold or right/ctrl-click opens the picker), and
+/// the narrow caret zone opens the picker on any click. All pointer paths run
+/// through RightClickCatchView so they fire deterministically on the real
+/// event; the SplitToolbarButton underneath is visual-only.
+private struct AgentSpawnButtonCluster: View {
+    let controller: BonsplitController
+    let paneId: PaneID
+    let appearance: BonsplitConfiguration.Appearance
+    var afterAction: () -> Void = {}
+
+    @State private var caretHovered = false
+
+    var body: some View {
+        let tooltips = appearance.splitButtonTooltips
+        HStack(spacing: 0) {
+            SplitToolbarButton(systemImage: "", labelText: "A", tooltip: tooltips.newAgent, appearance: appearance) {
+                // Visual-only: the catch overlay owns every pointer path.
+            }
+            .overlay(
+                RightClickCatchView(
+                    onContextClick: { rect in openPicker(rect) },
+                    onPrimaryClick: { _ in
+                        controller.requestNewTab(kind: "agent", inPane: paneId)
+                        afterAction()
+                    }
+                )
+            )
+
+            Text("\u{25BE}")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(TabBarColors.splitActionIcon(for: appearance, isPressed: false))
+                .frame(width: 13, height: appearance.splitToolbarButtonFrameSize)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.primary.opacity(caretHovered ? 0.09 : 0))
+                )
+                .contentShape(Rectangle())
+                .onHover { caretHovered = $0 }
+                .help(tooltips.chooseAgent)
+                .overlay(
+                    RightClickCatchView(
+                        onContextClick: { rect in openPicker(rect) },
+                        onPrimaryClick: { rect in openPicker(rect) }
+                    )
+                )
+        }
+    }
+
+    private func openPicker(_ buttonScreenRect: CGRect) {
+        controller.rightClickNewTabButton(kind: "agent", inPane: paneId, buttonScreenRect: buttonScreenRect)
+        afterAction()
     }
 }
 
