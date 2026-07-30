@@ -1277,17 +1277,11 @@ struct TabBarView<TrailingAccessory: View>: View {
                 controller.requestNewTab(kind: "agent", inPane: pane.id)
                 isDropdownOpen = false
             }
-            .contextMenu {
-                let items = controller.menuItemsForNewTab(kind: "agent", inPane: pane.id)
-                ForEach(items) { item in
-                    Button {
-                        controller.selectNewTabMenuItem(item.id, forKind: "agent", inPane: pane.id)
-                    } label: {
-                        Text((item.isCurrent ? "✓  " : "    ") + item.label)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
+            .overlay(
+                RightClickCatchView { buttonScreenRect in
+                    controller.rightClickNewTabButton(kind: "agent", inPane: pane.id, buttonScreenRect: buttonScreenRect)
                 }
-            }
+            )
 
             SplitToolbarButton(systemImage: "terminal", tooltip: tooltips.newTerminal, appearance: appearance) {
                 controller.requestNewTab(kind: "terminal", inPane: pane.id)
@@ -1594,23 +1588,11 @@ struct TabBarView<TrailingAccessory: View>: View {
             ) {
                 controller.requestNewTab(kind: "agent", inPane: pane.id)
             }
-            .contextMenu {
-                let items = controller.menuItemsForNewTab(kind: "agent", inPane: pane.id)
-                ForEach(items) { item in
-                    Button {
-                        controller.selectNewTabMenuItem(item.id, forKind: "agent", inPane: pane.id)
-                    } label: {
-                        // Prefix with a leading checkmark glyph for the
-                        // currently-selected item (or a matching-width space so
-                        // non-current rows align). Using a single Text instead
-                        // of `Label(..., systemImage:)` prevents macOS's menu
-                        // layout from truncating the label to the SF Symbol
-                        // slot width.
-                        Text((item.isCurrent ? "✓  " : "    ") + item.label)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
+            .overlay(
+                RightClickCatchView { buttonScreenRect in
+                    controller.rightClickNewTabButton(kind: "agent", inPane: pane.id, buttonScreenRect: buttonScreenRect)
                 }
-            }
+            )
 
             SplitToolbarButton(
                 systemImage: "terminal",
