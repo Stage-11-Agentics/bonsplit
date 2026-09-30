@@ -205,6 +205,7 @@ struct PaneContainerView<Content: View, EmptyContent: View, TrailingAccessory: V
             && !pane.tabs.isEmpty
     }
 
+    /// Only used for the reveal slide; the layout places the rail itself.
     private var railWidth: CGFloat { TabRailMetrics.width(forAreaWidth: areaWidth) }
 
     @ViewBuilder
@@ -215,14 +216,12 @@ struct PaneContainerView<Content: View, EmptyContent: View, TrailingAccessory: V
                 controller: bonsplitController,
                 splitViewController: controller,
                 appearance: bonsplitController.configuration.appearance,
-                width: railWidth,
                 includesControls: bonsplitController.railNeedsControls.contains(pane.id),
                 activityAnimationEnabled: activityAnimationEnabled,
                 explicitActivityAnimationEnabled: explicitActivityAnimationEnabled
             )
             .offset(x: -railWidth * (1 - railReveal))
         }
-        .frame(width: railWidth)
         .clipped()
     }
 
@@ -244,7 +243,7 @@ struct PaneContainerView<Content: View, EmptyContent: View, TrailingAccessory: V
 
             // Content area with drop zones. In Rail layout the rail docks on the
             // left and pushes the content over.
-            HStack(spacing: 0) {
+            RailSplitLayout {
                 if showsRail {
                     railView
                 }

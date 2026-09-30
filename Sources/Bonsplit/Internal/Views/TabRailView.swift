@@ -2,54 +2,187 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-/// Rail geometry: about 38% of the area, clamped to 200–300pt.
+/// Rail geometry: about 38% of the area, clamped to 200-300pt; in a small area
+/// (under 420pt) no more than 45% of it, so the rail never crushes the content.
 enum TabRailMetrics {
     static let rowHeight: CGFloat = 40
     static let headerHeight: CGFloat = 22
+    /// Under this width the rail's controls wrap onto two rows.
+    static let compactControlsWidth: CGFloat = 260
 
     static func width(forAreaWidth area: CGFloat) -> CGFloat {
-        min(300, max(200, (area * 0.38).rounded()))
+        let base = min(300, max(200, (area * 0.38).rounded()))
+        guard area < 420 else { return base }
+        return min(base, (area * 0.45).rounded())
     }
+}
+
+/// Places the rail (when present) on the left and the content in the rest, in a
+/// single layout pass, so a rail that is open from the start never lays the
+/// content out at one width and then another.
+struct RailSplitLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        CGSize(width: proposal.width ?? 200, height: proposal.height ?? 200)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let content = subviews.last else { return }
+        if subviews.count >= 2, let rail = subviews.first {
+            let railWidth = TabRailMetrics.width(forAreaWidth: bounds.width)
+            rail.place(
+                at: bounds.origin,
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: railWidth, height: bounds.height)
+            )
+            content.place(
+                at: CGPoint(x: bounds.minX + railWidth, y: bounds.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: max(0, bounds.width - railWidth), height: bounds.height)
+            )
+        } else {
+            content.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
+        }
+    }
+}
+
+/// Vertical auto-scroll for the rail while a tab is dragged near its top or
+/// bottom edge. Needs `ScrollPosition` (macOS 15+); on macOS 14 there is no
+/// driver, so nothing is written and the rail simply does not auto-scroll.
+@MainActor
+final class TabRailScrollBridge: ObservableObject {
+    weak var viewport: NSView?
+    var offset: CGFloat = 0
+    var contentHeight: CGFloat = 0
+    var scrollToY: ((CGFloat) -> Void)?
+    nonisolated(unsafe) private var timer: Timer?
+
+    deinit { timer?.invalidate() }
+
+    func begin() {
+        guard timer == nil, scrollToY != nil else { return }
+        let t = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    func end() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    private func tick() {
+        guard NSEvent.pressedMouseButtons & 1 != 0 else { end(); return }
+        guard let viewport, let window = viewport.window, let scrollToY else { return }
+        let height = viewport.bounds.height
+        guard contentHeight > height + 1 else { return }
+        let point = viewport.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        guard point.x >= viewport.bounds.minX, point.x <= viewport.bounds.maxX else { return }
+        let zone: CGFloat = 32
+        // Flipped hosting views put y = 0 at the top; AppKit's default puts it at the bottom.
+        let fromTop = viewport.isFlipped ? point.y : height - point.y
+        var step: CGFloat = 0
+        if fromTop >= -4, fromTop < zone {
+            step = -12 * (1 - max(0, fromTop) / zone)
+        } else if fromTop > height - zone, fromTop <= height + 4 {
+            step = 12 * min(1, (fromTop - (height - zone)) / zone)
+        }
+        guard abs(step) > 0.1 else { return }
+        let next = min(max(0, offset + step), contentHeight - height)
+        guard abs(next - offset) > 0.01 else { return }
+        offset = next
+        scrollToY(next)
+    }
+}
+
+private struct RailScrollPositionModifier: ViewModifier {
+    let bridge: TabRailScrollBridge
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.modifier(Driver(bridge: bridge))
+        } else {
+            content
+        }
+    }
+
+    @available(macOS 15.0, *)
+    private struct Driver: ViewModifier {
+        let bridge: TabRailScrollBridge
+        @State private var position = ScrollPosition()
+
+        func body(content: Content) -> some View {
+            content
+                .scrollPosition($position)
+                .onAppear {
+                    bridge.scrollToY = { y in
+                        withTransaction(Transaction(animation: nil)) { position.scrollTo(y: y) }
+                    }
+                }
+        }
+    }
+}
+
+private struct RailContentFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
 }
 
 /// The vertical tab list docked on an area's left edge (Rail layout). The same
 /// tabs as the strip, turned sideways: mark, title, status with its duration
 /// on line two, `Tab N` at the right, and the gold rule on the visible tab.
 /// Rows scroll vertically and drag like strip tabs: reorder here, or drag out to
-/// another area's strip or rail.
+/// another area's strip or rail (also across workspaces and windows).
 struct TabRailView: View {
     let pane: PaneState
     let controller: BonsplitController
     let splitViewController: SplitViewController
     let appearance: BonsplitConfiguration.Appearance
-    let width: CGFloat
     /// The bar had no room for the controls, so the rail carries them on top.
     var includesControls = false
     let activityAnimationEnabled: Bool
     let explicitActivityAnimationEnabled: Bool
 
     @State private var dropIndex: Int?
+    @State private var dropOwner: Int?
     @State private var hoveredTabId: UUID?
+    @StateObject private var scrollBridge = TabRailScrollBridge()
 
     private var palette: TabBarColors.SheetPalette { TabBarColors.sheetPalette(for: appearance) }
 
-    /// One ticker for the whole rail; about every five seconds the host is asked
-    /// for fresh detail so durations and states keep advancing while it is open.
+    /// One ticker for the whole rail while its workspace is live; about every
+    /// five seconds the host is asked for fresh detail so durations and states
+    /// keep advancing. A hidden workspace's rail stops ticking and asking.
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            rail(now: context.date)
-                .onChange(of: Int(context.date.timeIntervalSinceReferenceDate / 5)) { _, _ in
-                    controller.refreshTabDetails(inPane: pane.id)
-                }
+        let live = splitViewController.isInteractive
+        TimelineView(.periodic(from: .now, by: live ? 1 : 3600)) { context in
+            GeometryReader { geo in
+                rail(now: context.date, width: geo.size.width)
+            }
+            .onChange(of: Int(context.date.timeIntervalSinceReferenceDate / 5)) { _, _ in
+                guard live else { return }
+                controller.refreshTabDetails(inPane: pane.id)
+            }
         }
         .onAppear { controller.refreshTabDetails(inPane: pane.id) }
+        .onChange(of: splitViewController.draggingTab != nil) { _, dragging in
+            if dragging { scrollBridge.begin() } else { scrollBridge.end() }
+        }
+        .onDisappear { scrollBridge.end() }
     }
 
-    private func rail(now: Date) -> some View {
+    private func rail(now: Date, width: CGFloat) -> some View {
         VStack(spacing: 0) {
             if includesControls {
-                TabControlsRow(pane: pane, controller: controller, appearance: appearance, height: 30)
-                    .frame(width: width)
+                let compact = width < TabRailMetrics.compactControlsWidth
+                TabControlsRow(
+                    pane: pane,
+                    controller: controller,
+                    appearance: appearance,
+                    height: compact ? 56 : 30,
+                    twoLines: compact
+                )
                 Rectangle().fill(palette.separator).frame(height: 1)
             }
             header
@@ -60,7 +193,19 @@ struct TabRailView: View {
                     }
                     endDropZone
                 }
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(key: RailContentFrameKey.self, value: proxy.frame(in: .named("railScroll")))
+                    }
+                )
             }
+            .coordinateSpace(name: "railScroll")
+            .onPreferenceChange(RailContentFrameKey.self) { frame in
+                scrollBridge.offset = -frame.minY
+                scrollBridge.contentHeight = frame.height
+            }
+            .modifier(RailScrollPositionModifier(bridge: scrollBridge))
+            .background(CollapsedSheetAnchorReader { scrollBridge.viewport = $0 })
         }
         .frame(width: width)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -150,7 +295,8 @@ struct TabRailView: View {
             pane: pane,
             controller: splitViewController,
             bonsplitController: controller,
-            dropIndex: $dropIndex
+            dropIndex: $dropIndex,
+            dropOwner: $dropOwner
         ))
         .onHover { inside in
             if inside {
@@ -219,6 +365,7 @@ struct TabRailView: View {
                 controller: splitViewController,
                 bonsplitController: controller,
                 dropIndex: $dropIndex,
+                dropOwner: $dropOwner,
                 isEndZone: true
             ))
     }
@@ -283,8 +430,28 @@ enum TabDragSource {
 
 // MARK: - Drop
 
-/// Reorders inside the rail and moves tabs in from other areas. The insertion
-/// index is the row boundary nearest the cursor.
+/// Reads the in-flight tab drag from the drag pasteboard (for drags that began
+/// in another workspace or window, where this process has no drag state).
+enum TabTransferDecoder {
+    static func fromDragPasteboard() -> TabTransferData? {
+        let pasteboard = NSPasteboard(name: .drag)
+        let type = NSPasteboard.PasteboardType(UTType.tabTransfer.identifier)
+        if let data = pasteboard.data(forType: type),
+           let transfer = try? JSONDecoder().decode(TabTransferData.self, from: data) {
+            return transfer
+        }
+        if let raw = pasteboard.string(forType: type), let data = raw.data(using: .utf8),
+           let transfer = try? JSONDecoder().decode(TabTransferData.self, from: data) {
+            return transfer
+        }
+        return nil
+    }
+}
+
+/// Reorders inside the rail and moves tabs in from other areas, workspaces and
+/// windows. The insertion index is the row boundary nearest the cursor. Rows
+/// arbitrate through `dropOwner` so a stale exit from the row the pointer just
+/// left cannot clear the rule the row it entered is showing.
 struct TabRailRowDropDelegate: DropDelegate {
     let rowIndex: Int
     let rowHeight: CGFloat
@@ -292,6 +459,7 @@ struct TabRailRowDropDelegate: DropDelegate {
     let controller: SplitViewController
     let bonsplitController: BonsplitController
     @Binding var dropIndex: Int?
+    @Binding var dropOwner: Int?
     var isEndZone = false
 
     private var draggedTab: TabItem? { controller.activeDragTab ?? controller.draggingTab }
@@ -313,13 +481,14 @@ struct TabRailRowDropDelegate: DropDelegate {
     }
 
     private func updateIndicator(for info: DropInfo) {
+        if dropOwner != rowIndex { dropOwner = rowIndex }
         let target = insertionIndex(for: info)
         let shown: Int? = isNoop(target) ? nil : target
         if dropIndex != shown { dropIndex = shown }
     }
 
     func validateDrop(info: DropInfo) -> Bool {
-        controller.isInteractive && info.hasItemsConforming(to: [.tabTransfer]) && draggedTab != nil
+        controller.isInteractive && info.hasItemsConforming(to: [.tabTransfer])
     }
 
     func dropEntered(info: DropInfo) { updateIndicator(for: info) }
@@ -330,15 +499,34 @@ struct TabRailRowDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
-        if dropIndex == rowIndex || dropIndex == rowIndex + 1 || isEndZone { dropIndex = nil }
+        // Only the row that still owns the hover may clear it.
+        if let owner = dropOwner, owner != rowIndex { return }
+        dropOwner = nil
+        dropIndex = nil
     }
 
     func performDrop(info: DropInfo) -> Bool {
         if !Thread.isMainThread {
             return DispatchQueue.main.sync { performDrop(info: info) }
         }
-        guard let draggedTab, let sourcePaneId else { return false }
         let target = insertionIndex(for: info)
+        defer {
+            dropIndex = nil
+            dropOwner = nil
+        }
+        guard let draggedTab, let sourcePaneId else {
+            // The drag began in another workspace or window: hand it to the
+            // host, as the strip does.
+            guard let transfer = TabTransferDecoder.fromDragPasteboard(), transfer.isFromCurrentProcess else {
+                return false
+            }
+            let request = BonsplitController.ExternalTabDropRequest(
+                tabId: TabID(id: transfer.tab.id),
+                sourcePaneId: PaneID(id: transfer.sourcePaneId),
+                destination: .insert(targetPane: pane.id, targetIndex: target)
+            )
+            return bonsplitController.onExternalTabDrop?(request) ?? false
+        }
         withTransaction(Transaction(animation: nil)) {
             if sourcePaneId == pane.id {
                 if let source = sourceIndex, !isNoop(target) { pane.moveTab(from: source, to: target) }
@@ -346,7 +534,6 @@ struct TabRailRowDropDelegate: DropDelegate {
                 _ = bonsplitController.moveTab(TabID(id: draggedTab.id), toPane: pane.id, atIndex: target)
             }
         }
-        dropIndex = nil
         controller.draggingTab = nil
         controller.dragSourcePaneId = nil
         controller.activeDragTab = nil

@@ -208,9 +208,13 @@ final class TabSheetGridTests: XCTestCase {
     }
 
     func testRailWidthIsAboutThirtyEightPercentClamped() {
-        XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 400), 200)   // 152 -> min
+        XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 500), 200)   // 190 -> min
         XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 560), 213)   // 38%
         XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 1120), 300)  // max
+        // A small area is never crushed by the 200pt floor: at most 45% of it.
+        XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 250), 113)
+        XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 419), 189)
+        XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 420), 200)
     }
 
     @MainActor

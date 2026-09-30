@@ -663,7 +663,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             .contentShape(Rectangle())
             .onTapGesture { toggleCountList() }
 
-            if layoutTier == .full {
+            if !railBarLacksRoomForControls {
                 splitButtons.saturation(tabBarSaturation)
             }
         }
@@ -678,8 +678,17 @@ struct TabBarView<TrailingAccessory: View>: View {
             sheetPresenter.anchorView = $0
             scrollViewBridge.barView = $0
         })
-        .onAppear { controller.railNeedsControlsUpdate(pane.id, needs: layoutTier != .full) }
-        .onChange(of: layoutTier) { _, tier in controller.railNeedsControlsUpdate(pane.id, needs: tier != .full) }
+        .onAppear { controller.railNeedsControlsUpdate(pane.id, needs: railBarLacksRoomForControls) }
+        .onChange(of: barWidth) { _, _ in
+            controller.railNeedsControlsUpdate(pane.id, needs: railBarLacksRoomForControls)
+        }
+    }
+
+    /// The controls move into the rail only when the bar truly lacks room for
+    /// them next to the count cell and a readable title.
+    private var railBarLacksRoomForControls: Bool {
+        let minTitleRoom: CGFloat = 110
+        return barWidth - 8 - TabCountCellMetrics.width - estimatedChromeWidth < minTitleRoom
     }
 
     // MARK: - Horizontal Tab Strip (default / wide layout)
@@ -1477,71 +1486,14 @@ struct TabBarView<TrailingAccessory: View>: View {
     // MARK: - Item Provider
 
     private func createItemProvider(for tab: TabItem) -> NSItemProvider {
-        #if DEBUG
-        NSLog("[Bonsplit Drag] createItemProvider for tab: \(tab.title)")
-        #endif
 #if DEBUG
         dlog("tab.dragStart pane=\(pane.id.id.uuidString.prefix(5)) tab=\(tab.id.uuidString.prefix(5)) title=\"\(tab.title)\"")
 #endif
         // Clear any stale drop indicator from previous incomplete drag
         dropTargetIndex = nil
         dropLifecycle = .idle
-
-        // Set drag source for visual feedback (observable) and drop delegates (non-observable).
-        splitViewController.dragGeneration += 1
-        splitViewController.draggingTab = tab
-        splitViewController.dragSourcePaneId = pane.id
-        splitViewController.activeDragTab = tab
-        splitViewController.activeDragSourcePaneId = pane.id
-
-        // Install a one-shot mouse-up monitor to clear stale drag state if the drag is
-        // cancelled (dropped outside any valid target). SwiftUI's onDrag doesn't provide
-        // a drag-cancelled callback, so performDrop never fires and draggingTab stays set,
-        // which disables hit testing on all content views.
-        let controller = splitViewController
-        let dragGen = controller.dragGeneration
-        var monitorRef: Any?
-        monitorRef = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
-            // One-shot: remove ourselves, then clean up stale drag state.
-            if let m = monitorRef {
-                NSEvent.removeMonitor(m)
-                monitorRef = nil
-            }
-            // Use async to avoid mutating @Observable state during event dispatch.
-            DispatchQueue.main.async {
-                guard controller.dragGeneration == dragGen else { return }
-                if controller.draggingTab != nil || controller.activeDragTab != nil {
-#if DEBUG
-                    dlog("tab.dragCancel (stale draggingTab cleared)")
-#endif
-                    controller.draggingTab = nil
-                    controller.dragSourcePaneId = nil
-                    controller.activeDragTab = nil
-                    controller.activeDragSourcePaneId = nil
-                }
-            }
-            return event
-        }
-
-        let transfer = TabTransferData(tab: tab, sourcePaneId: pane.id.id)
-        if let data = try? JSONEncoder().encode(transfer) {
-            let provider = NSItemProvider()
-            provider.registerDataRepresentation(
-                forTypeIdentifier: UTType.tabTransfer.identifier,
-                visibility: .ownProcess
-            ) { completion in
-                completion(data, nil)
-                return nil
-            }
-#if DEBUG
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) {
-                let types = NSPasteboard(name: .drag).types?.map(\.rawValue).joined(separator: ",") ?? "-"
-                dlog("tab.dragPasteboard types=\(types)")
-            }
-#endif
-            return provider
-        }
-        return NSItemProvider()
+        // One drag source for strip tabs, sheet rows and rail rows.
+        return TabDragSource.makeItemProvider(for: tab, in: pane.id, controller: splitViewController)
     }
 
     private func tabControlShortcutDigit(for index: Int, tabCount: Int) -> Int? {
@@ -2810,15 +2762,6 @@ struct TabDropDelegate: DropDelegate {
     }
 
     private func decodeTransfer(from info: DropInfo) -> TabTransferData? {
-        let pasteboard = NSPasteboard(name: .drag)
-        let type = NSPasteboard.PasteboardType(UTType.tabTransfer.identifier)
-        if let data = pasteboard.data(forType: type),
-           let transfer = try? JSONDecoder().decode(TabTransferData.self, from: data) {
-            return transfer
-        }
-        if let raw = pasteboard.string(forType: type) {
-            return decodeTransfer(from: raw)
-        }
-        return nil
+        TabTransferDecoder.fromDragPasteboard()
     }
 }
