@@ -34,8 +34,22 @@ final class CollapsedSheetPresenter: ObservableObject {
     private var isHiddenForDrag = false
     private var releasedPolls = 0
     private var repositionScheduled = false
+    /// A drag that started from a row is in flight: the (possibly invisible)
+    /// panel is its drag source and must not be torn down until it ends.
+    private(set) var isDragging = false
 
     var isPresented: Bool { panel != nil }
+
+    deinit {
+        dragTimer?.invalidate()
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        if let panel {
+            panel.parent?.removeChildWindow(panel)
+            panel.orderOut(nil)
+        }
+    }
 
     func present(rootView: AnyView) {
         if let hosting, panel != nil {
@@ -77,10 +91,19 @@ final class CollapsedSheetPresenter: ObservableObject {
         installMonitors(hostWindow: window)
     }
 
-    /// Tears the sheet down without notifying `onDismiss`.
+    /// Asks the sheet to go away. While a row drag is in flight the request is
+    /// held until the drag ends: tearing down the hosting view would kill the
+    /// drag source (tier changes and title churn can request this mid-drag).
     func dismiss() {
+        if isDragging, panel != nil { return }
+        forceDismiss()
+    }
+
+    /// Tears the sheet down without notifying `onDismiss`.
+    private func forceDismiss() {
         dragTimer?.invalidate()
         dragTimer = nil
+        isDragging = false
         releasedPolls = 0
         removeMonitors()
         if let panel {
@@ -94,7 +117,7 @@ final class CollapsedSheetPresenter: ObservableObject {
     }
 
     private func dismissAndNotify() {
-        dismiss()
+        forceDismiss()
         onDismiss?()
     }
 
@@ -105,6 +128,7 @@ final class CollapsedSheetPresenter: ObservableObject {
     /// cursor leaves it.
     func beginDragTracking() {
         guard panel != nil, dragTimer == nil else { return }
+        isDragging = true
         releasedPolls = 0
         let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.pollDragCursor() }
@@ -114,9 +138,18 @@ final class CollapsedSheetPresenter: ObservableObject {
         dragTimer = timer
     }
 
-    func endDragTracking() {
-        dragTimer?.invalidate()
-        dragTimer = nil
+    /// The model reports the drag over (drop applied, cancelled, or landed
+    /// elsewhere). AppKit is still finishing the drag session inside the drop
+    /// callbacks, so the source view is released a beat later.
+    func dragEnded() {
+        guard panel != nil else {
+            isDragging = false
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self, self.panel != nil else { return }
+            self.dismissAndNotify()
+        }
     }
 
     private func pollDragCursor() {
@@ -163,15 +196,22 @@ final class CollapsedSheetPresenter: ObservableObject {
     }
 
     private func reposition() {
-        guard let panel, let hosting, let rect = anchorScreenRect else { return }
+        guard let panel, let hosting, let rect = anchorScreenRect,
+              let aw = anchorView?.window else { return }
         let size = hosting.fittingSize
         guard size.width > 0, size.height > 0 else { return }
-        let frame = NSRect(
-            x: rect.minX,
-            y: rect.minY - size.height,
-            width: size.width,
-            height: size.height
-        )
+        // Hang below the bar; flip above it when the screen would clip the
+        // bottom, and keep the sheet inside the visible frame either way.
+        let visible = (aw.screen ?? NSScreen.main)?.visibleFrame
+        var origin = NSPoint(x: rect.minX, y: rect.minY - size.height)
+        if let visible {
+            if origin.y < visible.minY {
+                let above = rect.maxY
+                origin.y = above + size.height <= visible.maxY ? above : max(visible.minY, origin.y)
+            }
+            origin.x = min(max(origin.x, visible.minX), max(visible.minX, visible.maxX - size.width))
+        }
+        let frame = NSRect(origin: origin, size: size)
         if panel.frame != frame {
             panel.setFrame(frame, display: true)
         }
@@ -181,7 +221,8 @@ final class CollapsedSheetPresenter: ObservableObject {
 
     private func installMonitors(hostWindow: NSWindow) {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, self.panel != nil, event.keyCode == 53 else { return event }
+            guard let self, let panel = self.panel, event.keyCode == 53,
+                  NSApp.keyWindow === panel.parent else { return event }
             MainActor.assumeIsolated { self.dismissAndNotify() }
             return nil
         }
@@ -204,6 +245,21 @@ final class CollapsedSheetPresenter: ObservableObject {
         }
 
         let center = NotificationCenter.default
+        // The bar can move inside the window while the sheet is up (sidebar
+        // toggle, split/close/zoom): follow whichever ancestor frame changed.
+        observers.append(center.addObserver(
+            forName: NSView.frameDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, self.panel != nil,
+                      let changed = note.object as? NSView,
+                      let anchor = self.anchorView,
+                      anchor.isDescendant(of: changed) else { return }
+                self.scheduleReposition()
+            }
+        })
         let dismissOn: [(Notification.Name, AnyObject?)] = [
             (NSApplication.didResignActiveNotification, nil),
             (NSWindow.didMoveNotification, hostWindow),
@@ -460,17 +516,12 @@ struct CollapsedTabSheetView: View {
         .overlay(alignment: .bottom) {
             if index == pane.tabs.count - 1, dropIndex == pane.tabs.count { insertionRule }
         }
+        .opacity(splitViewController.draggingTab?.id == tab.id ? 0.35 : 1)
         .contentShape(Rectangle())
         // One drag source per row: a click selects, a press-drag starts the
         // standard tab drag. Deliberately not a Button with `.onDrag` bolted
         // on: the Button owns the mouse-down and the drag never starts.
-        .onTapGesture {
-            withTransaction(Transaction(animation: nil)) {
-                pane.selectTab(tab.id)
-                controller.focusPane(pane.id)
-            }
-            dismiss()
-        }
+        .onTapGesture { select(tab) }
         .onDrag {
             makeItemProvider(tab)
         } preview: {
@@ -493,11 +544,34 @@ struct CollapsedTabSheetView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
+        // `.combine` folds the visible close button into the row, so the actions
+        // are exposed explicitly.
+        .accessibilityAction(named: Text(Bundle.module.localizedString(
+            forKey: "tabBar.collapsedList.selectAction",
+            value: "Select",
+            table: nil
+        ))) { select(tab) }
+        .accessibilityAction(named: Text(Bundle.module.localizedString(
+            forKey: "command.closeTab.title",
+            value: "Close Tab",
+            table: nil
+        ))) {
+            guard !tab.isPinned else { return }
+            CollapsedTabCloseButton.close(tab: tab, pane: pane, controller: controller)
+        }
         .accessibilityValue([
             tab.activityPresentation?.accessibilityValue,
             TabActivityAccessibility.value(for: tab.activityState),
         ].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", "))
         .accessibilityHint(TabActivityAccessibility.help(for: tab.activityState))
+    }
+
+    private func select(_ tab: TabItem) {
+        withTransaction(Transaction(animation: nil)) {
+            pane.selectTab(tab.id)
+            controller.focusPane(pane.id)
+        }
+        dismiss()
     }
 
     private func rowBackground(isSelected: Bool, isHovered: Bool) -> Color {

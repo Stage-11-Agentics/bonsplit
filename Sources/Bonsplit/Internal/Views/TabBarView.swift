@@ -370,23 +370,30 @@ struct CollapsedTabCloseButton: View {
     let controller: BonsplitController
     let appearance: BonsplitConfiguration.Appearance
 
-    var body: some View {
-        Button {
-            let selectedTabId = pane.selectedTabId
-            var didClose = false
-            withTransaction(Transaction(animation: nil)) {
-                controller.onTabCloseRequest?(TabID(id: tab.id), pane.id)
-                didClose = controller.closeTab(TabID(id: tab.id), inPane: pane.id)
-            }
-            if didClose, selectedTabId != tab.id {
-                DispatchQueue.main.async {
-                    withTransaction(Transaction(animation: nil)) {
-                        if let selectedTabId {
-                            controller.selectTab(TabID(id: selectedTabId))
-                        }
+    /// Closes `tab` from the collapsed list, restoring the pane's prior
+    /// selection when a background tab is closed. Shared by the visible close
+    /// button and the row's accessibility action.
+    static func close(tab: TabItem, pane: PaneState, controller: BonsplitController) {
+        let selectedTabId = pane.selectedTabId
+        var didClose = false
+        withTransaction(Transaction(animation: nil)) {
+            controller.onTabCloseRequest?(TabID(id: tab.id), pane.id)
+            didClose = controller.closeTab(TabID(id: tab.id), inPane: pane.id)
+        }
+        if didClose, selectedTabId != tab.id {
+            DispatchQueue.main.async {
+                withTransaction(Transaction(animation: nil)) {
+                    if let selectedTabId {
+                        controller.selectTab(TabID(id: selectedTabId))
                     }
                 }
             }
+        }
+    }
+
+    var body: some View {
+        Button {
+            Self.close(tab: tab, pane: pane, controller: controller)
         } label: {
             Text("×")
                 .font(.system(size: 12, weight: .regular))
@@ -423,6 +430,9 @@ struct TabBarView<TrailingAccessory: View>: View {
     @State private var isHoveringTabBar = false
     @State private var dropTargetIndex: Int?
     @State private var dropLifecycle: TabDropLifecycle = .idle
+    /// Which drop view last claimed the hover, so a stale `dropExited` from the
+    /// view the ghost slot displaced cannot clear the target the ghost now owns.
+    @State private var dropOwner: String?
     @State private var scrollOffset: CGFloat = 0
     @State private var contentWidth: CGFloat = 0
     @State private var containerWidth: CGFloat = 0
@@ -612,15 +622,26 @@ struct TabBarView<TrailingAccessory: View>: View {
             if newValue != nil {
                 if sheetPresenter.isPresented { sheetPresenter.beginDragTracking() }
             } else {
-                sheetPresenter.endDragTracking()
                 // The drag is over (dropped, cancelled, or landed elsewhere):
-                // the sheet and any lingering collapsed-bar drop state go.
+                // any lingering collapsed-bar drop state goes, and the sheet is torn
+                // down once AppKit has finished the drag session (its rows are the
+                // drag source, so it must outlive the drop callback).
                 dropTargetIndex = nil
                 dropLifecycle = .idle
-                if isDropdownOpen { isDropdownOpen = false }
+                dropOwner = nil
+                sheetPresenter.dragEnded()
             }
         }
-        .onDisappear { sheetPresenter.dismiss() }
+        // Inactive workspaces stay mounted (hidden), so `onDisappear` never fires
+        // on a workspace switch. Interactivity is the signal that this pane's
+        // workspace went away.
+        .onChange(of: splitViewController.isInteractive) { _, interactive in
+            if !interactive, isDropdownOpen { isDropdownOpen = false }
+        }
+        .onDisappear {
+            isDropdownOpen = false
+            sheetPresenter.dismiss()
+        }
     }
 
     // MARK: - Horizontal Tab Strip (default / wide layout)
@@ -707,6 +728,8 @@ struct TabBarView<TrailingAccessory: View>: View {
                             .frame(width: trailing, height: appearance.tabItemHeight)
                             .overlay { neutralZoneTint(fadesOut: true) }
                             .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
+                                ownerId: "zone-trailing",
+                                dropOwner: $dropOwner,
                                 targetIndex: pane.tabs.count,
                                 pane: pane,
                                 bonsplitController: controller,
@@ -726,6 +749,9 @@ struct TabBarView<TrailingAccessory: View>: View {
                         scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId)
                     }
                     .onChange(of: contentWidth) { _, _ in
+                        // The ghost slot grows the content mid-drag; scrolling to the
+                        // selected tab then would slide the strip under the cursor.
+                        guard splitViewController.draggingTab == nil, dropTargetIndex == nil else { return }
                         scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId)
                     }
                     .onChange(of: pane.selectedTabId) { _, newTabId in
@@ -830,6 +856,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             if newValue == nil {
                 dropTargetIndex = nil
                 dropLifecycle = .idle
+                dropOwner = nil
             }
         }
         .onAppear {
@@ -1058,6 +1085,8 @@ struct TabBarView<TrailingAccessory: View>: View {
             isDropdownOpen.toggle()
         }
         .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
+            ownerId: "collapsed-bar",
+            dropOwner: $dropOwner,
             targetIndex: pane.tabs.count,
             pane: pane,
             bonsplitController: controller,
@@ -1160,7 +1189,11 @@ struct TabBarView<TrailingAccessory: View>: View {
             }
         )
         .onPreferenceChange(CollapsedBlockWidthKey.self) { collapsedBlockWidth = $0 }
-        .accessibilityLabel("Show all tabs")
+        .accessibilityLabel(Bundle.module.localizedString(
+            forKey: "tabBar.collapsedHeader.accessibilityLabel",
+            value: "Show all tabs",
+            table: nil
+        ))
         .accessibilityValue(CollapsedTabAccessibility.value(
             tabCount: pane.tabs.count,
             activityState: activeTab?.activityState,
@@ -1299,6 +1332,8 @@ struct TabBarView<TrailingAccessory: View>: View {
             TabDragPreview(tab: tab, appearance: appearance)
         }
         .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
+            ownerId: "tab-\(tab.id.uuidString)",
+            dropOwner: $dropOwner,
             targetIndex: index,
             pane: pane,
             bonsplitController: controller,
@@ -1445,6 +1480,8 @@ struct TabBarView<TrailingAccessory: View>: View {
         .frame(width: 30, height: appearance.tabItemHeight)
         .overlay { neutralZoneTint(fadesOut: false) }
         .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
+            ownerId: "zone-after-tabs",
+            dropOwner: $dropOwner,
             targetIndex: pane.tabs.count,
             pane: pane,
             bonsplitController: controller,
@@ -1501,6 +1538,8 @@ struct TabBarView<TrailingAccessory: View>: View {
         .frame(height: appearance.tabItemHeight)
         .contentShape(Rectangle())
         .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
+            ownerId: "ghost-\(index)",
+            dropOwner: $dropOwner,
             targetIndex: index,
             pane: pane,
             bonsplitController: controller,
@@ -2468,6 +2507,9 @@ enum TabDropLifecycle {
 // MARK: - Tab Drop Delegate
 
 struct TabDropDelegate: DropDelegate {
+    /// Identity of the view this delegate is attached to (see `dropOwner`).
+    var ownerId: String = ""
+    var dropOwner: Binding<String?>? = nil
     let targetIndex: Int
     let pane: PaneState
     let bonsplitController: BonsplitController
@@ -2540,6 +2582,7 @@ struct TabDropDelegate: DropDelegate {
         // Setting dropLifecycle to idle prevents dropUpdated from re-setting dropTargetIndex.
         dropLifecycle = .idle
         dropTargetIndex = nil
+        dropOwner?.wrappedValue = nil
         controller.draggingTab = nil
         controller.dragSourcePaneId = nil
         controller.activeDragTab = nil
@@ -2552,12 +2595,13 @@ struct TabDropDelegate: DropDelegate {
         #if DEBUG
         NSLog("[Bonsplit Drag] dropEntered at index: \(targetIndex)")
         dlog(
-            "tab.dropEntered pane=\(pane.id.id.uuidString.prefix(5)) targetIndex=\(targetIndex) " +
+            "tab.dropEntered pane=\(pane.id.id.uuidString.prefix(5)) targetIndex=\(targetIndex) owner=\(ownerId.suffix(8)) " +
             "hasDrag=\(controller.draggingTab != nil ? 1 : 0) " +
             "hasActive=\(controller.activeDragTab != nil ? 1 : 0)"
         )
         #endif
         dropLifecycle = .hovering
+        dropOwner?.wrappedValue = ownerId
         if shouldSuppressIndicatorForNoopSamePaneDrop() {
             dropTargetIndex = nil
         } else {
@@ -2568,8 +2612,18 @@ struct TabDropDelegate: DropDelegate {
     func dropExited(info: DropInfo) {
         #if DEBUG
         NSLog("[Bonsplit Drag] dropExited from index: \(targetIndex)")
-        dlog("tab.dropExited pane=\(pane.id.id.uuidString.prefix(5)) targetIndex=\(targetIndex)")
+        dlog(
+            "tab.dropExited pane=\(pane.id.id.uuidString.prefix(5)) targetIndex=\(targetIndex) " +
+            "owner=\(ownerId.suffix(8)) current=\((dropOwner?.wrappedValue ?? "-").suffix(8))"
+        )
         #endif
+        // The ghost slot is inserted in front of the tab under a resting
+        // cursor, so `dropEntered(ghost)` can precede `dropExited(tab)`. Only the
+        // view that still owns the hover may clear it.
+        if let current = dropOwner?.wrappedValue, current != ownerId {
+            return
+        }
+        dropOwner?.wrappedValue = nil
         dropLifecycle = .idle
         if dropTargetIndex == targetIndex {
             dropTargetIndex = nil
@@ -2585,6 +2639,7 @@ struct TabDropDelegate: DropDelegate {
 #endif
             return DropProposal(operation: .move)
         }
+        if dropOwner?.wrappedValue != ownerId { dropOwner?.wrappedValue = ownerId }
         // Only update if this is the active target, and suppress same-pane no-op indicators.
         if shouldSuppressIndicatorForNoopSamePaneDrop() {
             if dropTargetIndex == targetIndex {
