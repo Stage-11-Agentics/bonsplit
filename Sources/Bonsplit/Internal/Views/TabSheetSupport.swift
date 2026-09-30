@@ -13,7 +13,15 @@ enum TabSheetMetrics {
     static let leadingRule: CGFloat = 3
     static let trailingPadding: CGFloat = 6
 
-    static let numberWidth: CGFloat = 68
+    /// Wide enough for the localized "Tab 9999" at full size, never below 68.
+    /// Fixed within a language, so nothing moves while the app runs.
+    static let numberWidth: CGFloat = {
+        let sample = String(format: TabSheetFormat.localized("tabBar.sheet.tabNumber", "Tab %lld"), 9999)
+        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+        let text = ceil((sample as NSString).size(withAttributes: [.font: font]).width)
+        return max(68, text + numberTrailingInset + 2)
+    }()
+    static let numberTrailingInset: CGFloat = 10
     static let markWidth: CGFloat = 18
     static let minTitleWidth: CGFloat = 260
     static let agentWidth: CGFloat = 150
@@ -89,6 +97,9 @@ enum TabSheetFormat {
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 1
         formatter.roundingMode = .floor
+        // The app's language, not the region: a Russian UI on a US-region Mac
+        // still reads "2,2".
+        formatter.locale = Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
         return formatter
     }()
 

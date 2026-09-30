@@ -27,6 +27,18 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
             self.since = since
             self.needsAttention = needsAttention ?? (kind == .waiting || kind == .flagged)
         }
+
+        private enum CodingKeys: String, CodingKey { case kind, since, needsAttention }
+
+        /// `needsAttention` decodes with the kind's default when absent.
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let kind = try c.decode(StatusKind.self, forKey: .kind)
+            self.kind = kind
+            self.since = try c.decodeIfPresent(Date.self, forKey: .since)
+            self.needsAttention = try c.decodeIfPresent(Bool.self, forKey: .needsAttention)
+                ?? (kind == .waiting || kind == .flagged)
+        }
     }
 
     /// The tab's full, untruncated title. The tab strip shows a shortened

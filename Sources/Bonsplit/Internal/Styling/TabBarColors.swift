@@ -316,6 +316,41 @@ enum TabBarColors {
         )
     }
 
+    // MARK: Readable ink
+
+    /// `base` as text on the sheet: unchanged on a dark sheet, and on a light
+    /// one darkened until it reaches 4.5:1 against the sheet background.
+    static func readableInk(_ base: NSColor, for appearance: BonsplitConfiguration.Appearance) -> Color {
+        let deep = inkDeepened(base, against: NSColor.white, minRatio: 4.5)
+        if let custom = chromeBackgroundColor(for: appearance) {
+            return Color(nsColor: custom.isBonsplitLightColor ? deep : base)
+        }
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? base : deep
+        })
+    }
+
+    static func inkDeepened(_ base: NSColor, against background: NSColor, minRatio: CGFloat) -> NSColor {
+        var ink = base
+        var steps = 0
+        while contrastRatio(ink, background) < minRatio, steps < 40 {
+            ink = ink.bonsplitDarken(by: 0.02)
+            steps += 1
+        }
+        return ink
+    }
+
+    static func contrastRatio(_ a: NSColor, _ b: NSColor) -> CGFloat {
+        let la = relativeLuminance(a), lb = relativeLuminance(b)
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    }
+
+    private static func relativeLuminance(_ color: NSColor) -> CGFloat {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        func channel(_ v: CGFloat) -> CGFloat { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * channel(c.redComponent) + 0.7152 * channel(c.greenComponent) + 0.0722 * channel(c.blueComponent)
+    }
+
     private static func hex(_ value: UInt32) -> NSColor {
         NSColor(
             srgbRed: CGFloat((value >> 16) & 0xFF) / 255,

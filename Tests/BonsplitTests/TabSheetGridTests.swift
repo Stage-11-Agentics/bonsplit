@@ -78,15 +78,55 @@ final class TabSheetGridTests: XCTestCase {
                 XCTAssertNotEqual(text, "MISSING", "\(locale) \(key)")
                 XCTAssertLessThanOrEqual(width(text, header, kern: 0.6), room, "\(locale) \(key) '\(text)'")
             }
-            // "Tab 1024", scaled down to 70% at worst.
-            let tab = String(format: string("tabNumber"), 1024)
-            XCTAssertLessThanOrEqual(width(tab, mono11) * 0.7, TabSheetMetrics.numberWidth - 10, "\(locale) '\(tab)'")
-            // The longest status word with a three-character age and a space.
+            // "Tab 9999" at full size: the column is sized per language, so
+            // this only bounds how wide any language can make it.
+            let tab = String(format: string("tabNumber"), 9999)
+            XCTAssertLessThanOrEqual(width(tab, mono11) + 12, 130, "\(locale) '\(tab)'")
+            // Each status word with the longest age this locale can print
+            // (its own format strings and decimal separator), 4pt apart.
+            let decimal = NumberFormatter()
+            decimal.locale = Locale(identifier: locale)
+            decimal.numberStyle = .decimal
+            decimal.maximumFractionDigits = 1
+            let hours = String(format: string("time.hours"), decimal.string(from: 9.9) ?? "9.9")
+            let ages = [
+                String(format: string("time.seconds"), 59),
+                String(format: string("time.minutes"), 59),
+                hours,
+                String(format: string("time.days"), 99),
+            ]
+            let longestAge = ages.map { width($0, bold11) }.max() ?? 0
             for kind in ["working", "waiting", "flagged", "idle", "cold"] {
                 let word = string("status.\(kind)")
-                XCTAssertLessThanOrEqual(width(word + " 59m", bold11), TabSheetMetrics.statusWidth - 10, "\(locale) \(kind)")
+                XCTAssertLessThanOrEqual(
+                    width(word, bold11) + 4 + longestAge,
+                    TabSheetMetrics.statusWidth - 10,
+                    "\(locale) \(kind) '\(word)' + \(ages)"
+                )
             }
         }
+    }
+
+    func testFlaggedInkReadsOnALightSheet() {
+        let flag = NSColor(bonsplitHex: "#9D8AD9")!
+        XCTAssertLessThan(TabBarColors.contrastRatio(flag, .white), 4.5)
+        let deep = TabBarColors.inkDeepened(flag, against: .white, minRatio: 4.5)
+        XCTAssertGreaterThanOrEqual(TabBarColors.contrastRatio(deep, .white), 4.5)
+        // Still the same hue family: red channel stays below blue.
+        let rgb = deep.usingColorSpace(.sRGB)!
+        XCTAssertLessThan(rgb.redComponent, rgb.blueComponent)
+        // A colour that already reads is left alone.
+        let dark = NSColor(bonsplitHex: "#202020")!
+        XCTAssertEqual(TabBarColors.inkDeepened(dark, against: .white, minRatio: 4.5), dark)
+    }
+
+    func testStatusDecodesWithoutNeedsAttention() throws {
+        let json = #"{"kind":"waiting"}"#.data(using: .utf8)!
+        let status = try JSONDecoder().decode(BonsplitTabDetail.Status.self, from: json)
+        XCTAssertEqual(status.kind, .waiting)
+        XCTAssertTrue(status.needsAttention)
+        let idle = try JSONDecoder().decode(BonsplitTabDetail.Status.self, from: #"{"kind":"idle"}"#.data(using: .utf8)!)
+        XCTAssertFalse(idle.needsAttention)
     }
 
     func testAgeNeverNegative() {

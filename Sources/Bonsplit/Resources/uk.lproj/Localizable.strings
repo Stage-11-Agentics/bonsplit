@@ -21,12 +21,12 @@
 "tabBar.sheet.clock.seen" = "Перегляд";
 "tabBar.sheet.status.working" = "працює";
 "tabBar.sheet.status.waiting" = "чекає";
-"tabBar.sheet.status.flagged" = "позначено";
+"tabBar.sheet.status.flagged" = "прапор";
 "tabBar.sheet.status.idle" = "простій";
-"tabBar.sheet.status.cold" = "холодний";
+"tabBar.sheet.status.cold" = "холод";
 "tabBar.sheet.time.seconds" = "%lld с";
 "tabBar.sheet.time.minutes" = "%lld хв";
-"tabBar.sheet.time.hours" = "%@ год";
+"tabBar.sheet.time.hours" = "%@ г";
 "tabBar.sheet.time.days" = "%lld д";
 "tabBar.sheet.footer.oneTab" = "1 вкладка";
 "tabBar.sheet.footer.tabs" = "Вкладок: %lld";

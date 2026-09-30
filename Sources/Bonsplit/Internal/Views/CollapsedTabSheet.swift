@@ -498,7 +498,7 @@ struct CollapsedTabSheetView: View {
     private var headerRow: some View {
         HStack(spacing: 0) {
             Color.clear.frame(width: M.leadingRule)
-            headerLabel(TabSheetFormat.localized("tabBar.sheet.column.tab", "Tab"), width: M.numberWidth, alignment: .trailing, trailingInset: 10)
+            headerLabel(TabSheetFormat.localized("tabBar.sheet.column.tab", "Tab"), width: M.numberWidth, alignment: .trailing, trailingInset: M.numberTrailingInset)
             Color.clear.frame(width: M.markWidth)
             headerLabel(TabSheetFormat.localized("tabBar.sheet.column.title", "Title"), width: titleColumnWidth, alignment: .leading)
             headerLabel(TabSheetFormat.localized("tabBar.sheet.column.agent", "Agent"), width: M.agentWidth, alignment: .leading, leadingInset: 10)
@@ -589,10 +589,9 @@ struct CollapsedTabSheetView: View {
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(isSelected ? gold : palette.faintText)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .padding(.trailing, 10)
+                        .padding(.trailing, M.numberTrailingInset)
                 } else {
-                    dash().padding(.trailing, 10)
+                    dash().padding(.trailing, M.numberTrailingInset)
                 }
             }
 
@@ -794,9 +793,10 @@ struct CollapsedTabSheetView: View {
         case .working: return TabBarColors.activity(.running, for: appearance)
         case .waiting: return TabBarColors.activity(.waiting, for: appearance)
         case .flagged:
-            // The same violet as the tab's activity mark (the host's flag colour).
+            // The tab's own flag colour, deepened on a light sheet until it reads.
             let mark = tab.activityPresentation?.colorOverrideHex.flatMap(NSColor.init(bonsplitHex:))
-            return mark.map(Color.init(nsColor:)) ?? TabBarColors.activity(.waiting, for: appearance)
+                ?? NSColor(bonsplitHex: "#9D8AD9")!
+            return TabBarColors.readableInk(mark, for: appearance)
         case .idle, .cold: return palette.faintText
         }
     }
