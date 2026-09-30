@@ -348,4 +348,26 @@ final class TabSheetGridTests: XCTestCase {
     func testTheTabLabelHasNoSeparator() {
         XCTAssertEqual(TabSheetFormat.tabLabel(17), "Tab17")
     }
+
+    func testDetailDecodesWithoutClocksOrClockTexts() throws {
+        // A payload written by an older build has neither key.
+        let old = try JSONDecoder().decode(BonsplitTabDetail.self, from: Data(#"{"title":"t","subtitle":"s"}"#.utf8))
+        XCTAssertEqual(old.title, "t")
+        XCTAssertTrue(old.clocks.isEmpty)
+        XCTAssertTrue(old.clockTexts.isEmpty)
+    }
+
+    func testDetailRoundTripsClockTexts() throws {
+        let detail = BonsplitTabDetail(clocks: ["active": Date(timeIntervalSince1970: 5)], clockTexts: ["turn": "4m 12s", "tools": "7"])
+        let back = try JSONDecoder().decode(BonsplitTabDetail.self, from: JSONEncoder().encode(detail))
+        XCTAssertEqual(back, detail)
+    }
+
+    func testClockValuePrefersHostTextOverADate() {
+        var tab = TabItem(title: "t")
+        tab.detail = BonsplitTabDetail(clocks: ["turn": Date(timeIntervalSince1970: 1), "active": Date(timeIntervalSince1970: 2)], clockTexts: ["turn": "4m 12s"])
+        if case .text(let text) = TabSheetFormat.clockValue("turn", in: tab) { XCTAssertEqual(text, "4m 12s") } else { XCTFail("expected text") }
+        if case .age = TabSheetFormat.clockValue("active", in: tab) {} else { XCTFail("expected age") }
+        if case .none = TabSheetFormat.clockValue("tools", in: tab) {} else { XCTFail("expected none") }
+    }
 }

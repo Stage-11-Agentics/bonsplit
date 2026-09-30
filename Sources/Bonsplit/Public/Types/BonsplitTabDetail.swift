@@ -54,18 +54,37 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
     /// Named clocks by lowercase name (`active`, `launched`, `seen`). A missing
     /// entry renders as a dash.
     public var clocks: [String: Date]
+    /// Host-formatted text for clocks that are not a point in time (a turn
+    /// duration, a tool-call count, a token count), by lowercase name. When a
+    /// name has text here the cell shows it instead of an age; a missing entry
+    /// falls back to `clocks`, then a dash.
+    public var clockTexts: [String: String]
 
     public init(
         title: String? = nil,
         agentLabel: String? = nil,
         subtitle: String? = nil,
         status: Status? = nil,
-        clocks: [String: Date] = [:]
+        clocks: [String: Date] = [:],
+        clockTexts: [String: String] = [:]
     ) {
         self.title = title
         self.agentLabel = agentLabel
         self.subtitle = subtitle
         self.status = status
         self.clocks = clocks
+        self.clockTexts = clockTexts
+    }
+
+    /// Decodes tolerantly: a payload written by an older build (drag payloads
+    /// cross builds) has no `clocks` or `clockTexts`, and must still decode.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.title = try c.decodeIfPresent(String.self, forKey: .title)
+        self.agentLabel = try c.decodeIfPresent(String.self, forKey: .agentLabel)
+        self.subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
+        self.status = try c.decodeIfPresent(Status.self, forKey: .status)
+        self.clocks = try c.decodeIfPresent([String: Date].self, forKey: .clocks) ?? [:]
+        self.clockTexts = try c.decodeIfPresent([String: String].self, forKey: .clockTexts) ?? [:]
     }
 }
