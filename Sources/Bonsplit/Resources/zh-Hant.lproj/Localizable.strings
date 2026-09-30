@@ -8,3 +8,6 @@
 "tab.activity.cold" = "冷態";
 "tab.activity.waiting" = "正在等待您的回應";
 "tab.activity.waiting.help" = "此介面需要您的回應。";
+"tabBar.collapsedList.accessibilityLabel" = "分頁列表";
+"tabBar.collapsedHeader.accessibilityLabel" = "顯示所有分頁";
+"tabBar.collapsedList.selectAction" = "選取";

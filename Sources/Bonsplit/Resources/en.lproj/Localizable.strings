@@ -10,3 +10,6 @@
 "tab.activity.cold" = "Cold";
 "tab.activity.waiting" = "Waiting for your response";
 "tab.activity.waiting.help" = "This surface needs your response.";
+"tabBar.collapsedList.accessibilityLabel" = "Tab list";
+"tabBar.collapsedHeader.accessibilityLabel" = "Show all tabs";
+"tabBar.collapsedList.selectAction" = "Select";

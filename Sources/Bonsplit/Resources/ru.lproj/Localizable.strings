@@ -8,3 +8,6 @@
 "tab.activity.cold" = "Холодная";
 "tab.activity.waiting" = "Ожидает вашего ответа";
 "tab.activity.waiting.help" = "Этой поверхности требуется ваш ответ.";
+"tabBar.collapsedList.accessibilityLabel" = "Список вкладок";
+"tabBar.collapsedHeader.accessibilityLabel" = "Показать все вкладки";
+"tabBar.collapsedList.selectAction" = "Выбрать";
