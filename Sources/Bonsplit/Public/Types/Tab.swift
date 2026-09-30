@@ -26,6 +26,7 @@ public struct Tab: Identifiable, Hashable, Sendable {
     public let displayOrdinal: Int?
     public let activityState: BonsplitTabActivityState?
     public let activityPresentation: BonsplitTabActivityPresentation?
+    public let detail: BonsplitTabDetail?
 
     public init(
         id: TabID = TabID(),
@@ -41,7 +42,8 @@ public struct Tab: Identifiable, Hashable, Sendable {
         customColorHex: String? = nil,
         displayOrdinal: Int? = nil,
         activityState: BonsplitTabActivityState? = nil,
-        activityPresentation: BonsplitTabActivityPresentation? = nil
+        activityPresentation: BonsplitTabActivityPresentation? = nil,
+        detail: BonsplitTabDetail? = nil
     ) {
         self.id = id
         self.title = title
@@ -57,6 +59,7 @@ public struct Tab: Identifiable, Hashable, Sendable {
         self.displayOrdinal = displayOrdinal
         self.activityState = activityState
         self.activityPresentation = activityPresentation
+        self.detail = detail
     }
 
     internal init(from tabItem: TabItem) {
@@ -74,5 +77,6 @@ public struct Tab: Identifiable, Hashable, Sendable {
         self.displayOrdinal = tabItem.displayOrdinal
         self.activityState = tabItem.activityState
         self.activityPresentation = tabItem.activityPresentation
+        self.detail = tabItem.detail
     }
 }

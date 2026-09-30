@@ -245,6 +245,83 @@ enum TabBarColors {
         return Color(nsColor: background.isBonsplitLightColor ? .black : .white)
     }
 
+    // MARK: - Tab sheet
+
+    /// The sheet, the collapsed header block and the count cell share one
+    /// palette: the highest-contrast surface on the bar. Dark themes get a
+    /// near-black family, light themes the equivalent near-white family.
+    /// Follows the c11 theme slot: a custom chrome background decides by its
+    /// luminance; otherwise the panel's appearance decides.
+    struct SheetPalette {
+        let background: Color
+        let rowHover: Color
+        let rowActive: Color
+        let header: Color
+        let separator: Color
+        let border: Color
+        let block: Color
+        let blockHover: Color
+        let countCell: Color
+        let countCellHover: Color
+        let text: Color
+        let dimText: Color
+        let faintText: Color
+        let dash: Color
+        let chipFill: Color
+        let chipBorder: Color
+        let chipText: Color
+    }
+
+    static func sheetPalette(for appearance: BonsplitConfiguration.Appearance) -> SheetPalette {
+        let forced: Bool? = chromeBackgroundColor(for: appearance).map { !$0.isBonsplitLightColor }
+        func pick(_ dark: UInt32, _ light: UInt32) -> Color {
+            if let forced { return Color(nsColor: hex(forced ? dark : light)) }
+            return Color(nsColor: NSColor(name: nil) { appearance in
+                let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                return hex(isDark ? dark : light)
+            })
+        }
+        return SheetPalette(
+            background: pick(0x0e0f12, 0xffffff),
+            rowHover: pick(0x1b1d22, 0xeef0f4),
+            rowActive: pick(0x17181c, 0xf4f5f8),
+            header: pick(0x0a0b0d, 0xf1f2f5),
+            separator: pick(0x202227, 0xe2e4e9),
+            border: pick(0x3a3c44, 0xc3c6ce),
+            block: pick(0x111215, 0xfbfbfc),
+            blockHover: pick(0x1a1b1f, 0xeef0f4),
+            countCell: pick(0x07080a, 0xffffff),
+            countCellHover: pick(0x1a1b1f, 0xeef0f4),
+            text: pick(0xe8e8ea, 0x16171b),
+            dimText: pick(0x9a9ca3, 0x55585f),
+            faintText: pick(0x6f727a, 0x7d8088),
+            dash: pick(0x4b4e56, 0xb9bcc3),
+            chipFill: pick(0x1d1f24, 0xeceef2),
+            chipBorder: pick(0x33353c, 0xd3d6dc),
+            chipText: pick(0xb9bbc2, 0x3c3f46)
+        )
+    }
+
+    /// The flagged accent: c11's flag violet, brightened enough to read on the
+    /// near-black sheet and deepened enough to read on the near-white one.
+    static func flaggedInk(for appearance: BonsplitConfiguration.Appearance) -> Color {
+        let forced: Bool? = chromeBackgroundColor(for: appearance).map { !$0.isBonsplitLightColor }
+        if let forced { return Color(nsColor: hex(forced ? 0xa97cf0 : 0x6d3fc9)) }
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return hex(isDark ? 0xa97cf0 : 0x6d3fc9)
+        })
+    }
+
+    private static func hex(_ value: UInt32) -> NSColor {
+        NSColor(
+            srgbRed: CGFloat((value >> 16) & 0xFF) / 255,
+            green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255,
+            alpha: 1
+        )
+    }
+
     // MARK: - Shadows
 
     static var tabShadow: Color {

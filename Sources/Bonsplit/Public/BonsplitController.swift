@@ -61,6 +61,16 @@ public final class BonsplitController {
     /// since it is called while building each tab's context-menu state.
     @ObservationIgnored public var surfaceRefProvider: ((_ tabId: TabID) -> String?)?
 
+    /// Host-supplied builder for a tab's sheet detail (agent, subtitle, status,
+    /// clocks). Called for every tab in a pane when its sheet opens, so values
+    /// that change without a metadata event (the activity clock) are fresh.
+    @ObservationIgnored public var tabDetailProvider: ((_ tabId: TabID) -> BonsplitTabDetail?)?
+
+    /// Host-supplied ordered list of clock names for the sheet's clock columns
+    /// (for example `["active", "launched"]`). Read each time the sheet opens.
+    /// Unknown names are ignored by the sheet; nil or empty uses the default.
+    @ObservationIgnored public var sheetClockOrderProvider: (() -> [String])?
+
     // MARK: - Internal State
 
     internal var internalController: SplitViewController
@@ -236,7 +246,8 @@ public final class BonsplitController {
         customColorHex: String?? = nil,
         displayOrdinal: Int?? = nil,
         activityState: BonsplitTabActivityState?? = nil,
-        activityPresentation: BonsplitTabActivityPresentation?? = nil
+        activityPresentation: BonsplitTabActivityPresentation?? = nil,
+        detail: BonsplitTabDetail?? = nil
     ) {
         guard let (pane, tabIndex) = findTabInternal(tabId) else { return }
 
@@ -278,6 +289,18 @@ public final class BonsplitController {
         }
         if let activityPresentation = activityPresentation {
             pane.tabs[tabIndex].activityPresentation = activityPresentation
+        }
+        if let detail = detail {
+            pane.tabs[tabIndex].detail = detail
+        }
+    }
+
+    /// Asks the host for fresh sheet detail for every tab in `paneId`. Called
+    /// as the tab sheet opens; a no-op without a `tabDetailProvider`.
+    public func refreshTabDetails(inPane paneId: PaneID) {
+        guard let provider = tabDetailProvider else { return }
+        for tab in tabs(inPane: paneId) {
+            updateTab(tab.id, detail: .some(provider(tab.id)))
         }
     }
 

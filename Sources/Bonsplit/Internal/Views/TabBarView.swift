@@ -533,10 +533,13 @@ struct TabBarView<TrailingAccessory: View>: View {
     ) -> CGFloat {
         let internalSplitButtonsWidth = showSplitButtons ? splitButtonsIntrinsicWidth : 0
         let measuredWidth = max(max(0, trailingAccessoryWidth), max(0, internalSplitButtonsWidth))
+        // The count cell always sits at the left of the chrome, so its fixed
+        // width is part of every measured result. The stored fallback already
+        // includes it.
         guard measuredWidth > 0 else {
-            return showSplitButtons ? max(0, effectiveChromeWidth) : 0
+            return showSplitButtons ? max(0, effectiveChromeWidth) : TabCountCellMetrics.width
         }
-        return measuredWidth
+        return measuredWidth + TabCountCellMetrics.width
     }
 
     private var leadingScrollAnchorId: String {
@@ -776,7 +779,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                 // tab clicks fall through to `TabBarDragAndHoverView` (which performs a
                 // window drag in minimal mode).
                 .overlay(alignment: .trailing) {
-                    let shouldShow = !isMinimalMode || isHoveringTabBar
+                    let shouldShow = !isMinimalMode || isHoveringTabBar || isDropdownOpen
                     let backdropColor = Color(nsColor: Self.buttonBackdropColor(
                         for: appearance,
                         focused: isFocused,
@@ -799,6 +802,9 @@ struct TabBarView<TrailingAccessory: View>: View {
                         // rendered to the left of the internal split-buttons row. Phase 3
                         // removes the internal row after c11mux owns this accessory.
                         HStack(spacing: 0) {
+                            fullTierCountCell
+                                .saturation(tabBarSaturation)
+
                             trailingAccessoryBuilder(pane.id, tabBarSaturation)
                                 .environment(\.bonsplitTabBarHover, isHoveringTabBar)
                                 .background(
@@ -838,6 +844,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             isMinimalMode: isMinimalMode,
             onHoverChanged: { isHoveringTabBar = $0 }
         ))
+        .background(CollapsedSheetAnchorReader { sheetPresenter.anchorView = $0 })
         .background(
             TabBarHostWindowReader { window in
                 controlKeyMonitor.setHostWindow(window)
@@ -1001,12 +1008,14 @@ struct TabBarView<TrailingAccessory: View>: View {
         }
         let hysteresis: CGFloat = 28
         let trailingSlack: CGFloat = 8
-        let disclosureWidth: CGFloat = 52
+        // The count cell is the disclosure in the collapsed tiers and sits left
+        // of the chrome in the full tier, so it is the same fixed width in both.
+        let countCellWidth = TabCountCellMetrics.width
         let minTitleForMedium: CGFloat = 72
         let chrome = estimatedChromeWidth
         let room = availableWidth - trailingSlack
-        let needFull = desiredTabsWidth + chrome
-        let needMedium = minTitleForMedium + disclosureWidth + chrome
+        let needFull = desiredTabsWidth + chrome + countCellWidth
+        let needMedium = minTitleForMedium + countCellWidth + chrome
 
         var target = layoutTier
         switch layoutTier {
@@ -1038,19 +1047,18 @@ struct TabBarView<TrailingAccessory: View>: View {
         if isDropdownOpen { isDropdownOpen = false }
     }
 
-    /// Square, chunky rows: every dropdown row (controls + tabs) shares this.
-    private var collapsedRowHeight: CGFloat {
+    /// Height of the folded controls row at the top of the narrow-tier sheet.
+    private var sheetControlsRowHeight: CGFloat {
         max(30, appearance.tabItemHeight + 4)
     }
 
-    private var collapsedDropdownWidth: CGFloat {
-        let minW: CGFloat = 240
-        let maxW: CGFloat = 380
-        let longest = pane.tabs.reduce(CGFloat(0)) { acc, tab in
-            max(acc, measuredTitleWidth(tab.displayedTitle(showOrdinals: appearance.showTabOrdinals), bold: pane.selectedTabId == tab.id))
+    /// Sheet width: the grid's natural width, clamped to the screen.
+    private func sheetWidth(clockCount: Int) -> CGFloat {
+        let ideal = TabSheetMetrics.idealWidth(clockCount: clockCount)
+        guard let visible = (sheetPresenter.anchorView?.window?.screen ?? NSScreen.main)?.visibleFrame else {
+            return ideal
         }
-        // title + leading marker + trailing close + paddings
-        return min(maxW, max(minW, longest + 96))
+        return min(ideal, max(320, visible.width - 16))
     }
 
     @ViewBuilder
@@ -1099,7 +1107,11 @@ struct TabBarView<TrailingAccessory: View>: View {
             isMinimalMode: isMinimalMode,
             onHoverChanged: { isHoveringTabBar = $0 }
         ))
-        .background(CollapsedSheetAnchorReader { sheetPresenter.anchorView = $0 })
+        .background(CollapsedSheetAnchorReader {
+            sheetPresenter.anchorView = $0
+            // Collapsed tiers hang flush-left under the bar, not off the cell.
+            sheetPresenter.trailingAnchorView = nil
+        })
     }
 
     /// The dropdown control: a solid block in the active tab's background that
@@ -1112,6 +1124,36 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// gesture still fires over it. (A child `.onHover` here would create an
     /// AppKit hosting layer that swallows the mouse-down: that mistake is why
     /// the tap broke once.)
+    private var sheetPalette: TabBarColors.SheetPalette {
+        TabBarColors.sheetPalette(for: appearance)
+    }
+
+    /// The full tier's count cell: pinned at the left edge of the trailing
+    /// chrome, so it holds one spot whatever the tabs do. Tapping it opens the
+    /// same sheet as the collapsed header.
+    private var fullTierCountCell: some View {
+        let ruleHeight = isFocused ? appearance.tabActiveIndicatorHeight : 1
+        return TabCountCell(
+            count: pane.tabs.count,
+            hasBackgroundActivity: hasBackgroundActivity,
+            hasBackgroundWaiting: hasBackgroundWaiting,
+            isOpen: isDropdownOpen,
+            isHovered: false,
+            appearance: appearance,
+            height: max(0, appearance.tabBarHeight - ruleHeight)
+        )
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(CollapsedSheetTrailingAnchorReader { sheetPresenter.trailingAnchorView = $0 })
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard splitViewController.isInteractive else { return }
+            withTransaction(Transaction(animation: nil)) {
+                controller.focusPane(pane.id)
+            }
+            isDropdownOpen.toggle()
+        }
+    }
+
     private var collapsedHeaderBlock: some View {
         let ruleHeight = isFocused ? appearance.tabActiveIndicatorHeight : 1
         let blockHeight = max(0, appearance.tabBarHeight - ruleHeight)
@@ -1127,43 +1169,25 @@ struct TabBarView<TrailingAccessory: View>: View {
                     .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .foregroundStyle(TabBarColors.activeText(for: appearance))
+                    .foregroundStyle(sheetPalette.text)
 
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: 5) {
-                if hasBackgroundActivity {
-                    Circle()
-                        .fill(hasBackgroundWaiting
-                            ? TabBarColors.activity(.waiting, for: appearance)
-                            : TabBarColors.notificationBadge(for: appearance))
-                        .frame(width: 6, height: 6)
-                }
-                Text("\(pane.tabs.count)")
-                    .font(.system(size: appearance.tabTitleFontSize, weight: .heavy))
-                    .monospacedDigit()
-                Image(systemName: "chevron.down")
-                    .font(.system(size: appearance.tabTitleFontSize - 2, weight: .heavy))
-            }
-            .foregroundStyle(isDropdownOpen ? Color(white: 0.1) : TabBarColors.activeText(for: appearance))
-            .padding(.horizontal, 10)
-            .frame(minWidth: blockHeight, maxHeight: .infinity)
-            .background(isDropdownOpen ? gold : Color.black.opacity(0.18))
-            .overlay(alignment: .leading) {
-                Rectangle()
-                    .fill(TabBarColors.separator(for: appearance))
-                    .frame(width: 1)
-            }
+            TabCountCell(
+                count: pane.tabs.count,
+                hasBackgroundActivity: hasBackgroundActivity,
+                hasBackgroundWaiting: hasBackgroundWaiting,
+                isOpen: isDropdownOpen,
+                isHovered: false,
+                appearance: appearance,
+                height: blockHeight
+            )
         }
         .frame(height: blockHeight)
-        .background(TabBarColors.activeTabBackground(for: appearance))
-        .overlay(
-            TabBarColors.activeText(for: appearance)
-                .opacity(isHoveringTabBar || isDropdownOpen ? 0.07 : 0)
-        )
+        .background(isHoveringTabBar || isDropdownOpen ? sheetPalette.blockHover : sheetPalette.block)
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(TabBarColors.separator(for: appearance))
@@ -1228,9 +1252,15 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// Opens, refreshes, or tears down the sheet panel to match
     /// `isDropdownOpen` and the current tier.
     private func syncCollapsedSheet() {
-        guard isDropdownOpen, layoutTier != .full else {
+        guard isDropdownOpen else {
             sheetPresenter.dismiss()
             return
+        }
+        let clocks = TabSheetFormat.resolvedClocks(controller.sheetClockOrderProvider?())
+        if !sheetPresenter.isPresented {
+            // Recompute the host detail once as the sheet opens: values that
+            // change without a metadata event (the activity clock) are fresh.
+            controller.refreshTabDetails(inPane: pane.id)
         }
         sheetPresenter.blockWidth = collapsedBlockWidth
         sheetPresenter.onDismiss = { isDropdownOpen = false }
@@ -1241,8 +1271,9 @@ struct TabBarView<TrailingAccessory: View>: View {
                 splitViewController: splitViewController,
                 appearance: appearance,
                 includesControls: layoutTier == .narrow,
-                width: max(collapsedDropdownWidth, collapsedBlockWidth),
-                rowHeight: collapsedRowHeight,
+                width: max(sheetWidth(clockCount: clocks.count), layoutTier == .full ? 0 : collapsedBlockWidth),
+                controlsRowHeight: sheetControlsRowHeight,
+                clocks: clocks,
                 activityAnimationEnabled: activityAnimationEnabled,
                 explicitActivityAnimationEnabled: explicitActivityAnimationEnabled,
                 makeItemProvider: { createItemProvider(for: $0) },

@@ -20,8 +20,12 @@ import UniformTypeIdentifiers
 final class CollapsedSheetPresenter: ObservableObject {
     /// The tab bar's own background view; its screen frame anchors the sheet.
     weak var anchorView: NSView?
-    /// Width of the header block. Clicks inside it are the header's own
-    /// toggle, so the click-outside monitor leaves them alone.
+    /// The full tier's count cell. When set, the sheet's right edge aligns to
+    /// this cell's right edge and clicks on the cell are its own toggle.
+    /// Collapsed tiers leave it nil and anchor flush-left under the bar.
+    weak var trailingAnchorView: NSView?
+    /// Width of the collapsed header block. Clicks inside it are the header's
+    /// own toggle, so the click-outside monitor leaves them alone.
     var blockWidth: CGFloat = 0
     var onDismiss: (() -> Void)?
 
@@ -195,6 +199,11 @@ final class CollapsedSheetPresenter: ObservableObject {
         return window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
     }
 
+    private var trailingAnchorScreenRect: NSRect? {
+        guard let cell = trailingAnchorView, let window = cell.window else { return nil }
+        return window.convertToScreen(cell.convert(cell.bounds, to: nil))
+    }
+
     private func reposition() {
         guard let panel, let hosting, let rect = anchorScreenRect,
               let aw = anchorView?.window else { return }
@@ -203,7 +212,10 @@ final class CollapsedSheetPresenter: ObservableObject {
         // Hang below the bar; flip above it when the screen would clip the
         // bottom, and keep the sheet inside the visible frame either way.
         let visible = (aw.screen ?? NSScreen.main)?.visibleFrame
-        var origin = NSPoint(x: rect.minX, y: rect.minY - size.height)
+        // Full tier: the right edge meets the count cell's right edge.
+        // Collapsed tiers: flush-left under the bar.
+        let originX = trailingAnchorScreenRect.map { $0.maxX - size.width } ?? rect.minX
+        var origin = NSPoint(x: originX, y: rect.minY - size.height)
         if let visible {
             if origin.y < visible.minY {
                 let above = rect.maxY
@@ -234,7 +246,10 @@ final class CollapsedSheetPresenter: ObservableObject {
             if event.window === panel { return event }
             let location = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) }
                 ?? NSEvent.mouseLocation
-            if let bar = self.anchorScreenRect,
+            if let cell = self.trailingAnchorScreenRect {
+                // The count cell's own tap toggles the sheet.
+                if cell.contains(location) { return event }
+            } else if let bar = self.anchorScreenRect,
                NSRect(x: bar.minX, y: bar.minY, width: max(self.blockWidth, 1), height: bar.height)
                 .contains(location) {
                 // The header's own tap toggles the sheet.
@@ -335,6 +350,22 @@ struct CollapsedSheetAnchorReader: NSViewRepresentable {
     }
 }
 
+/// Same as `CollapsedSheetAnchorReader`, for the full tier's count cell.
+struct CollapsedSheetTrailingAnchorReader: NSViewRepresentable {
+    let onResolve: (NSView) -> Void
+
+    func makeNSView(context: Context) -> CollapsedSheetAnchorReader.AnchorView {
+        let view = CollapsedSheetAnchorReader.AnchorView()
+        view.onResolve = onResolve
+        return view
+    }
+
+    func updateNSView(_ nsView: CollapsedSheetAnchorReader.AnchorView, context: Context) {
+        nsView.onResolve = onResolve
+        onResolve(nsView)
+    }
+}
+
 // MARK: - Activity mark
 
 struct CollapsedActivityMarkView: View {
@@ -371,6 +402,8 @@ struct CollapsedActivityMarkView: View {
 
 // MARK: - Sheet content
 
+/// The tab sheet: a fixed grid of two-line rows. Every column but the title has
+/// a fixed width, so nothing moves when text changes length or a clock ticks.
 struct CollapsedTabSheetView: View {
     let pane: PaneState
     let controller: BonsplitController
@@ -379,7 +412,10 @@ struct CollapsedTabSheetView: View {
     /// Narrow tier: the controls fold into the top of the sheet.
     let includesControls: Bool
     let width: CGFloat
-    let rowHeight: CGFloat
+    /// Height of the folded controls row (narrow tier).
+    let controlsRowHeight: CGFloat
+    /// Ordered clock names, already normalized by `TabSheetFormat.resolvedClocks`.
+    let clocks: [String]
     let activityAnimationEnabled: Bool
     let explicitActivityAnimationEnabled: Bool
     let makeItemProvider: (TabItem) -> NSItemProvider
@@ -388,29 +424,31 @@ struct CollapsedTabSheetView: View {
     @State private var dropIndex: Int?
     @State private var hoveredTabId: UUID?
 
-    private static let maxVisibleRows = 9
+    private typealias M = TabSheetMetrics
 
-    private var showsNumbers: Bool {
-        appearance.showTabOrdinals && pane.tabs.contains { $0.displayOrdinal != nil }
+    private var palette: TabBarColors.SheetPalette { TabBarColors.sheetPalette(for: appearance) }
+
+    private var titleColumnWidth: CGFloat {
+        max(80, width - M.fixedWidth(clockCount: clocks.count))
     }
 
     var body: some View {
         VStack(spacing: 0) {
             if includesControls {
                 controlsRow
-                Rectangle()
-                    .fill(TabBarColors.activeText(for: appearance).opacity(0.14))
-                    .frame(height: 1)
+                Rectangle().fill(palette.separator).frame(height: 1)
             }
-            if pane.tabs.count > Self.maxVisibleRows - (includesControls ? 1 : 0) {
+            headerRow
+            if pane.tabs.count > M.maxVisibleRows {
                 ScrollView { rows }
-                    .frame(maxHeight: rowHeight * CGFloat(Self.maxVisibleRows))
+                    .frame(maxHeight: M.rowHeight * CGFloat(M.maxVisibleRows))
             } else {
                 rows
             }
+            footerRow
         }
         .frame(width: width)
-        .background(TabBarColors.barBackground(for: appearance))
+        .background(palette.background)
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(TabBarColors.activeIndicator(for: appearance))
@@ -419,7 +457,7 @@ struct CollapsedTabSheetView: View {
         }
         .overlay {
             Rectangle()
-                .strokeBorder(TabBarColors.activeText(for: appearance).opacity(0.28), lineWidth: 1)
+                .strokeBorder(palette.border, lineWidth: 1)
                 .allowsHitTesting(false)
         }
         .accessibilityElement(children: .contain)
@@ -438,75 +476,202 @@ struct CollapsedTabSheetView: View {
         }
     }
 
+    // MARK: Header and footer
+
+    private var headerRow: some View {
+        HStack(spacing: 0) {
+            Color.clear.frame(width: M.leadingRule)
+            headerLabel(TabSheetFormat.localized("tabBar.sheet.column.tab", "Tab"), width: M.numberWidth, alignment: .trailing, trailingInset: 10)
+            Color.clear.frame(width: M.markWidth)
+            headerLabel(TabSheetFormat.localized("tabBar.sheet.column.title", "Title"), width: titleColumnWidth, alignment: .leading)
+            headerLabel(TabSheetFormat.localized("tabBar.sheet.column.agent", "Agent"), width: M.agentWidth, alignment: .leading, leadingInset: 10)
+            headerLabel(TabSheetFormat.localized("tabBar.sheet.column.status", "Status"), width: M.statusWidth, alignment: .leading, leadingInset: 10)
+            ForEach(clocks, id: \.self) { name in
+                headerLabel(TabSheetFormat.clockTitle(name), width: M.clockWidth, alignment: .trailing, trailingInset: 8)
+            }
+            Color.clear.frame(width: M.closeWidth + M.gripWidth + M.trailingPadding)
+        }
+        .frame(height: M.headerHeight)
+        .background(palette.header)
+        .overlay(alignment: .bottom) { Rectangle().fill(palette.separator).frame(height: 1) }
+    }
+
+    private func headerLabel(
+        _ text: String,
+        width: CGFloat,
+        alignment: Alignment,
+        leadingInset: CGFloat = 0,
+        trailingInset: CGFloat = 0
+    ) -> some View {
+        Text(text.uppercased())
+            .font(.system(size: 10, weight: .bold))
+            .tracking(0.6)
+            .foregroundStyle(palette.faintText)
+            .lineLimit(1)
+            .padding(.leading, leadingInset)
+            .padding(.trailing, trailingInset)
+            .frame(width: width, alignment: alignment)
+    }
+
+    private var footerRow: some View {
+        let needYou = TabSheetFormat.needYouCount(pane.tabs)
+        return HStack(spacing: 14) {
+            Text(TabSheetFormat.tabsFooter(count: pane.tabs.count))
+                .foregroundStyle(palette.faintText)
+            if needYou > 0 {
+                Text(TabSheetFormat.needYouFooter(count: needYou))
+                    .foregroundStyle(TabBarColors.activity(.waiting, for: appearance))
+            }
+            Spacer(minLength: 0)
+        }
+        .font(.system(size: 11))
+        .monospacedDigit()
+        .padding(.horizontal, 10)
+        .frame(height: M.footerHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(palette.header)
+        .overlay(alignment: .top) { Rectangle().fill(palette.separator).frame(height: 1) }
+    }
+
     // MARK: Row
+
+    /// One column of a two-line row: `top` on line one, `bottom` on line two,
+    /// vertically centered in the row. Empty lines still reserve their height.
+    private func column<Top: View, Bottom: View>(
+        width: CGFloat? = nil,
+        alignment: Alignment = .leading,
+        @ViewBuilder top: () -> Top,
+        @ViewBuilder bottom: () -> Bottom = { Color.clear }
+    ) -> some View {
+        VStack(spacing: 0) {
+            top().frame(maxWidth: .infinity, alignment: alignment).frame(height: M.lineHeight)
+            bottom().frame(maxWidth: .infinity, alignment: alignment).frame(height: M.lineHeight)
+        }
+        .frame(width: width, height: M.rowHeight)
+    }
+
+    private func dash() -> some View {
+        Text("—")
+            .font(.system(size: 12))
+            .foregroundStyle(palette.dash)
+            .lineLimit(1)
+    }
 
     @ViewBuilder
     private func row(_ tab: TabItem, at index: Int) -> some View {
         let isSelected = pane.selectedTabId == tab.id
         let isHovered = hoveredTabId == tab.id
+        let gold = TabBarColors.activeIndicator(for: appearance)
         HStack(spacing: 0) {
-            if showsNumbers {
-                Text(tab.displayOrdinal.map(String.init) ?? "")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(TabBarColors.inactiveText(for: appearance))
-                    .frame(width: 34, alignment: .trailing)
-                    .padding(.trailing, 9)
-            } else {
-                Color.clear.frame(width: 12)
-            }
+            Color.clear.frame(width: M.leadingRule)
 
-            ZStack {
-                if let state = tab.activityState {
-                    CollapsedActivityMarkView(
-                        tab: tab,
-                        state: state,
-                        appearance: appearance,
-                        activityAnimationEnabled: activityAnimationEnabled,
-                        explicitActivityAnimationEnabled: explicitActivityAnimationEnabled
-                    )
-                } else if tab.showsNotificationBadge || tab.isDirty {
-                    Circle()
-                        .fill(TabBarColors.notificationBadge(for: appearance))
-                        .frame(width: 7, height: 7)
+            column(width: M.numberWidth, alignment: .trailing) {
+                if let ordinal = tab.displayOrdinal {
+                    Text(String(format: TabSheetFormat.localized("tabBar.sheet.tabNumber", "Tab %lld"), Int64(ordinal)))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(isSelected ? gold : palette.faintText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .padding(.trailing, 10)
+                } else {
+                    dash().padding(.trailing, 10)
                 }
             }
-            .frame(width: 17, height: 17)
-            .padding(.trailing, 8)
 
-            Text(tab.title)
-                .font(.system(size: appearance.tabTitleFontSize + 1, weight: isSelected ? .semibold : .regular))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(
-                    isSelected
-                        ? TabBarColors.activeText(for: appearance)
-                        : TabBarColors.inactiveText(for: appearance)
-                )
+            column(width: M.markWidth, alignment: .leading) {
+                ZStack {
+                    if let state = tab.activityState {
+                        CollapsedActivityMarkView(
+                            tab: tab,
+                            state: state,
+                            appearance: appearance,
+                            activityAnimationEnabled: activityAnimationEnabled,
+                            explicitActivityAnimationEnabled: explicitActivityAnimationEnabled
+                        )
+                    } else if tab.showsNotificationBadge || tab.isDirty {
+                        Circle()
+                            .fill(TabBarColors.notificationBadge(for: appearance))
+                            .frame(width: 7, height: 7)
+                    }
+                }
+                .frame(width: 17, height: 17)
+            }
 
-            Spacer(minLength: 8)
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    Text(tab.title)
+                        .font(.system(size: appearance.tabTitleFontSize + 1, weight: isSelected ? .bold : .regular))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(isSelected ? palette.text : (isHovered ? palette.text : palette.dimText))
+                        .frame(width: titleColumnWidth, alignment: .leading)
+                    agentCell(tab)
+                        .padding(.leading, 10)
+                        .frame(width: M.agentWidth, alignment: .leading)
+                    statusCell(tab)
+                        .padding(.leading, 10)
+                        .frame(width: M.statusWidth, alignment: .leading)
+                }
+                .frame(height: M.lineHeight)
+                HStack(spacing: 0) {
+                    subtitleCell(tab, emphasized: isSelected || isHovered)
+                    Spacer(minLength: 0)
+                }
+                .frame(width: titleColumnWidth + M.agentWidth + M.statusWidth, height: M.lineHeight, alignment: .leading)
+            }
+            .frame(width: titleColumnWidth + M.agentWidth + M.statusWidth, height: M.rowHeight)
 
-            // Always laid out so the row never reflows on hover; only the
-            // glyph's visibility changes.
-            if !tab.isPinned {
-                CollapsedTabCloseButton(
-                    tab: tab,
-                    pane: pane,
-                    controller: controller,
-                    appearance: appearance
-                )
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
+            ForEach(clocks, id: \.self) { name in
+                column(width: M.clockWidth, alignment: .trailing) {
+                    Group {
+                        if let date = TabSheetFormat.clockDate(name, in: tab) {
+                            TabSheetAgeText(since: date)
+                                .foregroundStyle(palette.dimText)
+                        } else {
+                            dash()
+                        }
+                    }
+                    .padding(.trailing, 8)
+                }
+            }
+
+            column(width: M.closeWidth, alignment: .center) {
+                // Always laid out so the row never reflows on hover; only the
+                // glyph's visibility changes.
+                if !tab.isPinned {
+                    CollapsedTabCloseButton(
+                        tab: tab,
+                        pane: pane,
+                        controller: controller,
+                        appearance: appearance
+                    )
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+                }
+            }
+
+            column(width: M.gripWidth, alignment: .center) {
+                Text("\u{22EE}\u{22EE}")
+                    .font(.system(size: 13))
+                    .tracking(-2)
+                    .foregroundStyle(isHovered || isSelected ? palette.dimText : palette.faintText.opacity(0.7))
+                    .help(TabSheetFormat.localized("tabBar.sheet.dragHandle.help", "Drag to reorder or move"))
+            }
+
+            Color.clear.frame(width: M.trailingPadding)
+        }
+        .frame(width: width, height: M.rowHeight, alignment: .leading)
+        .background(rowBackground(isSelected: isSelected, isHovered: isHovered))
+        .overlay(alignment: .bottom) {
+            if index < pane.tabs.count - 1 {
+                Rectangle().fill(palette.separator).frame(height: 1).allowsHitTesting(false)
             }
         }
-        .padding(.trailing, 8)
-        .frame(height: rowHeight)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackground(isSelected: isSelected, isHovered: isHovered))
         .overlay(alignment: .leading) {
             if isSelected {
                 Rectangle()
-                    .fill(TabBarColors.activeIndicator(for: appearance))
-                    .frame(width: 3)
+                    .fill(gold)
+                    .frame(width: M.leadingRule)
                     .allowsHitTesting(false)
             }
         }
@@ -520,7 +685,8 @@ struct CollapsedTabSheetView: View {
         .contentShape(Rectangle())
         // One drag source per row: a click selects, a press-drag starts the
         // standard tab drag. Deliberately not a Button with `.onDrag` bolted
-        // on: the Button owns the mouse-down and the drag never starts.
+        // on: the Button owns the mouse-down and the drag never starts. The
+        // grip is the visible affordance; the whole row stays draggable.
         .onTapGesture { select(tab) }
         .onDrag {
             makeItemProvider(tab)
@@ -529,7 +695,7 @@ struct CollapsedTabSheetView: View {
         }
         .onDrop(of: [.tabTransfer], delegate: CollapsedSheetRowDropDelegate(
             rowIndex: index,
-            rowHeight: rowHeight,
+            rowHeight: M.rowHeight,
             pane: pane,
             controller: splitViewController,
             dropIndex: $dropIndex,
@@ -566,6 +732,67 @@ struct CollapsedTabSheetView: View {
         .accessibilityHint(TabActivityAccessibility.help(for: tab.activityState))
     }
 
+    // MARK: Cells
+
+    @ViewBuilder
+    private func agentCell(_ tab: TabItem) -> some View {
+        if let label = tab.detail?.agentLabel, !label.isEmpty {
+            Text(label)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(palette.chipText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, 5)
+                .frame(height: 16)
+                .background(palette.chipFill)
+                .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(palette.chipBorder, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .frame(maxWidth: M.agentWidth - 12, alignment: .leading)
+        } else {
+            dash()
+        }
+    }
+
+    @ViewBuilder
+    private func statusCell(_ tab: TabItem) -> some View {
+        if let status = tab.detail?.status {
+            let color = statusColor(status.kind)
+            HStack(spacing: 4) {
+                Text(TabSheetFormat.statusWord(status.kind))
+                    .lineLimit(1)
+                if let since = status.since {
+                    TabSheetAgeText(since: since, font: .system(size: 11, weight: status.kind == .idle || status.kind == .cold ? .semibold : .bold))
+                }
+            }
+            .font(.system(size: 11, weight: status.kind == .idle || status.kind == .cold ? .semibold : .bold))
+            .foregroundStyle(color)
+        } else {
+            dash()
+        }
+    }
+
+    private func statusColor(_ kind: BonsplitTabDetail.StatusKind) -> Color {
+        switch kind {
+        case .working: return TabBarColors.activity(.running, for: appearance)
+        case .waiting: return TabBarColors.activity(.waiting, for: appearance)
+        case .flagged: return TabBarColors.flaggedInk(for: appearance)
+        case .idle, .cold: return palette.faintText
+        }
+    }
+
+    @ViewBuilder
+    private func subtitleCell(_ tab: TabItem, emphasized: Bool) -> some View {
+        if let subtitle = tab.detail?.subtitle, !subtitle.isEmpty {
+            Text(subtitle)
+                .font(.system(size: 12))
+                .foregroundStyle(emphasized ? palette.dimText : palette.faintText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        } else {
+            dash()
+        }
+    }
+
     private func select(_ tab: TabItem) {
         withTransaction(Transaction(animation: nil)) {
             pane.selectTab(tab.id)
@@ -575,8 +802,8 @@ struct CollapsedTabSheetView: View {
     }
 
     private func rowBackground(isSelected: Bool, isHovered: Bool) -> Color {
-        if isSelected { return TabBarColors.activeTabBackground(for: appearance) }
-        if isHovered { return TabBarColors.activeTabBackground(for: appearance).opacity(0.55) }
+        if isHovered { return palette.rowHover }
+        if isSelected { return palette.rowActive }
         return .clear
     }
 
@@ -637,7 +864,7 @@ struct CollapsedTabSheetView: View {
             }
         }
         .padding(.horizontal, 10)
-        .frame(height: rowHeight)
+        .frame(height: controlsRowHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
