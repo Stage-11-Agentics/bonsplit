@@ -362,4 +362,12 @@ final class TabSheetGridTests: XCTestCase {
         let back = try JSONDecoder().decode(BonsplitTabDetail.self, from: JSONEncoder().encode(detail))
         XCTAssertEqual(back, detail)
     }
+
+    func testClockValuePrefersHostTextOverADate() {
+        var tab = TabItem(title: "t")
+        tab.detail = BonsplitTabDetail(clocks: ["turn": Date(timeIntervalSince1970: 1), "active": Date(timeIntervalSince1970: 2)], clockTexts: ["turn": "4m 12s"])
+        if case .text(let text) = TabSheetFormat.clockValue("turn", in: tab) { XCTAssertEqual(text, "4m 12s") } else { XCTFail("expected text") }
+        if case .age = TabSheetFormat.clockValue("active", in: tab) {} else { XCTFail("expected age") }
+        if case .none = TabSheetFormat.clockValue("tools", in: tab) {} else { XCTFail("expected none") }
+    }
 }
