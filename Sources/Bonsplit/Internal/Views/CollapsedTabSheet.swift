@@ -7,7 +7,32 @@ import UniformTypeIdentifiers
 /// Debug-only knob: stretches the sheet's unroll so a screenshot can catch it
 /// mid-flight. 1 in normal use.
 public enum BonsplitDebug {
+#if DEBUG
     nonisolated(unsafe) public static var tabSheetMotionScale: Double = 1
+#else
+    /// Release builds always run the real durations.
+    public static var tabSheetMotionScale: Double {
+        get { 1 }
+        set { _ = newValue }
+    }
+#endif
+}
+
+/// Hands out a token per unroll run so a run that has been superseded (a close
+/// begun before the open finished, a reopen during a roll-up) can tell, and
+/// leaves the layer alone.
+struct UnrollSequencer {
+    private(set) var token = 0
+
+    mutating func begin() -> Int {
+        token += 1
+        return token
+    }
+
+    /// Invalidates whatever is running.
+    mutating func invalidate() { token += 1 }
+
+    func isCurrent(_ candidate: Int) -> Bool { candidate == token }
 }
 
 // MARK: - Presenter
@@ -48,6 +73,7 @@ final class CollapsedSheetPresenter: ObservableObject {
     private var repositionScheduled = false
     /// A roll-up is running; the panel goes away when it lands.
     private var isRollingUp = false
+    private var unrollSequencer = UnrollSequencer()
     /// A drag that started from a row is in flight: the (possibly invisible)
     /// panel is its drag source and must not be torn down until it ends.
     private(set) var isDragging = false
@@ -153,14 +179,16 @@ final class CollapsedSheetPresenter: ObservableObject {
             animation.isRemovedOnCompletion = false
         }
 
+        let token = unrollSequencer.begin()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         CATransaction.setCompletionBlock { [weak self, weak layer] in
-            layer?.mask = nil
-            layer?.removeAnimation(forKey: "sheet.shift")
-            mask.removeAllAnimations()
             MainActor.assumeIsolated {
-                guard let self else { return }
+                // A newer run (or a cancel) owns the layer now: leave it alone.
+                guard let self, self.unrollSequencer.isCurrent(token) else { return }
+                if let layer, layer.mask === mask { layer.mask = nil }
+                layer?.removeAnimation(forKey: "sheet.shift")
+                mask.removeAllAnimations()
                 if opening || self.isRollingUp { completion?() }
             }
         }
@@ -173,9 +201,13 @@ final class CollapsedSheetPresenter: ObservableObject {
 
     private func cancelRollUp() {
         isRollingUp = false
+        unrollSequencer.invalidate()
         hosting?.layer?.mask = nil
         hosting?.layer?.removeAnimation(forKey: "sheet.shift")
         panel?.ignoresMouseEvents = false
+        // The roll-up had let go of the key and mouse monitors.
+        removeMonitors()
+        if let window = panel?.parent { installMonitors(hostWindow: window) }
     }
 
     /// Rolls the sheet up (when motion is allowed), then tears it down. The
@@ -189,6 +221,9 @@ final class CollapsedSheetPresenter: ObservableObject {
         }
         isRollingUp = true
         panel?.ignoresMouseEvents = true
+        // Escape and outside clicks belong to whatever is underneath while the
+        // sheet rolls away.
+        removeMonitors()
         runUnroll(opening: false) { [weak self] in
             guard let self, self.isRollingUp else { return }
             self.isRollingUp = false
@@ -207,6 +242,7 @@ final class CollapsedSheetPresenter: ObservableObject {
     /// Tears the sheet down without notifying `onDismiss`.
     private func forceDismiss() {
         isRollingUp = false
+        unrollSequencer.invalidate()
         dragTimer?.invalidate()
         dragTimer = nil
         isDragging = false

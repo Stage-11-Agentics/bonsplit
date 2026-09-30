@@ -93,358 +93,6 @@ extension EnvironmentValues {
     }
 }
 
-@MainActor
-/// Wires the strip's `ScrollView` to `TabBarScrollViewBridge.scrollToOffset` on
-/// macOS 15+, where `ScrollPosition` can drive a scroll view to a point offset.
-private struct TabStripScrollPositionModifier: ViewModifier {
-    let bridge: TabBarScrollViewBridge
-
-    func body(content: Content) -> some View {
-        if #available(macOS 15.0, *) {
-            content.modifier(PositionDriver(bridge: bridge))
-        } else {
-            content
-        }
-    }
-
-    @available(macOS 15.0, *)
-    private struct PositionDriver: ViewModifier {
-        let bridge: TabBarScrollViewBridge
-        @State private var position = ScrollPosition()
-
-        func body(content: Content) -> some View {
-            content
-                .scrollPosition($position)
-                .onAppear {
-                    bridge.scrollToOffset = { x in
-                        withTransaction(Transaction(animation: nil)) {
-                            position.scrollTo(x: x)
-                        }
-                    }
-                }
-        }
-    }
-}
-
-/// Automation requests aimed at one pane: open/close its sheet, scroll its strip.
-private struct TabBarAutomationRequests: ViewModifier {
-    let controller: BonsplitController
-    let paneId: PaneID
-    let bridge: TabBarScrollViewBridge
-    @Binding var isSheetOpen: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: controller.tabStripScrollRequest) { _, request in
-                guard let request, request.paneId == paneId else { return }
-                bridge.setOffset(request.offset)
-            }
-            .onChange(of: controller.tabSheetRequest) { _, request in
-                guard let request, request.paneId == paneId, request.open != isSheetOpen else { return }
-                isSheetOpen = request.open
-            }
-    }
-}
-
-/// Every strip tab's frame in the scroll view's own space, keyed by tab.
-private struct TabStripFramesKey: PreferenceKey {
-    static var defaultValue: [UUID: CGRect] = [:]
-    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
-        value.merge(nextValue()) { _, new in new }
-    }
-}
-
-/// Reports one tab's frame (in the strip's "tabScroll" space).
-private struct TabStripFrameReporter: ViewModifier {
-    let id: UUID
-
-    func body(content: Content) -> some View {
-        content.background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: TabStripFramesKey.self,
-                    value: [id: proxy.frame(in: .named("tabScroll"))]
-                )
-            }
-        )
-    }
-}
-
-/// A sheet row lit a tab that is scrolled out of view: bring it in, with the
-/// minimum movement and no animation. The strip's right end is covered by the
-/// count cell and controls, so "in view" means clear of them.
-private struct LinkedHoverScrollModifier: ViewModifier {
-    let controller: BonsplitController
-    let bridge: TabBarScrollViewBridge
-    let isSheetOpen: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .onPreferenceChange(TabStripFramesKey.self) { bridge.tabFrames = $0 }
-            .onChange(of: controller.linkedHoverTabId) { _, hovered in
-                guard isSheetOpen, controller.linkedHoverFromSheet, let hovered else { return }
-                withTransaction(Transaction(animation: nil)) {
-                    bridge.scrollIntoView(hovered)
-                }
-            }
-    }
-}
-
-private final class TabBarScrollViewBridge: ObservableObject {
-    private struct ScrollMetrics {
-        let offset: CGFloat
-        let documentWidth: CGFloat
-        let viewportWidth: CGFloat
-    }
-
-    weak var scrollView: NSScrollView?
-    /// SwiftUI's own view of the strip (offset, content and viewport width),
-    /// mirrored here by the bar as it changes. The wheel remap, drag
-    /// auto-scroll and automation use it: the strip's `NSScrollView` is not
-    /// always reachable from SwiftUI.
-    struct Mirror {
-        var offset: CGFloat = 0
-        var content: CGFloat = 0
-        var container: CGFloat = 0
-    }
-    var mirror = Mirror()
-    /// The bar's background view (the whole bar, chrome included).
-    weak var barView: NSView?
-    /// Width of the chrome that covers the strip's right end.
-    var chromeInset: CGFloat = 0
-
-    private var mirrorMetrics: ScrollMetrics? {
-        guard mirror.container > 0 else { return nil }
-        return ScrollMetrics(offset: mirror.offset, documentWidth: mirror.content, viewportWidth: mirror.container)
-    }
-
-    /// The visible strip in the bar's own coordinates (everything left of the chrome).
-    private func stripBounds() -> NSRect? {
-        guard let barView else { return nil }
-        var rect = barView.bounds
-        rect.size.width = max(0, rect.width - chromeInset)
-        return rect
-    }
-    private var wheelMonitor: Any?
-    private var dragAutoScrollTimer: Timer?
-    private var dragTrailingInset: CGFloat = 0
-
-    deinit {
-        if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
-        dragAutoScrollTimer?.invalidate()
-    }
-
-    func attach(_ scrollView: NSScrollView?) {
-        self.scrollView = scrollView
-        installWheelMonitorIfNeeded()
-        enforceLeadingEdgeIfContentFits(reason: "attach")
-    }
-
-    // MARK: Vertical wheel scrolls the strip sideways
-
-    /// A vertical wheel or two-finger vertical scroll over the strip scrolls it
-    /// sideways (horizontal swipes are left to the scroll view itself).
-    private func installWheelMonitorIfNeeded() {
-        guard wheelMonitor == nil else { return }
-        wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            guard let self else { return event }
-            return MainActor.assumeIsolated { self.handleScrollWheel(event) ? nil : event }
-        }
-    }
-
-    @MainActor
-    private func handleScrollWheel(_ event: NSEvent) -> Bool {
-        guard let barView, let window = barView.window, event.window === window,
-              let strip = stripBounds() else { return false }
-        let point = barView.convert(event.locationInWindow, from: nil)
-        guard strip.contains(point) else { return false }
-        let dx = event.scrollingDeltaX, dy = event.scrollingDeltaY
-        guard abs(dy) > abs(dx), let metrics = mirrorMetrics,
-              metrics.documentWidth > metrics.viewportWidth + 1 else { return false }
-        let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 8
-        scrollHorizontally(by: -dy * scale, metrics: metrics)
-        return true
-    }
-
-    /// Set by the strip when the system supports programmatic scroll positions
-    /// (macOS 15+): scrolls the SwiftUI scroll view to an absolute offset, which
-    /// keeps SwiftUI's own idea of the offset in step.
-    var scrollToOffset: ((CGFloat) -> Void)?
-    /// Frames of the strip's tabs in the scroll view's own space.
-    var tabFrames: [UUID: CGRect] = [:]
-
-    /// Scrolls a tab into the visible strip (clear of the chrome) with the
-    /// minimum movement; nothing happens when it is already there.
-    @MainActor
-    func scrollIntoView(_ id: UUID) {
-        guard let frame = tabFrames[id], let metrics = mirrorMetrics else { return }
-        let margin: CGFloat = 12
-        let visibleMax = metrics.viewportWidth - chromeInset
-        if frame.minX < 0 {
-            scrollHorizontally(by: frame.minX - margin, metrics: metrics)
-        } else if frame.maxX > visibleMax {
-            scrollHorizontally(by: frame.maxX - visibleMax + margin, metrics: metrics)
-        }
-    }
-
-    /// Scrolls the strip by `delta` points (clamped to its content).
-    @MainActor
-    private func scrollHorizontally(by delta: CGFloat, metrics: ScrollMetrics) {
-        let maxOffset = max(0, metrics.documentWidth - metrics.viewportWidth)
-        let next = min(max(0, metrics.offset + delta), maxOffset)
-        guard abs(next - metrics.offset) > 0.01 else { return }
-        mirror.offset = next
-        if let scrollToOffset {
-            scrollToOffset(next)
-        } else if let scrollView {
-            // macOS 14: move the clip view directly.
-            let clipView = scrollView.contentView
-            clipView.scroll(to: NSPoint(x: next, y: clipView.bounds.origin.y))
-            scrollView.reflectScrolledClipView(clipView)
-        }
-    }
-
-    // MARK: Auto-scroll while a tab is dragged near either end
-
-    /// While a tab drag is in flight, nudges the strip when the pointer is near
-    /// its left or right end. `trailingInset` is the chrome that covers the
-    /// strip's right end. The ghost slot and the mid-drag scroll guard are
-    /// untouched: this only moves the scroll offset, one small step per tick.
-    @MainActor
-    func beginDragAutoScroll(trailingInset: CGFloat) {
-        dragTrailingInset = trailingInset
-        guard dragAutoScrollTimer == nil else { return }
-        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.dragAutoScrollTick() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        dragAutoScrollTimer = timer
-    }
-
-    func endDragAutoScroll() {
-        dragAutoScrollTimer?.invalidate()
-        dragAutoScrollTimer = nil
-    }
-
-    @MainActor
-    private func dragAutoScrollTick() {
-        guard NSEvent.pressedMouseButtons & 1 != 0 else { endDragAutoScroll(); return }
-        guard let barView, let window = barView.window, let metrics = mirrorMetrics,
-              let bounds = stripBounds(),
-              metrics.documentWidth > metrics.viewportWidth + 1 else { return }
-        let inWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
-        let point = barView.convert(inWindow, from: nil)
-        guard point.y >= bounds.minY - 4, point.y <= bounds.maxY + 4 else { return }
-        let zone: CGFloat = 36
-        let visibleMaxX = bounds.maxX
-        var step: CGFloat = 0
-        if point.x >= bounds.minX, point.x < bounds.minX + zone {
-            step = -14 * (1 - (point.x - bounds.minX) / zone)
-        } else if point.x > visibleMaxX - zone, point.x <= bounds.maxX + dragTrailingInset {
-            step = 14 * min(1, (point.x - (visibleMaxX - zone)) / zone)
-        }
-        if abs(step) > 0.1 { scrollHorizontally(by: step, metrics: metrics) }
-    }
-
-    @MainActor
-    func setOffset(_ x: CGFloat) {
-        guard let metrics = mirrorMetrics else { return }
-        scrollHorizontally(by: x - metrics.offset, metrics: metrics)
-    }
-
-    private func currentMetrics() -> ScrollMetrics? {
-        guard let scrollView else { return nil }
-
-        let clipView = scrollView.contentView
-        let documentWidth = max(
-            scrollView.documentView?.frame.width ?? 0,
-            scrollView.documentView?.bounds.width ?? 0
-        )
-        let viewportWidth = clipView.bounds.width
-        return ScrollMetrics(
-            offset: clipView.bounds.origin.x,
-            documentWidth: documentWidth,
-            viewportWidth: viewportWidth
-        )
-    }
-
-    func shouldPreferLeadingTarget(
-        selectedTabId: UUID?,
-        fallbackContentWidth: CGFloat,
-        fallbackContainerWidth: CGFloat
-    ) -> Bool {
-        guard selectedTabId != nil else { return true }
-
-        if let metrics = currentMetrics(), metrics.viewportWidth > 0 {
-            return TabBarStyling.shouldKeepLeadingAligned(
-                contentWidth: metrics.documentWidth,
-                containerWidth: metrics.viewportWidth
-            )
-        }
-
-        return TabBarStyling.shouldKeepLeadingAligned(
-            contentWidth: fallbackContentWidth,
-            containerWidth: fallbackContainerWidth
-        )
-    }
-
-    func enforceLeadingEdgeIfContentFits(reason: String) {
-        guard let metrics = currentMetrics(), metrics.viewportWidth > 0 else { return }
-        guard TabBarStyling.shouldKeepLeadingAligned(
-            contentWidth: metrics.documentWidth,
-            containerWidth: metrics.viewportWidth
-        ) else {
-            return
-        }
-
-        resetToLeadingEdgeIfNeeded(reason: reason)
-    }
-
-    func resetToLeadingEdgeIfNeeded(reason: String) {
-        guard let metrics = currentMetrics() else { return }
-
-        let currentOffset = metrics.offset
-        guard abs(currentOffset) > 0.5 else { return }
-
-        guard let scrollView else { return }
-        #if DEBUG
-        dlog(
-            "tab.bar.resetLeading reason=\(reason) " +
-            "offset=\(Int(currentOffset.rounded())) " +
-            "doc=\(Int(metrics.documentWidth.rounded())) " +
-            "viewport=\(Int(metrics.viewportWidth.rounded()))"
-        )
-#endif
-        let clipView = scrollView.contentView
-        clipView.scroll(to: NSPoint(x: 0, y: clipView.bounds.origin.y))
-        scrollView.reflectScrolledClipView(clipView)
-
-        // SwiftUI's ScrollView can briefly restore the stale offset during the same
-        // layout cycle. Re-apply the correction on the next turn to keep split-pane
-        // tab bars pinned to the leading edge once they stop overflowing.
-        DispatchQueue.main.async { [weak scrollView] in
-            guard let scrollView else { return }
-            let clipView = scrollView.contentView
-            let asyncOffset = clipView.bounds.origin.x
-            guard abs(asyncOffset) > 0.5 else { return }
-#if DEBUG
-            let documentWidth = max(
-                scrollView.documentView?.frame.width ?? 0,
-                scrollView.documentView?.bounds.width ?? 0
-            )
-            dlog(
-                "tab.bar.resetLeading.async reason=\(reason) " +
-                "offset=\(Int(asyncOffset.rounded())) " +
-                "doc=\(Int(documentWidth.rounded())) " +
-                "viewport=\(Int(clipView.bounds.width.rounded()))"
-            )
-#endif
-            clipView.scroll(to: NSPoint(x: 0, y: clipView.bounds.origin.y))
-            scrollView.reflectScrolledClipView(clipView)
-        }
-    }
-}
-
 enum TabBarStyling {
     /// Initial fallback for the trailing split-buttons cluster before the measured
     /// width lands. Lives in `TabBarMetrics` alongside its sibling sizing constants.
@@ -816,6 +464,17 @@ struct TabBarView<TrailingAccessory: View>: View {
         return measuredWidth + TabCountCellMetrics.width
     }
 
+    /// The tabs whose frames the strip measures: the selected one, the one lit by
+    /// linked hover while a sheet is open, and a flashing one. Everything else
+    /// goes unmeasured.
+    private var measuredTabIds: Set<UUID> {
+        var ids = Set<UUID>()
+        if let selected = pane.selectedTabId { ids.insert(selected) }
+        if isDropdownOpen, let hovered = controller.linkedHoverTabId { ids.insert(hovered) }
+        if let flashed = pane.flashTabId { ids.insert(flashed) }
+        return ids
+    }
+
     private var leadingScrollAnchorId: String {
         "tab-bar-leading-\(pane.id.id.uuidString)"
     }
@@ -828,41 +487,38 @@ struct TabBarView<TrailingAccessory: View>: View {
         return true
     }
 
-    private func scrollToPreferredTarget(_ proxy: ScrollViewProxy, selectedTabId: UUID?) {
-        let target: TabBarStyling.ScrollTarget
+    /// Keeps the strip anchored to the leading edge while it fits, and otherwise
+    /// asks the bridge to reveal the selected tab with the least movement,
+    /// clear of the controls and fades. Width changes only re-reveal when the
+    /// selected tab is wholly out of view and the operator has not scrolled.
+    private func scrollToPreferredTarget(
+        _ proxy: ScrollViewProxy,
+        selectedTabId: UUID?,
+        reason: TabBarScrollViewBridge.RevealReason
+    ) {
         if scrollViewBridge.shouldPreferLeadingTarget(
             selectedTabId: selectedTabId,
             fallbackContentWidth: contentWidth,
             fallbackContainerWidth: containerWidth
-        ) {
-            target = .leading
-        } else if let selectedTabId {
-            target = .selectedTab(selectedTabId)
-        } else {
-            target = .leading
-        }
-
-        withTransaction(Transaction(animation: nil)) {
-            switch target {
-            case .leading:
+        ) || selectedTabId == nil {
+            withTransaction(Transaction(animation: nil)) {
                 proxy.scrollTo(leadingScrollAnchorId, anchor: .leading)
-            case .selectedTab(let tabId):
-                proxy.scrollTo(tabId, anchor: .center)
             }
-        }
-
-        if target == .leading,
-           TabBarStyling.shouldForceResetToLeading(
+            if TabBarStyling.shouldForceResetToLeading(
                 scrollOffset: scrollOffset,
                 contentWidth: contentWidth,
                 containerWidth: containerWidth
-           ) {
-            scrollViewBridge.resetToLeadingEdgeIfNeeded(reason: "scrollToPreferredTarget")
-        } else if target == .leading {
-            scrollViewBridge.enforceLeadingEdgeIfContentFits(reason: "scrollToPreferredTarget")
+            ) {
+                scrollViewBridge.resetToLeadingEdgeIfNeeded(reason: "scrollToPreferredTarget")
+            } else {
+                scrollViewBridge.enforceLeadingEdgeIfContentFits(reason: "scrollToPreferredTarget")
+            }
+            return
+        }
+        if let selectedTabId {
+            scrollViewBridge.requestReveal(selectedTabId, reason: reason)
         }
     }
-
 
     var body: some View {
         sizedBar
@@ -873,7 +529,13 @@ struct TabBarView<TrailingAccessory: View>: View {
                 isSheetOpen: $isDropdownOpen
             ))
             .onChange(of: isDropdownOpen) { _, open in
-                if open { controller.openTabSheetPaneIds.insert(pane.id) } else { controller.openTabSheetPaneIds.remove(pane.id) }
+                if open {
+                    controller.openTabSheetPaneIds.insert(pane.id)
+                } else {
+                    controller.openTabSheetPaneIds.remove(pane.id)
+                    // Nothing left to link to: don't leave a tab lit.
+                    controller.clearLinkedHover()
+                }
                 syncCollapsedSheet()
             }
             .onChange(of: collapsedBlockWidth) { _, _ in
@@ -886,7 +548,12 @@ struct TabBarView<TrailingAccessory: View>: View {
             // on a workspace switch. Interactivity is the signal that this pane's
             // workspace went away.
             .onChange(of: splitViewController.isInteractive) { _, interactive in
-                if !interactive, isDropdownOpen { isDropdownOpen = false }
+                // A workspace switch takes the sheet away at once: no roll-up
+                // playing over the workspace that just arrived.
+                if !interactive, isDropdownOpen {
+                    sheetPresenter.dismiss()
+                    isDropdownOpen = false
+                }
             }
             .onDisappear {
                 isDropdownOpen = false
@@ -1044,7 +711,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                                     ghostSlot(at: index)
                                 }
                                 tabItem(for: tab, at: index)
-                                    .modifier(TabStripFrameReporter(id: tab.id))
+                                    .modifier(TabStripFrameReporter(id: tab.id, active: measuredTabIds.contains(tab.id)))
                                     .id(tab.id)
                             }
 
@@ -1116,33 +783,32 @@ struct TabBarView<TrailingAccessory: View>: View {
                         }
                     }
                     .coordinateSpace(name: "tabScroll")
+                    .modifier(TabStripProxyCapture(bridge: scrollViewBridge, proxy: proxy))
                     .onAppear {
                         containerWidth = containerGeo.size.width
                         scrollViewBridge.mirror.container = containerGeo.size.width
-                        scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId)
+                        scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId, reason: .selection)
                     }
                     .onChange(of: containerGeo.size.width) { _, newWidth in
                         containerWidth = newWidth
                         scrollViewBridge.mirror.container = newWidth
-                        scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId)
+                        scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId, reason: .geometry)
                     }
                     .onChange(of: contentWidth) { _, _ in
                         // The ghost slot grows the content mid-drag; scrolling to the
                         // selected tab then would slide the strip under the cursor.
                         guard splitViewController.draggingTab == nil, dropTargetIndex == nil else { return }
-                        scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId)
+                        scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId, reason: .geometry)
                     }
                     .onChange(of: pane.selectedTabId) { _, newTabId in
-                        scrollToPreferredTarget(proxy, selectedTabId: newTabId)
+                        scrollToPreferredTarget(proxy, selectedTabId: newTabId, reason: .selection)
                     }
 
                     .onChange(of: pane.flashTabGeneration) { _, _ in
                         guard let flashId = pane.flashTabId else { return }
-                        // Scroll the flashed tab into view before its pulse animation begins.
+                        // Bring the flashed tab into view before its pulse animation begins.
                         // Selection is intentionally unchanged.
-                        withTransaction(Transaction(animation: nil)) {
-                            proxy.scrollTo(flashId, anchor: .center)
-                        }
+                        scrollViewBridge.requestReveal(flashId, reason: .flash)
                     }
                 }
                 .frame(height: appearance.tabBarHeight)
@@ -1216,7 +882,7 @@ struct TabBarView<TrailingAccessory: View>: View {
         .frame(height: appearance.tabBarHeight)
         .coordinateSpace(name: "tabBar")
         .modifier(TabStripScrollPositionModifier(bridge: scrollViewBridge))
-        .modifier(LinkedHoverScrollModifier(
+        .modifier(TabStripTargetObserver(
             controller: controller,
             bridge: scrollViewBridge,
             isSheetOpen: isDropdownOpen
@@ -1254,6 +920,9 @@ struct TabBarView<TrailingAccessory: View>: View {
         .onAppear {
             controlKeyMonitor.start()
             layoutMetricsHandler?(currentLayoutMetrics)
+            // The wheel remap only exists while a full-tier strip is on screen.
+            scrollViewBridge.isInteractiveProvider = { [weak splitViewController] in splitViewController?.isInteractive ?? false }
+            scrollViewBridge.setWheelRoutingEnabled(true)
         }
         .onPreferenceChange(SelectedTabFramePreferenceKey.self) { frame in
             selectedTabFrameInBar = frame
@@ -1281,6 +950,8 @@ struct TabBarView<TrailingAccessory: View>: View {
         }
         .onDisappear {
             controlKeyMonitor.stop()
+            scrollViewBridge.setWheelRoutingEnabled(false)
+            scrollViewBridge.endDragAutoScroll()
         }
     }
 
@@ -1700,11 +1371,13 @@ struct TabBarView<TrailingAccessory: View>: View {
             flashGeneration: (pane.flashTabId == tab.id) ? pane.flashTabGeneration : 0,
             isLinkedHover: isDropdownOpen && controller.linkedHoverTabId == tab.id,
             onHoverChanged: { hovering in
-                // Only while the sheet is open is there a row to light.
-                guard isDropdownOpen else { return }
                 if hovering {
+                    // Only while the sheet is open is there a row to light.
+                    guard isDropdownOpen else { return }
                     controller.setLinkedHover(tab.id, fromSheet: false)
                 } else {
+                    // Always clear on exit, so a sheet closing under the pointer
+                    // cannot strand the highlight.
                     controller.clearLinkedHover(ifSheet: false)
                 }
             },

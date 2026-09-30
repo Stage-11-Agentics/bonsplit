@@ -133,6 +133,12 @@ public final class BonsplitController {
 
     /// Whether anything in `paneId` is currently showing per-tab detail (an
     /// open sheet or an open rail), so the host can skip computing it otherwise.
+    public var hasVisibleTabDetail: Bool {
+        internalController.isInteractive
+            && (!openTabSheetPaneIds.isEmpty
+                || (configuration.appearance.tabLayout == .rail && !railOpenPaneIds.isEmpty))
+    }
+
     public func isTabDetailVisible(inPane paneId: PaneID) -> Bool {
         openTabSheetPaneIds.contains(paneId)
             || (configuration.appearance.tabLayout == .rail && railOpenPaneIds.contains(paneId))
@@ -180,6 +186,11 @@ public final class BonsplitController {
         linkedHoverTabId = tabId
     }
 
+    internal func clearLinkedHover() {
+        guard linkedHoverTabId != nil else { return }
+        linkedHoverTabId = nil
+    }
+
     internal func clearLinkedHover(ifSheet: Bool) {
         guard linkedHoverTabId != nil, linkedHoverFromSheet == ifSheet else { return }
         linkedHoverTabId = nil
@@ -195,6 +206,12 @@ public final class BonsplitController {
     public init(configuration: BonsplitConfiguration = .default) {
         self.configuration = configuration
         self.internalController = SplitViewController()
+        internalController.onPaneClosed = { [weak self] paneId in
+            guard let self else { return }
+            self.railOpenPaneIds.remove(paneId)
+            self.railNeedsControls.remove(paneId)
+            self.openTabSheetPaneIds.remove(paneId)
+        }
     }
 
     // MARK: - Tab Operations
@@ -412,7 +429,8 @@ public final class BonsplitController {
     /// Asks the host for fresh sheet detail for every tab in `paneId`. Called
     /// as the tab sheet opens; a no-op without a `tabDetailProvider`.
     public func refreshTabDetails(inPane paneId: PaneID) {
-        guard let provider = tabDetailProvider else { return }
+        // A hidden workspace shows nothing: skip the host round trip.
+        guard let provider = tabDetailProvider, internalController.isInteractive else { return }
         for tab in tabs(inPane: paneId) {
             let fresh = provider(tab.id)
             // Skip unchanged values: assigning invalidates every reader of the pane's tabs.

@@ -253,10 +253,14 @@ final class SplitViewController {
         }
     }
 
+    /// Told when a pane is closed, so per-pane UI state can be dropped.
+    var onPaneClosed: ((PaneID) -> Void)?
+
     /// Close a pane and collapse the split
     func closePane(_ paneId: PaneID) {
         // Don't close the last pane
         guard rootNode.allPaneIds.count > 1 else { return }
+        defer { onPaneClosed?(paneId) }
 
         let (newRoot, siblingPaneId) = closePaneRecursively(node: rootNode, targetPaneId: paneId)
 
