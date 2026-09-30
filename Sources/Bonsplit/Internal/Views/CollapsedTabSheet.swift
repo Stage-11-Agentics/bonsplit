@@ -564,6 +564,7 @@ struct CollapsedTabSheetView: View {
         let isSelected = pane.selectedTabId == tab.id
         let isHovered = hoveredTabId == tab.id
         let gold = TabBarColors.activeIndicator(for: appearance)
+        let title = tab.detail?.title.flatMap { $0.isEmpty ? nil : $0 } ?? tab.title
         HStack(spacing: 0) {
             Color.clear.frame(width: M.leadingRule)
 
@@ -601,7 +602,7 @@ struct CollapsedTabSheetView: View {
 
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
-                    Text(tab.title)
+                    Text(title)
                         .font(.system(size: appearance.tabTitleFontSize + 1, weight: isSelected ? .bold : .regular))
                         .lineLimit(1)
                         .truncationMode(.tail)

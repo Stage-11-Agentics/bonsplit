@@ -25,6 +25,9 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
         }
     }
 
+    /// The tab's full, untruncated title. The tab strip shows a shortened
+    /// label; the sheet's title column has room for the whole title.
+    public var title: String?
     /// `Harness · model`, `Harness` alone when the model is unknown, nil when
     /// the tab hosts no agent.
     public var agentLabel: String?
@@ -37,11 +40,13 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
     public var clocks: [String: Date]
 
     public init(
+        title: String? = nil,
         agentLabel: String? = nil,
         subtitle: String? = nil,
         status: Status? = nil,
         clocks: [String: Date] = [:]
     ) {
+        self.title = title
         self.agentLabel = agentLabel
         self.subtitle = subtitle
         self.status = status
