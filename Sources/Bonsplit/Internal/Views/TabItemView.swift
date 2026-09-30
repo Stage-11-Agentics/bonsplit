@@ -940,6 +940,10 @@ struct TabItemView: View {
                                             : .clear
                                     )
                             )
+                            // A plain button only answers over what it draws; the
+                            // frame is invisible, so without this only the glyph's
+                            // ink (about 2pt) closed the tab.
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .onHover { hovering in
