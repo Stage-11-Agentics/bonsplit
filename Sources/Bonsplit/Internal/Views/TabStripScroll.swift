@@ -93,6 +93,17 @@ enum TabStripWheelAction: Equatable {
     case remap(CGFloat)
 }
 
+extension TabStripWheelInput {
+    init(_ event: NSEvent) {
+        self.init(
+            phase: event.phase,
+            momentumPhase: event.momentumPhase,
+            deltaX: event.scrollingDeltaX,
+            deltaY: event.scrollingDeltaY
+        )
+    }
+}
+
 /// Decides, once per gesture, whether the strip takes a vertical scroll and
 /// keeps that decision through momentum. A scroll that started over a terminal
 /// and drifts onto the strip stays the terminal's; one that started on the strip
@@ -123,9 +134,16 @@ struct TabStripWheelRouter {
             return .remap(-input.deltaY)
         }
 
-        if input.phase.contains(.began) || input.phase.contains(.mayBegin) {
+        if input.phase.contains(.began) {
             latched = nil
             sawBegin = true
+            fingerLifted = false
+        } else if input.phase.contains(.mayBegin) {
+            // Only a real .began makes a gesture this router's to decide: a bar
+            // that saw the touch land but not start must not adopt a gesture
+            // another view consumed.
+            latched = nil
+            sawBegin = false
             fingerLifted = false
         } else if fingerLifted, !input.phase.isEmpty {
             // A new touch sequence whose start was never seen here.
@@ -437,15 +455,19 @@ final class TabBarScrollViewBridge: ObservableObject {
     }
 
     private func handleScrollWheel(_ event: NSEvent) -> Bool {
-        // Cheap reject first: this monitor sees every scroll in the app.
-        guard let barView, let window = barView.window, event.window === window else { return false }
-        let input = TabStripWheelInput(
-            phase: event.phase,
-            momentumPhase: event.momentumPhase,
-            deltaX: event.scrollingDeltaX,
-            deltaY: event.scrollingDeltaY
+        handleWheel(
+            in: event.window,
+            TabStripWheelInput(event),
+            locationInWindow: event.locationInWindow,
+            precise: event.hasPreciseScrollingDeltas
         )
-        return handleWheel(input, locationInWindow: event.locationInWindow, precise: event.hasPreciseScrollingDeltas)
+    }
+
+    /// The monitor sees every scroll in the app: events for another window are
+    /// not this bar's and never reach the router.
+    func handleWheel(in eventWindow: NSWindow?, _ input: TabStripWheelInput, locationInWindow: NSPoint, precise: Bool) -> Bool {
+        guard let barView, let window = barView.window, eventWindow === window else { return false }
+        return handleWheel(input, locationInWindow: locationInWindow, precise: precise)
     }
 
     /// Every scroll in the bar's window passes through the router, so it sees

@@ -109,6 +109,23 @@ final class TabStripScrollTests: XCTestCase {
         XCTAssertEqual(horizontal.route(event(.changed, dx: 1, dy: -9), eligible: { true }), .pass)
     }
 
+    func testAGestureTheRouterNeverSawBeginIsNotTheStrips() {
+        var router = TabStripWheelRouter()
+        // A .changed first, even with the strip eligible: its start was not seen here.
+        XCTAssertEqual(router.route(event(.changed, dy: -6), eligible: { true }), .pass)
+        XCTAssertEqual(router.route(event(.changed, dy: -6), eligible: { true }), .pass)
+        // The next gesture that does begin here is decided normally.
+        XCTAssertEqual(router.route(event(.ended), eligible: { true }), .pass)
+        XCTAssertEqual(router.route(event(.began, dy: -6), eligible: { true }), .remap(6))
+    }
+
+    func testAMayBeginAloneDoesNotMakeAGestureTheRoutersToTake() {
+        var router = TabStripWheelRouter()
+        // The touch landed here (.mayBegin) but the gesture started elsewhere.
+        XCTAssertEqual(router.route(event(.mayBegin), eligible: { true }), .pass)
+        XCTAssertEqual(router.route(event(.changed, dy: -6), eligible: { true }), .pass)
+    }
+
     func testAMayBeginWithNoMovementDoesNotDecide() {
         var router = TabStripWheelRouter()
         XCTAssertEqual(router.route(event(.mayBegin), eligible: { XCTFail("decided on a still event"); return true }), .pass)
@@ -149,6 +166,7 @@ final class TabStripScrollTests: XCTestCase {
     private struct WheelRig {
         let window: NSWindow
         let hosting: FakeHostingView
+        func close() { window.close() }
         let bridge: TabBarScrollViewBridge
         let written: Box
         final class Box { var offsets: [CGFloat] = [] }
@@ -159,6 +177,7 @@ final class TabStripScrollTests: XCTestCase {
         init(interactive: Bool = true) {
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 200),
                               styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
             let content = window.contentView!
             hosting = FakeHostingView(frame: NSRect(x: 0, y: 170, width: 600, height: 30))
             let bar = NSView(frame: hosting.bounds)
@@ -178,10 +197,14 @@ final class TabStripScrollTests: XCTestCase {
             written = box
         }
 
-        func send(_ phase: NSEvent.Phase = [], momentum: NSEvent.Phase = [], dy: CGFloat, at point: NSPoint) -> Bool {
+        func send(
+            _ phase: NSEvent.Phase = [], momentum: NSEvent.Phase = [], dy: CGFloat, at point: NSPoint,
+            in eventWindow: NSWindow? = nil, precise: Bool = true
+        ) -> Bool {
             bridge.handleWheel(
+                in: eventWindow ?? window,
                 TabStripWheelInput(phase: phase, momentumPhase: momentum, deltaX: 0, deltaY: dy),
-                locationInWindow: point, precise: true
+                locationInWindow: point, precise: precise
             )
         }
     }
@@ -189,6 +212,7 @@ final class TabStripScrollTests: XCTestCase {
     @MainActor
     func testAGestureThatBeginsOnTheStripScrollsIt() {
         let rig = WheelRig()
+        defer { rig.close() }
         XCTAssertTrue(rig.send(.began, dy: -10, at: WheelRig.onStrip))
         XCTAssertTrue(rig.send(.changed, dy: -10, at: WheelRig.onStrip))
         XCTAssertEqual(rig.written.offsets.last ?? 0, 20, accuracy: 0.01)
@@ -197,6 +221,7 @@ final class TabStripScrollTests: XCTestCase {
     @MainActor
     func testATerminalScrollDriftingOntoTheStripIsNeverHijacked() {
         let rig = WheelRig()
+        defer { rig.close() }
         // The router sees the gesture begin over the terminal, so it is decided there.
         XCTAssertFalse(rig.send(.began, dy: -10, at: WheelRig.onTerminal))
         XCTAssertFalse(rig.send(.changed, dy: -10, at: WheelRig.onStrip))
@@ -209,10 +234,11 @@ final class TabStripScrollTests: XCTestCase {
     @MainActor
     func testAStripGestureEndingOffTheStripDoesNotLeaveTheNextGestureLatched() {
         let rig = WheelRig()
+        defer { rig.close() }
         XCTAssertTrue(rig.send(.began, dy: -10, at: WheelRig.onStrip))
         // The pointer wandered off; the gesture ends there with no momentum.
         XCTAssertTrue(rig.send(.changed, dy: -10, at: WheelRig.onTerminal))
-        XCTAssertTrue(rig.send(.ended, dy: 0, at: WheelRig.onTerminal) == false)
+        XCTAssertFalse(rig.send(.ended, dy: 0, at: WheelRig.onTerminal))
         let scrolled = rig.written.offsets.count
         // A touch sequence whose start was never seen (the lift was the last thing the
         // router saw) is not inherited from the strip gesture that just ended.
@@ -227,9 +253,11 @@ final class TabStripScrollTests: XCTestCase {
     @MainActor
     func testAHiddenBarNeverTakesAScrollEvenWhenItsGestureEndedElsewhere() {
         let rig = WheelRig()
+        defer { rig.close() }
         rig.hosting.isHidden = true   // a mounted bar of a workspace that is not showing
         XCTAssertFalse(rig.send(.began, dy: -10, at: WheelRig.onStrip))
         XCTAssertFalse(rig.send(.changed, dy: -10, at: WheelRig.onStrip))
+        XCTAssertFalse(rig.send(.ended, dy: 0, at: WheelRig.onTerminal))
         rig.hosting.isHidden = false
         // A terminal gesture crossing the (now shown) strip is still the terminal's.
         XCTAssertFalse(rig.send(.began, dy: -10, at: WheelRig.onTerminal))
@@ -240,6 +268,7 @@ final class TabStripScrollTests: XCTestCase {
     @MainActor
     func testABarInAWorkspaceThatIsNotLiveNeverTakesAScroll() {
         let rig = WheelRig(interactive: false)
+        defer { rig.close() }
         XCTAssertFalse(rig.send(.began, dy: -10, at: WheelRig.onStrip))
         XCTAssertTrue(rig.written.offsets.isEmpty)
     }
@@ -247,7 +276,46 @@ final class TabStripScrollTests: XCTestCase {
     @MainActor
     func testAWheelOverTheControlsDoesNotScrollTheStrip() {
         let rig = WheelRig()
+        defer { rig.close() }
         XCTAssertFalse(rig.send(.began, dy: -10, at: NSPoint(x: 550, y: 185)))
+    }
+
+    @MainActor
+    func testAnEventForAnotherWindowIsNotThisBarsAndNeverReachesItsRouter() {
+        let rig = WheelRig()
+        defer { rig.close() }
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+                             styleMask: [.titled], backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        defer { other.close() }
+        XCTAssertFalse(rig.send(.began, dy: -10, at: WheelRig.onStrip, in: other))
+        XCTAssertFalse(rig.send(dy: -10, at: WheelRig.onStrip, in: other))
+        XCTAssertTrue(rig.written.offsets.isEmpty)
+        // Its own window's events still work afterwards.
+        XCTAssertTrue(rig.send(.began, dy: -10, at: WheelRig.onStrip))
+    }
+
+    @MainActor
+    func testAMouseWheelMovesTheStripEightTimesFurtherThanATrackpad() {
+        let rig = WheelRig()
+        defer { rig.close() }
+        XCTAssertTrue(rig.send(dy: -3, at: WheelRig.onStrip, precise: false))
+        XCTAssertEqual(rig.written.offsets.last ?? 0, 24, accuracy: 0.01)
+        XCTAssertTrue(rig.send(dy: -3, at: WheelRig.onStrip, precise: true))
+        XCTAssertEqual(rig.written.offsets.last ?? 0, 27, accuracy: 0.01)
+    }
+
+    func testAScrollEventMapsToRouterInput() throws {
+        let cg = try XCTUnwrap(CGEvent(
+            scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -7, wheel2: 4, wheel3: 0
+        ))
+        let event = try XCTUnwrap(NSEvent(cgEvent: cg))
+        let input = TabStripWheelInput(event)
+        XCTAssertEqual(input.deltaY, event.scrollingDeltaY)
+        XCTAssertEqual(input.deltaX, event.scrollingDeltaX)
+        XCTAssertNotEqual(input.deltaY, 0)
+        XCTAssertEqual(input.phase, event.phase)
+        XCTAssertEqual(input.momentumPhase, event.momentumPhase)
     }
 
     // MARK: Proxy anchor (no offset driver)
@@ -267,5 +335,7 @@ final class TabStripScrollTests: XCTestCase {
         XCTAssertEqual(TabStripScroll.proxyAnchor(frameMinX: 10, frameWidth: 100, viewportWidth: 400, delta: 500), 0)
         XCTAssertEqual(TabStripScroll.proxyAnchor(frameMinX: 900, frameWidth: 100, viewportWidth: 400, delta: 0), 1)
         XCTAssertEqual(TabStripScroll.proxyAnchor(frameMinX: 10, frameWidth: 500, viewportWidth: 400, delta: 0), 0)
+        // A tab exactly as wide as the viewport has no travel: no division by zero.
+        XCTAssertEqual(TabStripScroll.proxyAnchor(frameMinX: 10, frameWidth: 400, viewportWidth: 400, delta: 0), 0)
     }
 }
