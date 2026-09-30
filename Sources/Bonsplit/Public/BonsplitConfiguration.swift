@@ -272,6 +272,11 @@ extension BonsplitConfiguration {
         /// prefix so operators can address a tab by its spoken number.
         public var showTabOrdinals: Bool
 
+        /// How an area shows its tabs: the horizontal strip (default), or a
+        /// vertical rail docked on the area's left edge that the count cell
+        /// toggles.
+        public var tabLayout: BonsplitTabLayout = .tabs
+
         // MARK: - Split toolbar (trailing-edge new-tab + split + close buttons)
 
         /// SF Symbol point size used inside each `SplitToolbarButton`. Drives

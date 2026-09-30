@@ -157,11 +157,88 @@ final class TabSheetGridTests: XCTestCase {
         XCTAssertEqual(TabSheetFormat.needYouCount(tabs), 3)
     }
 
-    func testWidthComesFromColumns() {
-        // 3 rule + 68 + 18 + 150 + 104 + 22 + 24 + 6 = 395 fixed, plus clocks.
-        XCTAssertEqual(TabSheetMetrics.fixedWidth(clockCount: 0), 395)
-        XCTAssertEqual(TabSheetMetrics.fixedWidth(clockCount: 2), 395 + 156)
-        XCTAssertEqual(TabSheetMetrics.idealWidth(clockCount: 2), 395 + 156 + 260)
+    func testSheetTiersFollowTheAreaWidth() {
+        XCTAssertEqual(TabSheetTier(width: 1120), .full)
+        XCTAssertEqual(TabSheetTier(width: 820), .full)
+        XCTAssertEqual(TabSheetTier(width: 819), .oneClock)
+        XCTAssertEqual(TabSheetTier(width: 600), .oneClock)
+        XCTAssertEqual(TabSheetTier(width: 599), .agentInline)
+        XCTAssertEqual(TabSheetTier(width: 440), .agentInline)
+        XCTAssertEqual(TabSheetTier(width: 439), .compact)
+        XCTAssertEqual(TabSheetTier(width: 320), .compact)
+    }
+
+    func testColumnsDropByTierAndStayFixedWithinOne() {
+        let both = ["active", "launched"]
+        XCTAssertEqual(TabSheetLayout(width: 900, clocks: both).clocks, both)
+        XCTAssertEqual(TabSheetLayout(width: 700, clocks: both).clocks, ["active"])
+        XCTAssertTrue(TabSheetLayout(width: 700, clocks: both).showsAgentColumn)
+        let inline = TabSheetLayout(width: 500, clocks: both)
+        XCTAssertEqual(inline.clocks, [])
+        XCTAssertFalse(inline.showsAgentColumn)
+        XCTAssertTrue(inline.agentOnLineTwo)
+        let compact = TabSheetLayout(width: 340, clocks: both)
+        XCTAssertFalse(compact.showsAgentColumn || compact.agentOnLineTwo || compact.showsClose)
+        XCTAssertEqual(compact.clocks, [])
+        // Within a tier the fixed columns never change with width; only the title flexes.
+        XCTAssertEqual(TabSheetLayout(width: 830, clocks: both).fixedWidth, TabSheetLayout(width: 1400, clocks: both).fixedWidth)
+        XCTAssertEqual(TabSheetLayout(width: 1000, clocks: both).titleWidth + TabSheetLayout(width: 1000, clocks: both).fixedWidth, 1000)
+        // A full sheet keeps a comfortable title column at its threshold.
+        XCTAssertGreaterThanOrEqual(TabSheetLayout(width: 820, clocks: both).titleWidth, 200)
+        XCTAssertGreaterThanOrEqual(TabSheetLayout(width: 320, clocks: both).titleWidth, 60)
+    }
+
+    func testTabStripKeepsRoomForTabsBeforeFolding() {
+        XCTAssertEqual(TabStripLayout.minTabsRoom, 150)
+        XCTAssertEqual(TabCountCellMetrics.width, 64)
+    }
+
+    @MainActor
+    func testLinkedHoverIsSharedState() {
+        let controller = BonsplitController()
+        let tab = controller.createTab(title: "a")!
+        controller.setLinkedHover(tabId: tab, fromSheet: true)
+        XCTAssertEqual(controller.linkedHoverTabId, tab.id)
+        XCTAssertTrue(controller.linkedHoverFromSheet)
+        // A strip-origin clear must not clear a sheet-origin hover.
+        controller.clearLinkedHover(ifSheet: false)
+        XCTAssertEqual(controller.linkedHoverTabId, tab.id)
+        controller.clearLinkedHover(ifSheet: true)
+        XCTAssertNil(controller.linkedHoverTabId)
+    }
+
+    func testRailWidthIsAboutThirtyEightPercentClamped() {
+        XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 400), 200)   // 152 -> min
+        XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 560), 213)   // 38%
+        XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 1120), 300)  // max
+    }
+
+    @MainActor
+    func testRailStateNotifiesTheHostOnlyOnChange() {
+        let controller = BonsplitController()
+        _ = controller.createTab(title: "a")
+        guard let pane = controller.focusedPaneId else { return XCTFail("no pane") }
+        var events: [Bool] = []
+        controller.onRailToggled = { _, open in events.append(open) }
+        controller.setRailOpen(true, inPane: pane)
+        controller.setRailOpen(true, inPane: pane)
+        controller.setRailOpen(false, inPane: pane)
+        XCTAssertEqual(events, [true, false])
+        // Restore is silent.
+        controller.restoreRailOpen(true, inPane: pane)
+        XCTAssertEqual(events, [true, false])
+        XCTAssertTrue(controller.railOpenPaneIds.contains(pane))
+        // The rail only counts as visible detail in Rail layout.
+        XCTAssertFalse(controller.isTabDetailVisible(inPane: pane))
+        controller.configuration.appearance.tabLayout = .rail
+        XCTAssertTrue(controller.isTabDetailVisible(inPane: pane))
+    }
+
+    func testNumberLabelFollowsTheSetting() {
+        let tab = TabItem(title: "t", displayOrdinal: 171)
+        XCTAssertEqual(tab.numberLabel(showOrdinals: true), "171")
+        XCTAssertNil(tab.numberLabel(showOrdinals: false))
+        XCTAssertNil(TabItem(title: "t").numberLabel(showOrdinals: true))
     }
 
     func testDetailSurvivesTabRoundTrip() throws {

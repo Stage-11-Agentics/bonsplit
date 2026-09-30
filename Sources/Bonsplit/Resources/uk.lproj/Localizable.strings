@@ -32,3 +32,4 @@
 "tabBar.sheet.footer.tabs" = "Вкладок: %lld";
 "tabBar.sheet.footer.needYou" = "Чекають на вас: %lld";
 "tabBar.sheet.dragHandle.help" = "Перетягніть, щоб змінити порядок або перемістити";
+"tabBar.rail.accessibilityLabel" = "Панель вкладок";

@@ -32,3 +32,4 @@
 "tabBar.sheet.footer.tabs" = "탭 %lld개";
 "tabBar.sheet.footer.needYou" = "%lld개 확인 필요";
 "tabBar.sheet.dragHandle.help" = "드래그하여 순서 변경 또는 이동";
+"tabBar.rail.accessibilityLabel" = "탭 레일";

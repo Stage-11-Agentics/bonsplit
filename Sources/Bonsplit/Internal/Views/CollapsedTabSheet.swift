@@ -2,6 +2,14 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+// MARK: - Motion
+
+/// Debug-only knob: stretches the sheet's unroll so a screenshot can catch it
+/// mid-flight. 1 in normal use.
+public enum BonsplitDebug {
+    nonisolated(unsafe) public static var tabSheetMotionScale: Double = 1
+}
+
 // MARK: - Presenter
 
 /// Hosts the collapsed-tab list as a solid sheet hung flush under the tab bar.
@@ -38,6 +46,8 @@ final class CollapsedSheetPresenter: ObservableObject {
     private var isHiddenForDrag = false
     private var releasedPolls = 0
     private var repositionScheduled = false
+    /// A roll-up is running; the panel goes away when it lands.
+    private var isRollingUp = false
     /// A drag that started from a row is in flight: the (possibly invisible)
     /// panel is its drag source and must not be torn down until it ends.
     private(set) var isDragging = false
@@ -56,6 +66,7 @@ final class CollapsedSheetPresenter: ObservableObject {
     }
 
     func present(rootView: AnyView) {
+        if isRollingUp { cancelRollUp() }
         if let hosting, panel != nil {
             hosting.rootView = rootView
             reposition()
@@ -93,6 +104,96 @@ final class CollapsedSheetPresenter: ObservableObject {
         reposition()
         panel.orderFront(nil)
         installMonitors(hostWindow: window)
+        runUnroll(opening: true)
+    }
+
+    // MARK: Unroll motion
+
+    private static var reduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    /// One axis only: the sheet slides down out of the bar in ~120ms (a
+    /// top-anchored clip reveal plus a 6pt translate) and rolls back up in
+    /// ~90ms. Core Animation on the hosting layer, transform and mask only, so
+    /// no SwiftUI layout runs per frame and input is never blocked: the mask
+    /// does not affect hit testing, and a roll-up flips the panel click-through.
+    /// Skipped entirely under Reduce Motion.
+    private func runUnroll(opening: Bool, completion: (() -> Void)? = nil) {
+        guard let layer = hosting?.layer, !Self.reduceMotion else {
+            completion?()
+            return
+        }
+        let scale = max(0.1, BonsplitDebug.tabSheetMotionScale)
+        let duration = (opening ? 0.120 : 0.090) * scale
+        let flipped = layer.isGeometryFlipped
+        let bounds = layer.bounds
+        let up: CGFloat = flipped ? -6 : 6
+
+        let mask = CALayer()
+        mask.backgroundColor = NSColor.white.cgColor
+        mask.bounds = bounds
+        mask.anchorPoint = CGPoint(x: 0.5, y: flipped ? 0 : 1)
+        mask.position = CGPoint(x: bounds.midX, y: flipped ? bounds.minY : bounds.maxY)
+        layer.mask = mask
+
+        let clip = CABasicAnimation(keyPath: "transform.scale.y")
+        clip.fromValue = opening ? 0.0001 : 1
+        clip.toValue = opening ? 1 : 0.0001
+        let shift = CABasicAnimation(keyPath: "transform.translation.y")
+        shift.fromValue = opening ? up : 0
+        shift.toValue = opening ? 0 : up
+        let timing = opening
+            ? CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
+            : CAMediaTimingFunction(controlPoints: 0.4, 0, 1, 1)
+        for animation in [clip, shift] {
+            animation.duration = duration
+            animation.timingFunction = timing
+            animation.fillMode = .both
+            animation.isRemovedOnCompletion = false
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        CATransaction.setCompletionBlock { [weak self, weak layer] in
+            layer?.mask = nil
+            layer?.removeAnimation(forKey: "sheet.shift")
+            mask.removeAllAnimations()
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if opening || self.isRollingUp { completion?() }
+            }
+        }
+        // Pin the end state so the layer rests where the animation ends.
+        mask.transform = CATransform3DMakeScale(1, opening ? 1 : 0.0001, 1)
+        layer.add(shift, forKey: "sheet.shift")
+        mask.add(clip, forKey: "sheet.clip")
+        CATransaction.commit()
+    }
+
+    private func cancelRollUp() {
+        isRollingUp = false
+        hosting?.layer?.mask = nil
+        hosting?.layer?.removeAnimation(forKey: "sheet.shift")
+        panel?.ignoresMouseEvents = false
+    }
+
+    /// Rolls the sheet up (when motion is allowed), then tears it down. The
+    /// panel stops taking clicks the moment it starts closing.
+    func dismissAnimated() {
+        if isDragging, panel != nil { return }
+        guard panel != nil, !isRollingUp else { return }
+        guard hosting?.layer != nil, !Self.reduceMotion else {
+            forceDismiss()
+            return
+        }
+        isRollingUp = true
+        panel?.ignoresMouseEvents = true
+        runUnroll(opening: false) { [weak self] in
+            guard let self, self.isRollingUp else { return }
+            self.isRollingUp = false
+            self.forceDismiss()
+        }
     }
 
     /// Asks the sheet to go away. While a row drag is in flight the request is
@@ -105,6 +206,7 @@ final class CollapsedSheetPresenter: ObservableObject {
 
     /// Tears the sheet down without notifying `onDismiss`.
     private func forceDismiss() {
+        isRollingUp = false
         dragTimer?.invalidate()
         dragTimer = nil
         isDragging = false
@@ -120,8 +222,8 @@ final class CollapsedSheetPresenter: ObservableObject {
         isHiddenForDrag = false
     }
 
-    private func dismissAndNotify() {
-        forceDismiss()
+    private func dismissAndNotify(animated: Bool = false) {
+        if animated { dismissAnimated() } else { forceDismiss() }
         onDismiss?()
     }
 
@@ -212,10 +314,8 @@ final class CollapsedSheetPresenter: ObservableObject {
         // Hang below the bar; flip above it when the screen would clip the
         // bottom, and keep the sheet inside the visible frame either way.
         let visible = (aw.screen ?? NSScreen.main)?.visibleFrame
-        // Full tier: the right edge meets the count cell's right edge.
-        // Collapsed tiers: flush-left under the bar.
-        let originX = trailingAnchorScreenRect.map { $0.maxX - size.width } ?? rect.minX
-        var origin = NSPoint(x: originX, y: rect.minY - size.height)
+        // The sheet is its area's width: flush under the bar, left edges aligned.
+        var origin = NSPoint(x: rect.minX, y: rect.minY - size.height)
         if let visible {
             if origin.y < visible.minY {
                 let above = rect.maxY
@@ -235,7 +335,7 @@ final class CollapsedSheetPresenter: ObservableObject {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, let panel = self.panel, event.keyCode == 53,
                   NSApp.keyWindow === panel.parent else { return event }
-            MainActor.assumeIsolated { self.dismissAndNotify() }
+            MainActor.assumeIsolated { self.dismissAndNotify(animated: true) }
             return nil
         }
 
@@ -255,7 +355,7 @@ final class CollapsedSheetPresenter: ObservableObject {
                 // The header's own tap toggles the sheet.
                 return event
             }
-            MainActor.assumeIsolated { self.dismissAndNotify() }
+            MainActor.assumeIsolated { self.dismissAndNotify(animated: true) }
             return event
         }
 
@@ -413,11 +513,10 @@ struct CollapsedTabSheetView: View {
     let appearance: BonsplitConfiguration.Appearance
     /// Narrow tier: the controls fold into the top of the sheet.
     let includesControls: Bool
-    let width: CGFloat
+    /// Columns and widths for this sheet's width tier.
+    let layout: TabSheetLayout
     /// Height of the folded controls row (narrow tier).
     let controlsRowHeight: CGFloat
-    /// Ordered clock names, already normalized by `TabSheetFormat.resolvedClocks`.
-    let clocks: [String]
     /// Host-supplied header titles by clock name; missing entries use bonsplit's built-ins.
     let clockTitles: [String: String]
     let activityAnimationEnabled: Bool
@@ -433,9 +532,9 @@ struct CollapsedTabSheetView: View {
     /// Cached per chrome background, so this is a lookup, not a rebuild.
     private var palette: TabBarColors.SheetPalette { TabBarColors.sheetPalette(for: appearance) }
 
-    private var titleColumnWidth: CGFloat {
-        max(80, width - M.fixedWidth(clockCount: clocks.count))
-    }
+    private var width: CGFloat { layout.width }
+    private var clocks: [String] { layout.clocks }
+    private var titleColumnWidth: CGFloat { layout.titleWidth }
 
     /// The one ticker for the whole sheet: every relative time reads the same
     /// `now`, and about every five seconds the host re-supplies its detail so
@@ -498,15 +597,17 @@ struct CollapsedTabSheetView: View {
     private var headerRow: some View {
         HStack(spacing: 0) {
             Color.clear.frame(width: M.leadingRule)
-            headerLabel(TabSheetFormat.localized("tabBar.sheet.column.tab", "Tab"), width: M.numberWidth, alignment: .trailing, trailingInset: M.numberTrailingInset)
+            headerLabel(TabSheetFormat.localized("tabBar.sheet.column.tab", "Tab"), width: layout.numberWidth, alignment: .trailing, trailingInset: layout.numberTrailingInset)
             Color.clear.frame(width: M.markWidth)
             headerLabel(TabSheetFormat.localized("tabBar.sheet.column.title", "Title"), width: titleColumnWidth, alignment: .leading)
-            headerLabel(TabSheetFormat.localized("tabBar.sheet.column.agent", "Agent"), width: M.agentWidth, alignment: .leading, leadingInset: 10)
+            if layout.showsAgentColumn {
+                headerLabel(TabSheetFormat.localized("tabBar.sheet.column.agent", "Agent"), width: M.agentWidth, alignment: .leading, leadingInset: 10)
+            }
             headerLabel(TabSheetFormat.localized("tabBar.sheet.column.status", "Status"), width: M.statusWidth, alignment: .leading, leadingInset: 10)
             ForEach(clocks, id: \.self) { name in
                 headerLabel(TabSheetFormat.clockTitle(name, hostTitle: clockTitles[name]) ?? name, width: M.clockWidth, alignment: .trailing, trailingInset: 8)
             }
-            Color.clear.frame(width: M.closeWidth + M.gripWidth + M.trailingPadding)
+            Color.clear.frame(width: (layout.showsClose ? M.closeWidth : 0) + M.gripWidth + M.trailingPadding)
         }
         .frame(height: M.headerHeight)
         .background(palette.header)
@@ -577,21 +678,22 @@ struct CollapsedTabSheetView: View {
     @ViewBuilder
     private func row(_ tab: TabItem, at index: Int, now: Date) -> some View {
         let isSelected = pane.selectedTabId == tab.id
-        let isHovered = hoveredTabId == tab.id
+        // Hovering a tab in the strip lights its row, and the row lights its tab.
+        let isHovered = hoveredTabId == tab.id || controller.linkedHoverTabId == tab.id
         let gold = TabBarColors.activeIndicator(for: appearance)
         let title = tab.detail?.title.flatMap { $0.isEmpty ? nil : $0 } ?? tab.title
         HStack(spacing: 0) {
             Color.clear.frame(width: M.leadingRule)
 
-            column(width: M.numberWidth, alignment: .trailing) {
+            column(width: layout.numberWidth, alignment: .trailing) {
                 if let ordinal = tab.displayOrdinal {
                     Text(String(format: TabSheetFormat.localized("tabBar.sheet.tabNumber", "Tab %lld"), Int64(ordinal)))
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(isSelected ? gold : palette.faintText)
                         .lineLimit(1)
-                        .padding(.trailing, M.numberTrailingInset)
+                        .padding(.trailing, layout.numberTrailingInset)
                 } else {
-                    dash().padding(.trailing, M.numberTrailingInset)
+                    dash().padding(.trailing, layout.numberTrailingInset)
                 }
             }
 
@@ -622,29 +724,46 @@ struct CollapsedTabSheetView: View {
                         .truncationMode(.tail)
                         .foregroundStyle(isSelected ? palette.text : (isHovered ? palette.text : palette.dimText))
                         .frame(width: titleColumnWidth, alignment: .leading)
-                    agentCell(tab)
-                        .padding(.leading, 10)
-                        .frame(width: M.agentWidth, alignment: .leading)
+                    if layout.showsAgentColumn {
+                        agentCell(tab)
+                            .padding(.leading, 10)
+                            .frame(width: M.agentWidth, alignment: .leading)
+                    }
                     statusCell(tab, now: now)
                         .padding(.leading, 10)
                         .frame(width: M.statusWidth, alignment: .leading)
                 }
                 .frame(height: M.lineHeight)
-                HStack(spacing: 0) {
+                HStack(spacing: 4) {
+                    if layout.agentOnLineTwo, let agent = tab.detail?.agentLabel, !agent.isEmpty {
+                        Text(agent + " ·")
+                            .font(.system(size: 11))
+                            .foregroundStyle(palette.faintText)
+                            .lineLimit(1)
+                            .layoutPriority(1)
+                    }
                     subtitleCell(tab, emphasized: isSelected || isHovered)
                     Spacer(minLength: 0)
                 }
-                .frame(width: titleColumnWidth + M.agentWidth + M.statusWidth, height: M.lineHeight, alignment: .leading)
+                .frame(width: layout.mainWidth, height: M.lineHeight, alignment: .leading)
             }
-            .frame(width: titleColumnWidth + M.agentWidth + M.statusWidth, height: M.rowHeight)
+            .frame(width: layout.mainWidth, height: M.rowHeight)
 
             ForEach(clocks, id: \.self) { name in
                 column(width: M.clockWidth, alignment: .trailing) {
                     Group {
-                        if let date = TabSheetFormat.clockDate(name, in: tab) {
+                        switch TabSheetFormat.clockValue(name, in: tab) {
+                        case .age(let date):
                             TabSheetAgeText(since: date, now: now)
                                 .foregroundStyle(palette.dimText)
-                        } else {
+                        case .text(let text):
+                            Text(text)
+                                .font(.system(size: 11, design: .monospaced))
+                                .monospacedDigit()
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .foregroundStyle(palette.dimText)
+                        case .none:
                             dash()
                         }
                     }
@@ -652,18 +771,20 @@ struct CollapsedTabSheetView: View {
                 }
             }
 
-            column(width: M.closeWidth, alignment: .center) {
-                // Always laid out so the row never reflows on hover; only the
-                // glyph's visibility changes.
-                if !tab.isPinned {
-                    CollapsedTabCloseButton(
-                        tab: tab,
-                        pane: pane,
-                        controller: controller,
-                        appearance: appearance
-                    )
-                    .opacity(isHovered ? 1 : 0)
-                    .allowsHitTesting(isHovered)
+            if layout.showsClose {
+                column(width: M.closeWidth, alignment: .center) {
+                    // Always laid out so the row never reflows on hover; only the
+                    // glyph's visibility changes.
+                    if !tab.isPinned {
+                        CollapsedTabCloseButton(
+                            tab: tab,
+                            pane: pane,
+                            controller: controller,
+                            appearance: appearance
+                        )
+                        .opacity(isHovered ? 1 : 0)
+                        .allowsHitTesting(isHovered)
+                    }
                 }
             }
 
@@ -721,8 +842,10 @@ struct CollapsedTabSheetView: View {
         .onHover { inside in
             if inside {
                 hoveredTabId = tab.id
+                controller.setLinkedHover(tab.id, fromSheet: true)
             } else if hoveredTabId == tab.id {
                 hoveredTabId = nil
+                controller.clearLinkedHover(ifSheet: true)
             }
         }
         .accessibilityElement(children: .combine)
@@ -838,56 +961,15 @@ struct CollapsedTabSheetView: View {
 
     // MARK: Controls (narrow tier)
 
-    /// The same actions as the horizontal strip's trailing chrome. Each action
-    /// dismisses the sheet after firing.
     @ViewBuilder
     private var controlsRow: some View {
-        let tooltips = appearance.splitButtonTooltips
-        let canClosePane = controller.allPaneIds.count > 1
-            || controller.configuration.allowCloseLastPane
-        HStack(spacing: 4) {
-            AgentSpawnButtonCluster(
-                controller: controller,
-                paneId: pane.id,
-                appearance: appearance,
-                afterAction: dismiss
-            )
-
-            SplitToolbarButton(systemImage: "terminal", tooltip: tooltips.newTerminal, appearance: appearance) {
-                controller.requestNewTab(kind: "terminal", inPane: pane.id)
-                dismiss()
-            }
-            SplitToolbarButton(systemImage: "globe", tooltip: tooltips.newBrowser, appearance: appearance) {
-                controller.requestNewTab(kind: "browser", inPane: pane.id)
-                dismiss()
-            }
-            SplitToolbarButton(systemImage: "doc.text", tooltip: tooltips.newMarkdown, appearance: appearance) {
-                controller.requestNewTab(kind: "markdown", inPane: pane.id)
-                dismiss()
-            }
-
-            Spacer(minLength: 8)
-
-            SplitToolbarButton(systemImage: "square.split.2x1", tooltip: tooltips.splitRight, appearance: appearance) {
-                controller.splitPane(pane.id, orientation: .horizontal)
-                dismiss()
-            }
-            SplitToolbarButton(systemImage: "square.split.1x2", tooltip: tooltips.splitDown, appearance: appearance) {
-                controller.splitPane(pane.id, orientation: .vertical)
-                dismiss()
-            }
-            SplitToolbarButton(systemImage: "plus", tooltip: tooltips.newTab, appearance: appearance) {
-                controller.requestNewTab(kind: "newTab", inPane: pane.id)
-                dismiss()
-            }
-            SplitToolbarButton(systemImage: "xmark", tooltip: tooltips.closePane, appearance: appearance, isEnabled: canClosePane) {
-                controller.requestClosePane(pane.id)
-                dismiss()
-            }
-        }
-        .padding(.horizontal, 10)
-        .frame(height: controlsRowHeight)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        TabControlsRow(
+            pane: pane,
+            controller: controller,
+            appearance: appearance,
+            height: controlsRowHeight,
+            afterAction: dismiss
+        )
     }
 }
 

@@ -32,3 +32,4 @@
 "tabBar.sheet.footer.tabs" = "%lld 個分頁";
 "tabBar.sheet.footer.needYou" = "%lld 個需要你處理";
 "tabBar.sheet.dragHandle.help" = "拖曳以重新排序或移動";
+"tabBar.rail.accessibilityLabel" = "分頁側欄";

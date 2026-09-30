@@ -107,6 +107,18 @@ enum TabBarColors {
         return Color(nsColor: adjusted.withAlphaComponent(0.78))
     }
 
+    /// Fill of a strip tab lit by linked hover: lighter than an idle tab, a
+    /// touch under the visible tab's.
+    static func linkedTabBackground(for appearance: BonsplitConfiguration.Appearance) -> Color {
+        guard let custom = chromeBackgroundColor(for: appearance) else {
+            return Color(nsColor: .controlBackgroundColor).opacity(0.85)
+        }
+        let adjusted = custom.isBonsplitLightColor
+            ? custom.bonsplitDarken(by: 0.055)
+            : custom.bonsplitLighten(by: 0.1)
+        return Color(nsColor: adjusted)
+    }
+
     static var inactiveTabBackground: Color {
         .clear
     }
@@ -262,6 +274,8 @@ enum TabBarColors {
         let block: Color
         let blockHover: Color
         let countCell: Color
+        let countCellHover: Color
+        let countText: Color
         let text: Color
         let dimText: Color
         let faintText: Color
@@ -297,18 +311,22 @@ enum TabBarColors {
             })
         }
         return SheetPalette(
-            background: pick(0x0e0f12, 0xffffff),
-            rowHover: pick(0x1b1d22, 0xeef0f4),
-            rowActive: pick(0x17181c, 0xf4f5f8),
-            header: pick(0x0a0b0d, 0xf1f2f5),
-            separator: pick(0x202227, 0xe2e4e9),
-            border: pick(0x3a3c44, 0xc3c6ce),
-            block: pick(0x111215, 0xfbfbfc),
-            blockHover: pick(0x1a1b1f, 0xeef0f4),
-            countCell: pick(0x07080a, 0xffffff),
+            // Round five: a step up from near-black. The count cell and the block
+            // sit in the bar's own colour family; only the open cell goes gold.
+            background: pick(0x1d1e23, 0xf7f8fa),
+            rowHover: pick(0x282a31, 0xeaecf1),
+            rowActive: pick(0x25272d, 0xf0f1f5),
+            header: pick(0x191a1e, 0xeef0f4),
+            separator: pick(0x2c2e34, 0xdcdfe5),
+            border: pick(0x4a4c55, 0xb9bdc7),
+            block: pick(0x34363e, 0xe9ebf0),
+            blockHover: pick(0x3c3e47, 0xe1e4ea),
+            countCell: pick(0x2f3138, 0xeceef2),
+            countCellHover: pick(0x3a3c45, 0xe2e5eb),
+            countText: pick(0x9a9ca3, 0x55585f),
             text: pick(0xe8e8ea, 0x16171b),
             dimText: pick(0x9a9ca3, 0x55585f),
-            faintText: pick(0x6f727a, 0x7d8088),
+            faintText: pick(0x74777f, 0x7d8088),
             dash: pick(0x4b4e56, 0xb9bcc3),
             chipFill: pick(0x1d1f24, 0xeceef2),
             chipBorder: pick(0x33353c, 0xd3d6dc),

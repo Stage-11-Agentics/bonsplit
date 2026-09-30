@@ -32,3 +32,4 @@
 "tabBar.sheet.footer.tabs" = "%lld 个标签页";
 "tabBar.sheet.footer.needYou" = "%lld 个需要你处理";
 "tabBar.sheet.dragHandle.help" = "拖动以重新排序或移动";
+"tabBar.rail.accessibilityLabel" = "标签页侧栏";

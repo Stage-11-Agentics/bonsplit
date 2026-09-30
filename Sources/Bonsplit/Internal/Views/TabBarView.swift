@@ -94,6 +94,102 @@ extension EnvironmentValues {
 }
 
 @MainActor
+/// Wires the strip's `ScrollView` to `TabBarScrollViewBridge.scrollToOffset` on
+/// macOS 15+, where `ScrollPosition` can drive a scroll view to a point offset.
+private struct TabStripScrollPositionModifier: ViewModifier {
+    let bridge: TabBarScrollViewBridge
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.modifier(PositionDriver(bridge: bridge))
+        } else {
+            content
+        }
+    }
+
+    @available(macOS 15.0, *)
+    private struct PositionDriver: ViewModifier {
+        let bridge: TabBarScrollViewBridge
+        @State private var position = ScrollPosition()
+
+        func body(content: Content) -> some View {
+            content
+                .scrollPosition($position)
+                .onAppear {
+                    bridge.scrollToOffset = { x in
+                        withTransaction(Transaction(animation: nil)) {
+                            position.scrollTo(x: x)
+                        }
+                    }
+                }
+        }
+    }
+}
+
+/// Automation requests aimed at one pane: open/close its sheet, scroll its strip.
+private struct TabBarAutomationRequests: ViewModifier {
+    let controller: BonsplitController
+    let paneId: PaneID
+    let bridge: TabBarScrollViewBridge
+    @Binding var isSheetOpen: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: controller.tabStripScrollRequest) { _, request in
+                guard let request, request.paneId == paneId else { return }
+                bridge.setOffset(request.offset)
+            }
+            .onChange(of: controller.tabSheetRequest) { _, request in
+                guard let request, request.paneId == paneId, request.open != isSheetOpen else { return }
+                isSheetOpen = request.open
+            }
+    }
+}
+
+/// Every strip tab's frame in the scroll view's own space, keyed by tab.
+private struct TabStripFramesKey: PreferenceKey {
+    static var defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+/// Reports one tab's frame (in the strip's "tabScroll" space).
+private struct TabStripFrameReporter: ViewModifier {
+    let id: UUID
+
+    func body(content: Content) -> some View {
+        content.background(
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: TabStripFramesKey.self,
+                    value: [id: proxy.frame(in: .named("tabScroll"))]
+                )
+            }
+        )
+    }
+}
+
+/// A sheet row lit a tab that is scrolled out of view: bring it in, with the
+/// minimum movement and no animation. The strip's right end is covered by the
+/// count cell and controls, so "in view" means clear of them.
+private struct LinkedHoverScrollModifier: ViewModifier {
+    let controller: BonsplitController
+    let bridge: TabBarScrollViewBridge
+    let isSheetOpen: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .onPreferenceChange(TabStripFramesKey.self) { bridge.tabFrames = $0 }
+            .onChange(of: controller.linkedHoverTabId) { _, hovered in
+                guard isSheetOpen, controller.linkedHoverFromSheet, let hovered else { return }
+                withTransaction(Transaction(animation: nil)) {
+                    bridge.scrollIntoView(hovered)
+                }
+            }
+    }
+}
+
 private final class TabBarScrollViewBridge: ObservableObject {
     private struct ScrollMetrics {
         let offset: CGFloat
@@ -102,10 +198,158 @@ private final class TabBarScrollViewBridge: ObservableObject {
     }
 
     weak var scrollView: NSScrollView?
+    /// SwiftUI's own view of the strip (offset, content and viewport width),
+    /// mirrored here by the bar as it changes. The wheel remap, drag
+    /// auto-scroll and automation use it: the strip's `NSScrollView` is not
+    /// always reachable from SwiftUI.
+    struct Mirror {
+        var offset: CGFloat = 0
+        var content: CGFloat = 0
+        var container: CGFloat = 0
+    }
+    var mirror = Mirror()
+    /// The bar's background view (the whole bar, chrome included).
+    weak var barView: NSView?
+    /// Width of the chrome that covers the strip's right end.
+    var chromeInset: CGFloat = 0
+
+    private var mirrorMetrics: ScrollMetrics? {
+        guard mirror.container > 0 else { return nil }
+        return ScrollMetrics(offset: mirror.offset, documentWidth: mirror.content, viewportWidth: mirror.container)
+    }
+
+    /// The visible strip in the bar's own coordinates (everything left of the chrome).
+    private func stripBounds() -> NSRect? {
+        guard let barView else { return nil }
+        var rect = barView.bounds
+        rect.size.width = max(0, rect.width - chromeInset)
+        return rect
+    }
+    private var wheelMonitor: Any?
+    private var dragAutoScrollTimer: Timer?
+    private var dragTrailingInset: CGFloat = 0
+
+    deinit {
+        if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
+        dragAutoScrollTimer?.invalidate()
+    }
 
     func attach(_ scrollView: NSScrollView?) {
         self.scrollView = scrollView
+        installWheelMonitorIfNeeded()
         enforceLeadingEdgeIfContentFits(reason: "attach")
+    }
+
+    // MARK: Vertical wheel scrolls the strip sideways
+
+    /// A vertical wheel or two-finger vertical scroll over the strip scrolls it
+    /// sideways (horizontal swipes are left to the scroll view itself).
+    private func installWheelMonitorIfNeeded() {
+        guard wheelMonitor == nil else { return }
+        wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self else { return event }
+            return MainActor.assumeIsolated { self.handleScrollWheel(event) ? nil : event }
+        }
+    }
+
+    @MainActor
+    private func handleScrollWheel(_ event: NSEvent) -> Bool {
+        guard let barView, let window = barView.window, event.window === window,
+              let strip = stripBounds() else { return false }
+        let point = barView.convert(event.locationInWindow, from: nil)
+        guard strip.contains(point) else { return false }
+        let dx = event.scrollingDeltaX, dy = event.scrollingDeltaY
+        guard abs(dy) > abs(dx), let metrics = mirrorMetrics,
+              metrics.documentWidth > metrics.viewportWidth + 1 else { return false }
+        let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 8
+        scrollHorizontally(by: -dy * scale, metrics: metrics)
+        return true
+    }
+
+    /// Set by the strip when the system supports programmatic scroll positions
+    /// (macOS 15+): scrolls the SwiftUI scroll view to an absolute offset, which
+    /// keeps SwiftUI's own idea of the offset in step.
+    var scrollToOffset: ((CGFloat) -> Void)?
+    /// Frames of the strip's tabs in the scroll view's own space.
+    var tabFrames: [UUID: CGRect] = [:]
+
+    /// Scrolls a tab into the visible strip (clear of the chrome) with the
+    /// minimum movement; nothing happens when it is already there.
+    @MainActor
+    func scrollIntoView(_ id: UUID) {
+        guard let frame = tabFrames[id], let metrics = mirrorMetrics else { return }
+        let margin: CGFloat = 12
+        let visibleMax = metrics.viewportWidth - chromeInset
+        if frame.minX < 0 {
+            scrollHorizontally(by: frame.minX - margin, metrics: metrics)
+        } else if frame.maxX > visibleMax {
+            scrollHorizontally(by: frame.maxX - visibleMax + margin, metrics: metrics)
+        }
+    }
+
+    /// Scrolls the strip by `delta` points (clamped to its content).
+    @MainActor
+    private func scrollHorizontally(by delta: CGFloat, metrics: ScrollMetrics) {
+        let maxOffset = max(0, metrics.documentWidth - metrics.viewportWidth)
+        let next = min(max(0, metrics.offset + delta), maxOffset)
+        guard abs(next - metrics.offset) > 0.01 else { return }
+        mirror.offset = next
+        if let scrollToOffset {
+            scrollToOffset(next)
+        } else if let scrollView {
+            // macOS 14: move the clip view directly.
+            let clipView = scrollView.contentView
+            clipView.scroll(to: NSPoint(x: next, y: clipView.bounds.origin.y))
+            scrollView.reflectScrolledClipView(clipView)
+        }
+    }
+
+    // MARK: Auto-scroll while a tab is dragged near either end
+
+    /// While a tab drag is in flight, nudges the strip when the pointer is near
+    /// its left or right end. `trailingInset` is the chrome that covers the
+    /// strip's right end. The ghost slot and the mid-drag scroll guard are
+    /// untouched: this only moves the scroll offset, one small step per tick.
+    @MainActor
+    func beginDragAutoScroll(trailingInset: CGFloat) {
+        dragTrailingInset = trailingInset
+        guard dragAutoScrollTimer == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.dragAutoScrollTick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        dragAutoScrollTimer = timer
+    }
+
+    func endDragAutoScroll() {
+        dragAutoScrollTimer?.invalidate()
+        dragAutoScrollTimer = nil
+    }
+
+    @MainActor
+    private func dragAutoScrollTick() {
+        guard NSEvent.pressedMouseButtons & 1 != 0 else { endDragAutoScroll(); return }
+        guard let barView, let window = barView.window, let metrics = mirrorMetrics,
+              let bounds = stripBounds(),
+              metrics.documentWidth > metrics.viewportWidth + 1 else { return }
+        let inWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        let point = barView.convert(inWindow, from: nil)
+        guard point.y >= bounds.minY - 4, point.y <= bounds.maxY + 4 else { return }
+        let zone: CGFloat = 36
+        let visibleMaxX = bounds.maxX
+        var step: CGFloat = 0
+        if point.x >= bounds.minX, point.x < bounds.minX + zone {
+            step = -14 * (1 - (point.x - bounds.minX) / zone)
+        } else if point.x > visibleMaxX - zone, point.x <= bounds.maxX + dragTrailingInset {
+            step = 14 * min(1, (point.x - (visibleMaxX - zone)) / zone)
+        }
+        if abs(step) > 0.1 { scrollHorizontally(by: step, metrics: metrics) }
+    }
+
+    @MainActor
+    func setOffset(_ x: CGFloat) {
+        guard let metrics = mirrorMetrics else { return }
+        scrollHorizontally(by: x - metrics.offset, metrics: metrics)
     }
 
     private func currentMetrics() -> ScrollMetrics? {
@@ -329,14 +573,19 @@ struct TabContextMenuState {
 }
 
 /// Tab bar view with scrollable tabs, drag/drop support, and split buttons
-/// Responsive layout tier for a pane's tab strip. As the pane narrows the
-/// strip degrades in two steps: first the tab list folds into a dropdown while
-/// the controls cluster stays inline (`.medium`), then the controls fold into
-/// the dropdown too (`.narrow`).
+/// Responsive layout tier for a pane's tab strip. The strip keeps its tabs
+/// visible (scrolling sideways when they overflow) until fewer than
+/// `TabStripLayout.minTabsRoom` points remain for them; only then does it fold
+/// into the solid block, with the controls moved into the sheet.
 private enum TabStripLayoutTier {
-    case full      // all tabs + controls inline (default wide layout)
-    case medium    // active title + controls inline; tab list in the dropdown
-    case narrow    // active title only; controls + tab list in the dropdown
+    case full      // scrolling tab strip + count cell + controls inline
+    case narrow    // active title + count cell; controls + tab list in the sheet
+}
+
+enum TabStripLayout {
+    /// Room the strip must keep for tabs, after the count cell and controls,
+    /// before it folds into the block.
+    static let minTabsRoom: CGFloat = 150
 }
 
 private struct CollapsedBlockWidthKey: PreferenceKey {
@@ -451,6 +700,9 @@ struct TabBarView<TrailingAccessory: View>: View {
     @State private var isDropdownOpen = false
     @StateObject private var sheetPresenter = CollapsedSheetPresenter()
     @State private var collapsedBlockWidth: CGFloat = 0
+    /// The bar's (that is, the area's) width; the sheet is exactly this wide.
+    @State private var barWidth: CGFloat = 0
+    @State private var isCountCellHovered = false
 
     init(
         pane: PaneState,
@@ -490,6 +742,27 @@ struct TabBarView<TrailingAccessory: View>: View {
 
     private var showsControlShortcutHints: Bool {
         isFocused && controlKeyMonitor.isShortcutHintVisible
+    }
+
+    /// Rail layout: the count cell toggles a docked vertical list instead of the sheet.
+    private var isRailLayout: Bool { appearance.tabLayout == .rail }
+    private var isRailOpen: Bool { isRailLayout && controller.railOpenPaneIds.contains(pane.id) }
+    /// The count cell shows "open" for whichever list it toggles.
+    private var isCountOpen: Bool { isDropdownOpen || isRailOpen }
+
+    /// The count cell's action: focus the area, then toggle its list (the
+    /// sheet, or the rail in Rail layout).
+    private func toggleCountList() {
+        guard splitViewController.isInteractive else { return }
+        withTransaction(Transaction(animation: nil)) {
+            controller.focusPane(pane.id)
+        }
+        if isRailLayout {
+            isDropdownOpen = false
+            controller.setRailOpen(!isRailOpen, inPane: pane.id)
+        } else {
+            isDropdownOpen.toggle()
+        }
     }
 
     private var isMinimalMode: Bool {
@@ -592,18 +865,57 @@ struct TabBarView<TrailingAccessory: View>: View {
 
 
     var body: some View {
+        sizedBar
+            .modifier(TabBarAutomationRequests(
+                controller: controller,
+                paneId: pane.id,
+                bridge: scrollViewBridge,
+                isSheetOpen: $isDropdownOpen
+            ))
+            .onChange(of: isDropdownOpen) { _, open in
+                if open { controller.openTabSheetPaneIds.insert(pane.id) } else { controller.openTabSheetPaneIds.remove(pane.id) }
+                syncCollapsedSheet()
+            }
+            .onChange(of: collapsedBlockWidth) { _, _ in
+                if isDropdownOpen { syncCollapsedSheet() }
+            }
+            .onChange(of: splitViewController.draggingTab) { _, newValue in
+                handleDraggingTabChange(newValue)
+            }
+            // Inactive workspaces stay mounted (hidden), so `onDisappear` never fires
+            // on a workspace switch. Interactivity is the signal that this pane's
+            // workspace went away.
+            .onChange(of: splitViewController.isInteractive) { _, interactive in
+                if !interactive, isDropdownOpen { isDropdownOpen = false }
+            }
+            .onDisappear {
+                isDropdownOpen = false
+                controller.openTabSheetPaneIds.remove(pane.id)
+                sheetPresenter.dismiss()
+            }
+    }
+
+    private var sizedBar: some View {
         GeometryReader { outerGeo in
             Group {
-                if layoutTier == .full {
+                if isRailOpen {
+                    railBar
+                } else if layoutTier == .full {
                     horizontalBar
                 } else {
-                    collapsedBar(layoutTier)
+                    collapsedBar()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .onAppear { recomputeLayoutTier(availableWidth: outerGeo.size.width) }
+            .onAppear {
+                barWidth = outerGeo.size.width
+                recomputeLayoutTier(availableWidth: outerGeo.size.width)
+            }
             .onChange(of: outerGeo.size.width) { _, newWidth in
+                barWidth = newWidth
                 recomputeLayoutTier(availableWidth: newWidth)
+                // A resize across a width tier relays the open sheet at once.
+                if isDropdownOpen { syncCollapsedSheet() }
             }
             .onChange(of: collapseDecisionSignature) { _, _ in
                 recomputeLayoutTier(availableWidth: outerGeo.size.width)
@@ -611,49 +923,96 @@ struct TabBarView<TrailingAccessory: View>: View {
             }
         }
         .frame(height: appearance.tabBarHeight)
-        .onChange(of: isDropdownOpen) { _, open in
-            if open { controller.openTabSheetPaneIds.insert(pane.id) } else { controller.openTabSheetPaneIds.remove(pane.id) }
-            syncCollapsedSheet()
-        }
-        .onChange(of: controller.tabSheetRequest) { _, request in
-            guard let request, request.paneId == pane.id, request.open != isDropdownOpen else { return }
-            isDropdownOpen = request.open
-        }
-        .onChange(of: collapsedBlockWidth) { _, _ in
-            if isDropdownOpen { syncCollapsedSheet() }
-        }
-        .onChange(of: splitViewController.draggingTab) { _, newValue in
+    }
+
+    private func handleDraggingTabChange(_ newValue: TabItem?) {
 #if DEBUG
-            dlog(
-                "tab.sheet.dragState pane=\(pane.id.id.uuidString.prefix(5)) " +
-                "dragging=\(newValue != nil ? 1 : 0) open=\(isDropdownOpen ? 1 : 0) " +
-                "presented=\(sheetPresenter.isPresented ? 1 : 0)"
-            )
+        dlog(
+            "tab.sheet.dragState pane=\(pane.id.id.uuidString.prefix(5)) " +
+            "dragging=\(newValue != nil ? 1 : 0) open=\(isDropdownOpen ? 1 : 0) " +
+            "presented=\(sheetPresenter.isPresented ? 1 : 0)"
+        )
 #endif
-            if newValue != nil {
-                if sheetPresenter.isPresented { sheetPresenter.beginDragTracking() }
-            } else {
-                // The drag is over (dropped, cancelled, or landed elsewhere):
-                // any lingering collapsed-bar drop state goes, and the sheet is torn
-                // down once AppKit has finished the drag session (its rows are the
-                // drag source, so it must outlive the drop callback).
-                dropTargetIndex = nil
-                dropLifecycle = .idle
-                dropOwner = nil
-                sheetPresenter.dragEnded()
+        if newValue != nil {
+            if sheetPresenter.isPresented { sheetPresenter.beginDragTracking() }
+            if layoutTier == .full { scrollViewBridge.beginDragAutoScroll(trailingInset: currentEffectiveChromeWidth) }
+        } else {
+            scrollViewBridge.endDragAutoScroll()
+            // The drag is over (dropped, cancelled, or landed elsewhere):
+            // any lingering collapsed-bar drop state goes, and the sheet is torn
+            // down once AppKit has finished the drag session (its rows are the
+            // drag source, so it must outlive the drop callback).
+            dropTargetIndex = nil
+            dropLifecycle = .idle
+            dropOwner = nil
+            sheetPresenter.dragEnded()
+        }
+    }
+
+    // MARK: - Rail bar
+
+    /// The bar while an area's rail is open: the visible tab's `Tab N · title`,
+    /// the count cell (gold, closing the rail) and the controls. The strip is
+    /// hidden; the rail replaces it. Too narrow for the controls, they move to
+    /// the top of the rail.
+    private var railBar: some View {
+        let palette = sheetPalette
+        let ruleHeight = isFocused ? appearance.tabActiveIndicatorHeight : 1
+        let blockHeight = max(0, appearance.tabBarHeight - ruleHeight)
+        let tab = activeTab
+        let number = tab?.displayOrdinal.map {
+            String(format: TabSheetFormat.localized("tabBar.sheet.tabNumber", "Tab %lld"), Int64($0))
+        }
+        let title = tab?.detail?.title.flatMap { $0.isEmpty ? nil : $0 } ?? tab?.title ?? ""
+        return HStack(spacing: 0) {
+            HStack(spacing: 8) {
+                if let tab, let state = tab.activityState {
+                    collapsedActivityMark(for: tab, state: state)
+                }
+                Text([number, title].compactMap { $0 }.joined(separator: " · "))
+                    .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(palette.text)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: blockHeight)
+            .background(palette.block)
+            .saturation(tabBarSaturation)
+
+            TabCountCell(
+                count: pane.tabs.count,
+                hasBackgroundActivity: hasBackgroundActivity,
+                hasBackgroundWaiting: hasBackgroundWaiting,
+                isOpen: true,
+                isHovered: false,
+                appearance: appearance,
+                height: blockHeight
+            )
+            .frame(maxHeight: .infinity, alignment: .top)
+            .saturation(tabBarSaturation)
+            .contentShape(Rectangle())
+            .onTapGesture { toggleCountList() }
+
+            if layoutTier == .full {
+                splitButtons.saturation(tabBarSaturation)
             }
         }
-        // Inactive workspaces stay mounted (hidden), so `onDisappear` never fires
-        // on a workspace switch. Interactivity is the signal that this pane's
-        // workspace went away.
-        .onChange(of: splitViewController.isInteractive) { _, interactive in
-            if !interactive, isDropdownOpen { isDropdownOpen = false }
-        }
-        .onDisappear {
-            isDropdownOpen = false
-            controller.openTabSheetPaneIds.remove(pane.id)
-            sheetPresenter.dismiss()
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: appearance.tabBarHeight)
+        .background(collapsedBarBackground)
+        .background(TabBarDragAndHoverView(
+            isMinimalMode: isMinimalMode,
+            onHoverChanged: { isHoveringTabBar = $0 }
+        ))
+        .background(CollapsedSheetAnchorReader {
+            sheetPresenter.anchorView = $0
+            scrollViewBridge.barView = $0
+        })
+        .onAppear { controller.railNeedsControlsUpdate(pane.id, needs: layoutTier != .full) }
+        .onChange(of: layoutTier) { _, tier in controller.railNeedsControlsUpdate(pane.id, needs: tier != .full) }
     }
 
     // MARK: - Horizontal Tab Strip (default / wide layout)
@@ -685,6 +1044,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                                     ghostSlot(at: index)
                                 }
                                 tabItem(for: tab, at: index)
+                                    .modifier(TabStripFrameReporter(id: tab.id))
                                     .id(tab.id)
                             }
 
@@ -704,11 +1064,15 @@ struct TabBarView<TrailingAccessory: View>: View {
                                     .onChange(of: contentGeo.frame(in: .named("tabScroll"))) { _, newFrame in
                                         scrollOffset = -newFrame.minX
                                         contentWidth = newFrame.width
+                                        scrollViewBridge.mirror.offset = scrollOffset
+                                        scrollViewBridge.mirror.content = contentWidth
                                     }
                                     .onAppear {
                                         let frame = contentGeo.frame(in: .named("tabScroll"))
                                         scrollOffset = -frame.minX
                                         contentWidth = frame.width
+                                        scrollViewBridge.mirror.offset = scrollOffset
+                                        scrollViewBridge.mirror.content = contentWidth
                                     }
                             }
                         )
@@ -754,10 +1118,12 @@ struct TabBarView<TrailingAccessory: View>: View {
                     .coordinateSpace(name: "tabScroll")
                     .onAppear {
                         containerWidth = containerGeo.size.width
+                        scrollViewBridge.mirror.container = containerGeo.size.width
                         scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId)
                     }
                     .onChange(of: containerGeo.size.width) { _, newWidth in
                         containerWidth = newWidth
+                        scrollViewBridge.mirror.container = newWidth
                         scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId)
                     }
                     .onChange(of: contentWidth) { _, _ in
@@ -769,6 +1135,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                     .onChange(of: pane.selectedTabId) { _, newTabId in
                         scrollToPreferredTarget(proxy, selectedTabId: newTabId)
                     }
+
                     .onChange(of: pane.flashTabGeneration) { _, _ in
                         guard let flashId = pane.flashTabId else { return }
                         // Scroll the flashed tab into view before its pulse animation begins.
@@ -848,12 +1215,21 @@ struct TabBarView<TrailingAccessory: View>: View {
         }
         .frame(height: appearance.tabBarHeight)
         .coordinateSpace(name: "tabBar")
+        .modifier(TabStripScrollPositionModifier(bridge: scrollViewBridge))
+        .modifier(LinkedHoverScrollModifier(
+            controller: controller,
+            bridge: scrollViewBridge,
+            isSheetOpen: isDropdownOpen
+        ))
         .background(tabBarBackground)
         .background(TabBarDragAndHoverView(
             isMinimalMode: isMinimalMode,
             onHoverChanged: { isHoveringTabBar = $0 }
         ))
-        .background(CollapsedSheetAnchorReader { sheetPresenter.anchorView = $0 })
+        .background(CollapsedSheetAnchorReader {
+            sheetPresenter.anchorView = $0
+            scrollViewBridge.barView = $0
+        })
         .background(
             TabBarHostWindowReader { window in
                 controlKeyMonitor.setHostWindow(window)
@@ -889,6 +1265,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                 trailingAccessoryWidth: normalizedWidth,
                 splitButtonsIntrinsicWidth: splitButtonsIntrinsicWidth
             )
+            scrollViewBridge.chromeInset = effectiveChromeWidth
         }
         .onPreferenceChange(SplitButtonsIntrinsicWidthKey.self) { width in
             let normalizedWidth = max(0, width)
@@ -897,6 +1274,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                 trailingAccessoryWidth: trailingAccessoryWidth,
                 splitButtonsIntrinsicWidth: normalizedWidth
             )
+            scrollViewBridge.chromeInset = effectiveChromeWidth
         }
         .onChange(of: currentLayoutMetrics) { _, metrics in
             layoutMetricsHandler?(metrics)
@@ -912,7 +1290,7 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// titles plus the active selection. Recompute the mode when any change.
     private var collapseDecisionSignature: [String] {
         pane.tabs.map {
-            "\($0.id.uuidString)\u{1}\($0.displayedTitle(showOrdinals: appearance.showTabOrdinals))\u{1}\($0.activityState?.rawValue ?? "-")"
+            "\($0.id.uuidString)\u{1}\($0.numberLabel(showOrdinals: appearance.showTabOrdinals) ?? "")\u{1}\($0.title)\u{1}\($0.activityState?.rawValue ?? "-")"
         }
             + ["sel:\(pane.selectedTabId?.uuidString ?? "-")"]
     }
@@ -936,6 +1314,12 @@ struct TabBarView<TrailingAccessory: View>: View {
     private var hasBackgroundWaiting: Bool {
         let activeId = activeTab?.id
         return pane.tabs.contains { $0.id != activeId && $0.activityState == .waiting }
+    }
+
+    /// Width the mono tab number takes in the strip (digits plus its gap).
+    private func numberSlotWidth(for tab: TabItem) -> CGFloat {
+        guard let label = tab.numberLabel(showOrdinals: appearance.showTabOrdinals) else { return 0 }
+        return CGFloat(label.count) * (appearance.tabTitleFontSize - 2) * 0.62 + appearance.tabContentSpacing
     }
 
     private func measuredTitleWidth(_ title: String, bold: Bool) -> CGFloat {
@@ -989,9 +1373,10 @@ struct TabBarView<TrailingAccessory: View>: View {
         for tab in pane.tabs {
             let natural = perTabFixedCost(for: tab)
                 + measuredTitleWidth(
-                    tab.displayedTitle(showOrdinals: appearance.showTabOrdinals),
+                    tab.title,
                     bold: pane.selectedTabId == tab.id
                 )
+                + numberSlotWidth(for: tab)
             total += min(maxW, max(floor, natural))
         }
         if pane.tabs.count > 1 {
@@ -1005,11 +1390,11 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// re-expands only past a slack margin, so dragging a divider near a
     /// boundary doesn't strobe between tiers.
     ///
-    /// - `.full`   : all tabs + controls fit inline.
-    /// - `.medium` : tabs don't all fit, but the active title + controls do —
-    ///               controls stay inline, the tab list moves to the dropdown.
-    /// - `.narrow` : not even title + controls fit — only the title shows; the
-    ///               controls move into the dropdown's first row.
+    /// - `.full`   : at least `minTabsRoom` remains for tabs after the count
+    ///               cell and controls (or all tabs fit in less). Overflowing
+    ///               tabs scroll sideways.
+    /// - `.narrow` : less than that; only the active title shows, the controls
+    ///               move into the sheet's first row.
     private func recomputeLayoutTier(availableWidth: CGFloat) {
         guard availableWidth > 1, !pane.tabs.isEmpty else {
             setLayoutTier(.full)
@@ -1017,33 +1402,15 @@ struct TabBarView<TrailingAccessory: View>: View {
         }
         let hysteresis: CGFloat = 28
         let trailingSlack: CGFloat = 8
-        // The count cell is the disclosure in the collapsed tiers and sits left
-        // of the chrome in the full tier, so it is the same fixed width in both.
-        let countCellWidth = TabCountCellMetrics.width
-        let minTitleForMedium: CGFloat = 72
-        let chrome = estimatedChromeWidth
-        let room = availableWidth - trailingSlack
-        let needFull = desiredTabsWidth + chrome + countCellWidth
-        let needMedium = minTitleForMedium + countCellWidth + chrome
+        let roomForTabs = availableWidth - trailingSlack - estimatedChromeWidth - TabCountCellMetrics.width
+        let need = min(TabStripLayout.minTabsRoom, desiredTabsWidth)
 
         var target = layoutTier
         switch layoutTier {
         case .full:
-            if needFull > room {
-                target = (needMedium <= room) ? .medium : .narrow
-            }
-        case .medium:
-            if needFull + hysteresis <= room {
-                target = .full
-            } else if needMedium > room {
-                target = .narrow
-            }
+            if roomForTabs < need { target = .narrow }
         case .narrow:
-            if needFull + hysteresis <= room {
-                target = .full
-            } else if needMedium + hysteresis <= room {
-                target = .medium
-            }
+            if roomForTabs >= need + hysteresis { target = .full }
         }
         setLayoutTier(target)
     }
@@ -1061,28 +1428,25 @@ struct TabBarView<TrailingAccessory: View>: View {
         max(30, appearance.tabItemHeight + 4)
     }
 
-    /// Sheet width: the grid's natural width, clamped to the screen.
-    private func sheetWidth(clockCount: Int) -> CGFloat {
-        let ideal = TabSheetMetrics.idealWidth(clockCount: clockCount)
+    /// Sheet width: exactly the area's, so the drawer belongs to it and never
+    /// overhangs a neighbour. An area narrower than 320pt still gets 320pt
+    /// (anchored left), and the result never exceeds the screen.
+    private func sheetWidth() -> CGFloat {
+        let area = barWidth > 1 ? barWidth : (sheetPresenter.anchorView?.bounds.width ?? containerWidth)
+        let wanted = max(TabSheetMetrics.minSheetWidth, area)
         guard let visible = (sheetPresenter.anchorView?.window?.screen ?? NSScreen.main)?.visibleFrame else {
-            return ideal
+            return wanted
         }
-        return min(ideal, max(320, visible.width - 16))
+        return min(wanted, visible.width)
     }
 
     @ViewBuilder
-    private func collapsedBar(_ tier: TabStripLayoutTier) -> some View {
+    private func collapsedBar() -> some View {
         HStack(spacing: 0) {
             // The whole header is one solid block (active tab + count cell),
             // flush left and as tall as the bar.
             collapsedHeaderBlock
 
-            // Medium tier keeps the controls cluster inline on the bar, as a
-            // separate region with its own button taps.
-            if tier == .medium {
-                splitButtons
-                    .saturation(tabBarSaturation)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: appearance.tabBarHeight)
@@ -1092,15 +1456,9 @@ struct TabBarView<TrailingAccessory: View>: View {
         // child that adds its own `.onHover` + `.background`: that creates an
         // AppKit hosting layer which swallows the mouse-down and the tap stops
         // firing. The hover affordance is driven from `isHoveringTabBar` in the
-        // background instead. In medium tier the control buttons capture their
-        // own taps; everything else opens the sheet.
+        // background instead. Everything on the bar opens the sheet.
         .contentShape(Rectangle())
-        .onTapGesture {
-            withTransaction(Transaction(animation: nil)) {
-                controller.focusPane(pane.id)
-            }
-            isDropdownOpen.toggle()
-        }
+        .onTapGesture { toggleCountList() }
         .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
             ownerId: "collapsed-bar",
             dropOwner: $dropOwner,
@@ -1137,20 +1495,16 @@ struct TabBarView<TrailingAccessory: View>: View {
             count: pane.tabs.count,
             hasBackgroundActivity: hasBackgroundActivity,
             hasBackgroundWaiting: hasBackgroundWaiting,
-            isOpen: isDropdownOpen,
+            isOpen: isCountOpen,
+            isHovered: isCountCellHovered,
             appearance: appearance,
             height: max(0, appearance.tabBarHeight - ruleHeight)
         )
+        .onHover { isCountCellHovered = $0 }
         .frame(maxHeight: .infinity, alignment: .top)
         .background(CollapsedSheetTrailingAnchorReader { sheetPresenter.trailingAnchorView = $0 })
         .contentShape(Rectangle())
-        .onTapGesture {
-            guard splitViewController.isInteractive else { return }
-            withTransaction(Transaction(animation: nil)) {
-                controller.focusPane(pane.id)
-            }
-            isDropdownOpen.toggle()
-        }
+        .onTapGesture { toggleCountList() }
     }
 
     /// The dropdown control: a solid block in the active tab's background that
@@ -1165,6 +1519,7 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// the tap broke once.)
     private var collapsedHeaderBlock: some View {
         let palette = sheetPalette
+        let isBlockLinked = isDropdownOpen && activeTab.map { controller.linkedHoverTabId == $0.id } == true
         let ruleHeight = isFocused ? appearance.tabActiveIndicatorHeight : 1
         let blockHeight = max(0, appearance.tabBarHeight - ruleHeight)
         let gold = TabBarColors.activeIndicator(for: appearance)
@@ -1175,7 +1530,13 @@ struct TabBarView<TrailingAccessory: View>: View {
                     collapsedActivityMark(for: tab, state: state)
                 }
 
-                Text(activeTab?.displayedTitle(showOrdinals: appearance.showTabOrdinals) ?? "")
+                if let number = activeTab?.numberLabel(showOrdinals: appearance.showTabOrdinals) {
+                    Text(number)
+                        .font(.system(size: appearance.tabTitleFontSize - 2, weight: .bold, design: .monospaced))
+                        .foregroundStyle(gold)
+                }
+
+                Text(activeTab?.title ?? "")
                     .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -1190,13 +1551,22 @@ struct TabBarView<TrailingAccessory: View>: View {
                 count: pane.tabs.count,
                 hasBackgroundActivity: hasBackgroundActivity,
                 hasBackgroundWaiting: hasBackgroundWaiting,
-                isOpen: isDropdownOpen,
+                isOpen: isCountOpen,
+                isHovered: isHoveringTabBar,
                 appearance: appearance,
                 height: blockHeight
             )
         }
         .frame(height: blockHeight)
-        .background(isHoveringTabBar || isDropdownOpen ? palette.blockHover : palette.block)
+        .background(isHoveringTabBar || isBlockLinked ? palette.blockHover : palette.block)
+        .overlay(alignment: .bottom) {
+            // Linked hover: hovering the active tab's sheet row lights the block.
+            if isBlockLinked {
+                Rectangle()
+                    .fill(TabBarColors.activeText(for: appearance))
+                    .frame(height: 2)
+            }
+        }
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(TabBarColors.separator(for: appearance))
@@ -1262,7 +1632,7 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// `isDropdownOpen` and the current tier.
     private func syncCollapsedSheet() {
         guard isDropdownOpen else {
-            sheetPresenter.dismiss()
+            sheetPresenter.dismissAnimated()
             return
         }
         let titleProvider = controller.sheetClockTitleProvider
@@ -1285,9 +1655,8 @@ struct TabBarView<TrailingAccessory: View>: View {
                 splitViewController: splitViewController,
                 appearance: appearance,
                 includesControls: layoutTier == .narrow,
-                width: max(sheetWidth(clockCount: clocks.count), layoutTier == .full ? 0 : collapsedBlockWidth),
+                layout: TabSheetLayout(width: sheetWidth(), clocks: clocks),
                 controlsRowHeight: sheetControlsRowHeight,
-                clocks: clocks,
                 clockTitles: clockTitles,
                 activityAnimationEnabled: activityAnimationEnabled,
                 explicitActivityAnimationEnabled: explicitActivityAnimationEnabled,
@@ -1329,6 +1698,16 @@ struct TabBarView<TrailingAccessory: View>: View {
             activityAnimationVisibleRightEdge: activityAnimationVisibleRightEdge,
             useSimplifiedTabUX: controller.configuration.simplifiedTabContextMenu,
             flashGeneration: (pane.flashTabId == tab.id) ? pane.flashTabGeneration : 0,
+            isLinkedHover: isDropdownOpen && controller.linkedHoverTabId == tab.id,
+            onHoverChanged: { hovering in
+                // Only while the sheet is open is there a row to light.
+                guard isDropdownOpen else { return }
+                if hovering {
+                    controller.setLinkedHover(tab.id, fromSheet: false)
+                } else {
+                    controller.clearLinkedHover(ifSheet: false)
+                }
+            },
             onSelect: {
                 // Tab selection must be instant. Animating this transaction causes the pane
                 // content (often swapped via opacity) to crossfade, which is undesirable for
@@ -1558,7 +1937,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                 if let state = tab.activityState {
                     collapsedActivityMark(for: tab, state: state)
                 }
-                Text(tab.displayedTitle(showOrdinals: appearance.showTabOrdinals))
+                Text(tab.title)
                     .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)

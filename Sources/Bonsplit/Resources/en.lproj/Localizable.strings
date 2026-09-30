@@ -34,3 +34,4 @@
 "tabBar.sheet.footer.tabs" = "%lld tabs";
 "tabBar.sheet.footer.needYou" = "%lld need you";
 "tabBar.sheet.dragHandle.help" = "Drag to reorder or move";
+"tabBar.rail.accessibilityLabel" = "Tab rail";

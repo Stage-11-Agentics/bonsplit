@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Round five, tabs stay visible: the strip scrolls sideways when tabs overflow (edge fades, a vertical wheel or two-finger scroll remaps to horizontal, the strip auto-scrolls while a tab is dragged near either end) and folds into the block only when under 150pt remain for tabs. The old medium tier is gone.
+- The tab sheet is exactly its area's width (320pt minimum) with columns that drop by width tier (>=820 all, 600-819 one clock, 440-599 agent on line 2, <440 Tab N, mark, title, status). Hovering a row lights its tab in the strip and the reverse. Opens with a ~120ms single-axis unroll (transform/mask only), skipped under Reduce Motion.
+- Horizontal tabs show their number (`TabItem.numberLabel`) in mono, gold on the visible tab, in place of the `N: ` prefix.
+- `BonsplitTabLayout` (`tabs` | `rail`) on `Appearance.tabLayout`. In `rail` the count cell toggles a vertical tab list docked on the area's left edge (`railOpenPaneIds`, `setRailOpen`, `onRailToggled`, `restoreRailOpen`, `isTabDetailVisible`); it slides in inside its own slot.
+- Count cell redesign: attention dot (slot always reserved), a bold 12x8 chevron, then the number, 64pt wide, in the bar's own colour family; gold only while open.
+- Automation seams: `setTabStripScrollOffset`, `setLinkedHover(tabId:fromSheet:)`, `BonsplitDebug.tabSheetMotionScale`.
 - `BonsplitTabDetail` (agent label, subtitle, status with duration, named clocks) on `Tab`/`TabItem`, set by the host through `updateTab(_:detail:)` and refreshed when the tab sheet opens via `BonsplitController.tabDetailProvider`. `BonsplitController.sheetClockOrderProvider` orders the sheet's clock columns.
 - The tab sheet is a fixed grid: 46pt two-line rows, a header row, a footer (`N tabs`, `K need you`), fixed column widths, and a live relative-time refresh that only runs while the sheet is open.
 - A count cell (`N ▾`) on every tab bar tier, pinned at the left of the full tier's trailing chrome and folded into the tier width math. In the full tier the sheet anchors its right edge to it.

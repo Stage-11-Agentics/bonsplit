@@ -101,6 +101,90 @@ public final class BonsplitController {
     /// recomputing sheet detail while nothing can show it.
     @ObservationIgnored public internal(set) var openTabSheetPaneIds: Set<PaneID> = []
 
+    /// A request to scroll a pane's tab strip to an offset (automation).
+    public struct TabStripScrollRequest: Equatable {
+        public let paneId: PaneID
+        public let offset: CGFloat
+        let nonce: Int
+    }
+
+    public private(set) var tabStripScrollRequest: TabStripScrollRequest?
+
+    /// Scrolls `paneId`'s tab strip to `offset` (points from the leading edge).
+    public func setTabStripScrollOffset(_ offset: CGFloat, inPane paneId: PaneID) {
+        tabStripScrollRequest = TabStripScrollRequest(
+            paneId: paneId,
+            offset: offset,
+            nonce: (tabStripScrollRequest?.nonce ?? 0) + 1
+        )
+    }
+
+    /// Lights `tabId` (and its sheet row) as if the pointer were over it;
+    /// nil clears. For automation: real hover comes from the pointer.
+    public func setLinkedHover(tabId: TabID?, fromSheet: Bool) {
+        if let tabId { setLinkedHover(tabId.id, fromSheet: fromSheet) } else { linkedHoverTabId = nil }
+    }
+
+    // MARK: Rail
+
+    /// Panes whose rail is open. Only meaningful when
+    /// `configuration.appearance.tabLayout == .rail`.
+    public internal(set) var railOpenPaneIds: Set<PaneID> = []
+
+    /// Whether anything in `paneId` is currently showing per-tab detail (an
+    /// open sheet or an open rail), so the host can skip computing it otherwise.
+    public func isTabDetailVisible(inPane paneId: PaneID) -> Bool {
+        openTabSheetPaneIds.contains(paneId)
+            || (configuration.appearance.tabLayout == .rail && railOpenPaneIds.contains(paneId))
+    }
+
+    /// Rails whose bar is too narrow for the controls, so the rail shows them.
+    internal var railNeedsControls: Set<PaneID> = []
+
+    internal func railNeedsControlsUpdate(_ paneId: PaneID, needs: Bool) {
+        if needs { railNeedsControls.insert(paneId) } else { railNeedsControls.remove(paneId) }
+    }
+
+    /// Called when the operator opens or closes an area's rail, so the host can
+    /// remember it across relaunch.
+    @ObservationIgnored public var onRailToggled: ((_ paneId: PaneID, _ isOpen: Bool) -> Void)?
+
+    /// Opens or closes `paneId`'s rail (also the entry point for restore and
+    /// automation). Notifies `onRailToggled` when the state changes.
+    public func setRailOpen(_ open: Bool, inPane paneId: PaneID) {
+        let changed: Bool
+        if open { changed = railOpenPaneIds.insert(paneId).inserted } else { changed = railOpenPaneIds.remove(paneId) != nil }
+        guard changed else { return }
+        onRailToggled?(paneId, open)
+    }
+
+    /// Restores rail state without notifying the host (session restore).
+    public func restoreRailOpen(_ open: Bool, inPane paneId: PaneID) {
+        if open { railOpenPaneIds.insert(paneId) } else { railOpenPaneIds.remove(paneId) }
+    }
+
+    /// The tab lit by linked hover: the sheet row under the pointer lights its
+    /// strip tab, and (while the sheet is open) the strip tab under the pointer
+    /// lights its row.
+    internal private(set) var linkedHoverTabId: UUID?
+    /// Whether the current linked hover started in the sheet (the strip then
+    /// scrolls that tab into view).
+    @ObservationIgnored internal private(set) var linkedHoverFromSheet = false
+
+    internal func setLinkedHover(_ tabId: UUID, fromSheet: Bool) {
+        guard linkedHoverTabId != tabId else {
+            linkedHoverFromSheet = fromSheet
+            return
+        }
+        linkedHoverFromSheet = fromSheet
+        linkedHoverTabId = tabId
+    }
+
+    internal func clearLinkedHover(ifSheet: Bool) {
+        guard linkedHoverTabId != nil, linkedHoverFromSheet == ifSheet else { return }
+        linkedHoverTabId = nil
+    }
+
     // MARK: - Internal State
 
     internal var internalController: SplitViewController

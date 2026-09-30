@@ -34,3 +34,4 @@
 "tabBar.sheet.footer.tabs" = "%lld タブ";
 "tabBar.sheet.footer.needYou" = "%lld 件が要対応";
 "tabBar.sheet.dragHandle.help" = "ドラッグして並べ替え・移動";
+"tabBar.rail.accessibilityLabel" = "タブレール";

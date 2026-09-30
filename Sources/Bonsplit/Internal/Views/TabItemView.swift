@@ -522,6 +522,10 @@ struct TabItemView: View {
     /// flash request is currently targeting; bumping this value plays a
     /// single pulse on the tab. Selection is unaffected.
     let flashGeneration: Int
+    /// The sheet is showing this tab's row under the pointer (or the reverse).
+    var isLinkedHover: Bool = false
+    /// Pointer entered/left this tab; the bar uses it to light the sheet row.
+    var onHoverChanged: ((Bool) -> Void)? = nil
     let onSelect: () -> Void
     let onClose: () -> Void
     let onZoomToggle: () -> Void
@@ -587,6 +591,7 @@ struct TabItemView: View {
             }
             .onHover { hovering in
                 isHovered = hovering
+                onHoverChanged?(hovering)
                 if hovering {
                     refreshActivityAccessibilityValue()
                 }
@@ -670,7 +675,19 @@ struct TabItemView: View {
                     .onChange(of: tab.icon) { _ in updateGlobeFallback() }
                 }
 
-                Text(tab.displayedTitle(showOrdinals: appearance.showTabOrdinals))
+                if let number = tab.numberLabel(showOrdinals: appearance.showTabOrdinals) {
+                    Text(number)
+                        .font(.system(size: appearance.tabTitleFontSize - 2, weight: .bold, design: .monospaced))
+                        .foregroundStyle(
+                            isSelected
+                                ? TabBarColors.activeIndicator(for: appearance)
+                                : TabBarColors.inactiveText(for: appearance).opacity(0.75)
+                        )
+                        .lineLimit(1)
+                        .saturation(saturation)
+                }
+
+                Text(tab.title)
                     .font(.system(size: appearance.tabTitleFontSize, weight: isSelected ? .semibold : .regular))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -1277,6 +1294,9 @@ struct TabItemView: View {
             if isSelected {
                 Rectangle()
                     .fill(TabBarColors.activeTabBackground(for: appearance))
+            } else if isLinkedHover {
+                Rectangle()
+                    .fill(TabBarColors.linkedTabBackground(for: appearance))
             } else if TabItemStyling.shouldShowHoverBackground(isHovered: isHovered, isSelected: isSelected) {
                 Rectangle()
                     .fill(TabBarColors.hoveredTabBackground(for: appearance))
@@ -1298,6 +1318,14 @@ struct TabItemView: View {
                 Rectangle()
                     .fill(TabBarColors.activeIndicator(for: appearance))
                     .frame(height: appearance.tabActiveIndicatorHeight)
+            }
+
+            // Linked hover: a 2pt underline ties the tab to its sheet row.
+            if isLinkedHover {
+                Rectangle()
+                    .fill(TabBarColors.activeText(for: appearance))
+                    .frame(height: 2)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
             }
 
             // Right border separator
