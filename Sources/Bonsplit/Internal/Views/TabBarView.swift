@@ -602,6 +602,13 @@ struct TabBarView<TrailingAccessory: View>: View {
             if isDropdownOpen { syncCollapsedSheet() }
         }
         .onChange(of: splitViewController.draggingTab) { _, newValue in
+#if DEBUG
+            dlog(
+                "tab.sheet.dragState pane=\(pane.id.id.uuidString.prefix(5)) " +
+                "dragging=\(newValue != nil ? 1 : 0) open=\(isDropdownOpen ? 1 : 0) " +
+                "presented=\(sheetPresenter.isPresented ? 1 : 0)"
+            )
+#endif
             if newValue != nil {
                 if sheetPresenter.isPresented { sheetPresenter.beginDragTracking() }
             } else {
@@ -682,7 +689,11 @@ struct TabBarView<TrailingAccessory: View>: View {
                     // When the tab strip is shorter than the visible area, allow dropping in the
                     // empty trailing space without forcing tabs to stretch.
                     .overlay(alignment: .trailing) {
-                        let trailing = max(0, containerGeo.size.width - contentWidth)
+                        // The scroll content reserves `trailingTabContentInset` for the
+                        // chrome, so the visible empty stretch runs from the end of the
+                        // tabs to the chrome's left edge. Cover that stretch (the zone
+                        // extends under the chrome backdrop, which draws above it).
+                        let trailing = max(0, containerGeo.size.width - contentWidth + trailingTabContentInset)
                         if trailing >= 1 {
                             TabBarDragZoneView(
                                 isMinimalMode: isMinimalMode,
@@ -1129,18 +1140,20 @@ struct TabBarView<TrailingAccessory: View>: View {
                 .fill(TabBarColors.separator(for: appearance))
                 .frame(width: 1)
         }
-        .overlay {
-            // Drop target: a tab dragged over the block lands at the end.
+        .frame(height: appearance.tabBarHeight, alignment: .top)
+        .saturation(tabBarSaturation)
+        .overlay(alignment: .top) {
+            // Drop target: a tab dragged over the block lands at the end. Drawn
+            // after the desaturation so it stays gold on an unfocused pane.
             if isDropHot {
                 ZStack {
                     gold.opacity(0.35)
                     Rectangle().strokeBorder(gold, lineWidth: 1.5)
                 }
+                .frame(height: blockHeight)
                 .allowsHitTesting(false)
             }
         }
-        .frame(height: appearance.tabBarHeight, alignment: .top)
-        .saturation(tabBarSaturation)
         .background(
             GeometryReader { proxy in
                 Color.clear.preference(key: CollapsedBlockWidthKey.self, value: proxy.size.width)
@@ -1486,7 +1499,6 @@ struct TabBarView<TrailingAccessory: View>: View {
         )
         .padding(.horizontal, 2)
         .frame(height: appearance.tabItemHeight)
-        .saturation(tabBarSaturation)
         .contentShape(Rectangle())
         .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
             targetIndex: index,
@@ -1512,7 +1524,6 @@ struct TabBarView<TrailingAccessory: View>: View {
                 )
                 Rectangle().strokeBorder(gold.opacity(0.35), lineWidth: 1)
             }
-            .saturation(tabBarSaturation)
             .allowsHitTesting(false)
         }
     }

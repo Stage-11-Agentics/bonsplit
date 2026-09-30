@@ -32,6 +32,7 @@ final class CollapsedSheetPresenter: ObservableObject {
     private var observers: [NSObjectProtocol] = []
     private var dragTimer: Timer?
     private var isHiddenForDrag = false
+    private var releasedPolls = 0
     private var repositionScheduled = false
 
     var isPresented: Bool { panel != nil }
@@ -80,6 +81,7 @@ final class CollapsedSheetPresenter: ObservableObject {
     func dismiss() {
         dragTimer?.invalidate()
         dragTimer = nil
+        releasedPolls = 0
         removeMonitors()
         if let panel {
             panel.parent?.removeChildWindow(panel)
@@ -103,6 +105,7 @@ final class CollapsedSheetPresenter: ObservableObject {
     /// cursor leaves it.
     func beginDragTracking() {
         guard panel != nil, dragTimer == nil else { return }
+        releasedPolls = 0
         let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.pollDragCursor() }
         }
@@ -117,7 +120,23 @@ final class CollapsedSheetPresenter: ObservableObject {
     }
 
     private func pollDragCursor() {
-        guard let panel, !isHiddenForDrag else { return }
+        guard let panel else { return }
+        // Backstop for drag end: the drag session is over once the button has
+        // been up for a few polls, whether it dropped, was cancelled, or landed
+        // somewhere that never reports back. The drop delegates clear the
+        // model's drag state; the sheet does not depend on that to go away.
+        if NSEvent.pressedMouseButtons & 1 == 0 {
+            releasedPolls += 1
+            if releasedPolls >= 4 {
+#if DEBUG
+                dlog("tab.sheet.dragEnd fallbackDismiss hidden=\(isHiddenForDrag ? 1 : 0)")
+#endif
+                dismissAndNotify()
+            }
+            return
+        }
+        releasedPolls = 0
+        guard !isHiddenForDrag else { return }
         if !panel.frame.insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation) {
             isHiddenForDrag = true
             panel.alphaValue = 0
@@ -348,7 +367,11 @@ struct CollapsedTabSheetView: View {
                 .allowsHitTesting(false)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Tab list")
+        .accessibilityLabel(Bundle.module.localizedString(
+            forKey: "tabBar.collapsedList.accessibilityLabel",
+            value: "Tab list",
+            table: nil
+        ))
     }
 
     private var rows: some View {
