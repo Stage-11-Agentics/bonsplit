@@ -54,18 +54,25 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
     /// Named clocks by lowercase name (`active`, `launched`, `seen`). A missing
     /// entry renders as a dash.
     public var clocks: [String: Date]
+    /// Host-formatted text for clocks that are not a point in time (a turn
+    /// duration, a tool-call count, a token count), by lowercase name. When a
+    /// name has text here the cell shows it instead of an age; a missing entry
+    /// falls back to `clocks`, then a dash.
+    public var clockTexts: [String: String]
 
     public init(
         title: String? = nil,
         agentLabel: String? = nil,
         subtitle: String? = nil,
         status: Status? = nil,
-        clocks: [String: Date] = [:]
+        clocks: [String: Date] = [:],
+        clockTexts: [String: String] = [:]
     ) {
         self.title = title
         self.agentLabel = agentLabel
         self.subtitle = subtitle
         self.status = status
         self.clocks = clocks
+        self.clockTexts = clockTexts
     }
 }

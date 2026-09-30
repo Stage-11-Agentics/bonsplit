@@ -224,6 +224,7 @@ enum TabSheetFormat {
     /// The value for a named clock. Dates render as ages; a host that carries
     /// non-date clocks (turn count, tokens) supplies text through this seam.
     static func clockValue(_ name: String, in tab: TabItem) -> ClockValue {
+        if let text = tab.detail?.clockTexts[name] { return .text(text) }
         if let date = tab.detail?.clocks[name] { return .age(date) }
         return .none
     }
