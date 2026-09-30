@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `BonsplitTabDetail` (agent label, subtitle, status with duration, named clocks) on `Tab`/`TabItem`, set by the host through `updateTab(_:detail:)` and refreshed when the tab sheet opens via `BonsplitController.tabDetailProvider`. `BonsplitController.sheetClockOrderProvider` orders the sheet's clock columns.
+- The tab sheet is a fixed grid: 46pt two-line rows, a header row, a footer (`N tabs`, `K need you`), fixed column widths, and a live relative-time refresh that only runs while the sheet is open.
+- A count cell (`N ▾`) on every tab bar tier, pinned at the left of the full tier's trailing chrome and folded into the tier width math. In the full tier the sheet anchors its right edge to it.
+- `BonsplitController.setTabSheetOpen(_:inPane:)` opens or closes a pane's sheet without a click (automation).
+- `TabBarColors.sheetPalette(for:)`: near-black (near-white in light themes) surface family shared by the sheet, the collapsed header block and the count cell.
 - `BonsplitConfiguration.Appearance.DividerStyle` — sibling struct on `Appearance` that carries optional overrides for pane divider rendering. Ships with `thicknessPt: CGFloat?`; when non-nil, `ThemedSplitView` overrides `NSSplitView.dividerThickness` so the visible divider thickness can be customized independently of the structural `.thin` hint (which is preserved for AppKit's hit-test region sizing). Additive: `Appearance.init` gains a `dividerStyle:` parameter with a default value, and all existing callers continue to render identically.
 - `BonsplitView` initializer parameter `trailingAccessory: (PaneID, Double) -> View` — host-provided trailing-edge accessory rendered inside the tab bar alongside the internal default chrome. The builder receives the pane ID and a `chromeSaturation` scalar (matching bonsplit's internal `tabBarSaturation`, including drag-source nuance).
 - `@Environment(\.bonsplitTabBarHover)` — boolean value published by the tab bar indicating whether the pointer is currently over the tab-bar region. Consumers can read this from a `trailingAccessory` to replicate hover-fade behavior in minimal-mode presentations.
