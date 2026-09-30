@@ -339,6 +339,13 @@ private enum TabStripLayoutTier {
     case narrow    // active title only; controls + tab list in the dropdown
 }
 
+private struct CollapsedBlockWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 enum CollapsedTabAccessibility {
     static func value(
         tabCount: Int,
@@ -431,6 +438,8 @@ struct TabBarView<TrailingAccessory: View>: View {
     // dropdown" section.
     @State private var layoutTier: TabStripLayoutTier = .full
     @State private var isDropdownOpen = false
+    @StateObject private var sheetPresenter = CollapsedSheetPresenter()
+    @State private var collapsedBlockWidth: CGFloat = 0
 
     init(
         pane: PaneState,
@@ -584,9 +593,27 @@ struct TabBarView<TrailingAccessory: View>: View {
             }
             .onChange(of: collapseDecisionSignature) { _, _ in
                 recomputeLayoutTier(availableWidth: outerGeo.size.width)
+                if isDropdownOpen { syncCollapsedSheet() }
             }
         }
         .frame(height: appearance.tabBarHeight)
+        .onChange(of: isDropdownOpen) { _, _ in syncCollapsedSheet() }
+        .onChange(of: collapsedBlockWidth) { _, _ in
+            if isDropdownOpen { syncCollapsedSheet() }
+        }
+        .onChange(of: splitViewController.draggingTab) { _, newValue in
+            if newValue != nil {
+                if sheetPresenter.isPresented { sheetPresenter.beginDragTracking() }
+            } else {
+                sheetPresenter.endDragTracking()
+                // The drag is over (dropped, cancelled, or landed elsewhere):
+                // the sheet and any lingering collapsed-bar drop state go.
+                dropTargetIndex = nil
+                dropLifecycle = .idle
+                if isDropdownOpen { isDropdownOpen = false }
+            }
+        }
+        .onDisappear { sheetPresenter.dismiss() }
     }
 
     // MARK: - Horizontal Tab Strip (default / wide layout)
@@ -612,8 +639,17 @@ struct TabBarView<TrailingAccessory: View>: View {
                                 .id(leadingScrollAnchorId)
 
                             ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
+                                // Ghost slot: opens at the landing index and pushes
+                                // the neighbors over, so the strip previews the result.
+                                if dropTargetIndex == index {
+                                    ghostSlot(at: index)
+                                }
                                 tabItem(for: tab, at: index)
                                     .id(tab.id)
+                            }
+
+                            if dropTargetIndex == pane.tabs.count {
+                                ghostSlot(at: pane.tabs.count)
                             }
 
                             // Unified drop zone after the last tab.
@@ -658,6 +694,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                                 return true
                             }
                             .frame(width: trailing, height: appearance.tabItemHeight)
+                            .overlay { neutralZoneTint(fadesOut: true) }
                             .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
                                 targetIndex: pane.tabs.count,
                                 pane: pane,
@@ -980,10 +1017,10 @@ struct TabBarView<TrailingAccessory: View>: View {
 
     @ViewBuilder
     private func collapsedBar(_ tier: TabStripLayoutTier) -> some View {
-        HStack(spacing: 6) {
-            // The whole header (title + count + chevron) is one bordered chip
-            // so it visibly reads as a single clickable dropdown control.
-            collapsedControlChip(tier)
+        HStack(spacing: 0) {
+            // The whole header is one solid block (active tab + count cell),
+            // flush left and as tall as the bar.
+            collapsedHeaderBlock
 
             // Medium tier keeps the controls cluster inline on the bar, as a
             // separate region with its own button taps.
@@ -992,8 +1029,6 @@ struct TabBarView<TrailingAccessory: View>: View {
                     .saturation(tabBarSaturation)
             }
         }
-        .padding(.leading, max(8, appearance.tabHorizontalPadding + 2))
-        .padding(.trailing, tier == .medium ? 0 : 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: appearance.tabBarHeight)
         // The ENTIRE header (title included) is one tap target. The gesture is
@@ -1003,7 +1038,7 @@ struct TabBarView<TrailingAccessory: View>: View {
         // AppKit hosting layer which swallows the mouse-down and the tap stops
         // firing. The hover affordance is driven from `isHoveringTabBar` in the
         // background instead. In medium tier the control buttons capture their
-        // own taps; everything else opens the dropdown.
+        // own taps; everything else opens the sheet.
         .contentShape(Rectangle())
         .onTapGesture {
             withTransaction(Transaction(animation: nil)) {
@@ -1024,58 +1059,94 @@ struct TabBarView<TrailingAccessory: View>: View {
             isMinimalMode: isMinimalMode,
             onHoverChanged: { isHoveringTabBar = $0 }
         ))
+        .background(CollapsedSheetAnchorReader { sheetPresenter.anchorView = $0 })
     }
 
-    /// The clickable-looking dropdown control: the title, the tab count, and the
-    /// chevron, all wrapped in ONE rounded, outlined chip — the same outline the
-    /// disclosure pill used, now around the whole header so it reads as a single
-    /// control. Brightens on hover via the shared `isHoveringTabBar` (the AppKit
-    /// hover view). This view only DRAWS (shapes + popover); it adds no
-    /// `.onHover`/NSView layer, so the outer bar's tap gesture still fires over
-    /// it. (A child `.onHover` here would create an AppKit hosting layer that
-    /// swallows the mouse-down — that mistake is why the tap broke once.)
-    @ViewBuilder
-    private func collapsedControlChip(_ tier: TabStripLayoutTier) -> some View {
-        HStack(spacing: 6) {
-            if let state = activeTab?.activityState {
-                collapsedActivityMark(for: activeTab!, state: state)
+    /// The dropdown control: a solid block in the active tab's background that
+    /// fills the bar's height (above the bottom rule), square-cornered and
+    /// flush left. Inside: activity mark, `N: title`, and a separate square
+    /// count cell at the right edge (background-waiting dot, count, chevron)
+    /// that fills gold while the sheet is open. Brightens on hover via the
+    /// shared `isHoveringTabBar` (the AppKit hover view). This view only
+    /// DRAWS; it adds no `.onHover`/NSView layer, so the outer bar's tap
+    /// gesture still fires over it. (A child `.onHover` here would create an
+    /// AppKit hosting layer that swallows the mouse-down: that mistake is why
+    /// the tap broke once.)
+    private var collapsedHeaderBlock: some View {
+        let ruleHeight = isFocused ? appearance.tabActiveIndicatorHeight : 1
+        let blockHeight = max(0, appearance.tabBarHeight - ruleHeight)
+        let gold = TabBarColors.activeIndicator(for: appearance)
+        let isDropHot = splitViewController.draggingTab != nil && dropTargetIndex == pane.tabs.count
+        return HStack(spacing: 0) {
+            HStack(spacing: 7) {
+                if let tab = activeTab, let state = tab.activityState {
+                    collapsedActivityMark(for: tab, state: state)
+                }
+
+                Text(activeTab?.displayedTitle(showOrdinals: appearance.showTabOrdinals) ?? "")
+                    .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(TabBarColors.activeText(for: appearance))
+
+                Spacer(minLength: 0)
             }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(activeTab?.displayedTitle(showOrdinals: appearance.showTabOrdinals) ?? "")
-                .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(TabBarColors.activeText(for: appearance))
-
-            Spacer(minLength: 6)
-
-            if hasBackgroundActivity {
-                Circle()
-                    .fill(TabBarColors.notificationBadge(for: appearance))
-                    .frame(width: 6, height: 6)
+            HStack(spacing: 5) {
+                if hasBackgroundActivity {
+                    Circle()
+                        .fill(hasBackgroundWaiting
+                            ? TabBarColors.activity(.waiting, for: appearance)
+                            : TabBarColors.notificationBadge(for: appearance))
+                        .frame(width: 6, height: 6)
+                }
+                Text("\(pane.tabs.count)")
+                    .font(.system(size: appearance.tabTitleFontSize, weight: .heavy))
+                    .monospacedDigit()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: appearance.tabTitleFontSize - 2, weight: .heavy))
             }
-
-            Text("\(pane.tabs.count)")
-                .font(.system(size: appearance.tabTitleFontSize, weight: .bold))
-                .monospacedDigit()
-                .foregroundStyle(TabBarColors.activeText(for: appearance))
-            Image(systemName: "chevron.down")
-                .font(.system(size: appearance.tabTitleFontSize - 1, weight: .heavy))
-                .foregroundStyle(TabBarColors.activeText(for: appearance))
+            .foregroundStyle(isDropdownOpen ? Color(white: 0.1) : TabBarColors.activeText(for: appearance))
+            .padding(.horizontal, 10)
+            .frame(minWidth: blockHeight, maxHeight: .infinity)
+            .background(isDropdownOpen ? gold : Color.black.opacity(0.18))
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(TabBarColors.separator(for: appearance))
+                    .frame(width: 1)
+            }
         }
-        .padding(.horizontal, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: max(20, appearance.tabItemHeight - 6))
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(TabBarColors.activeIndicator(for: appearance)
-                    .opacity(isHoveringTabBar ? 0.28 : 0.16))
-        )
+        .frame(height: blockHeight)
+        .background(TabBarColors.activeTabBackground(for: appearance))
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(TabBarColors.activeIndicator(for: appearance).opacity(0.55), lineWidth: 1)
+            TabBarColors.activeText(for: appearance)
+                .opacity(isHoveringTabBar || isDropdownOpen ? 0.07 : 0)
         )
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(TabBarColors.separator(for: appearance))
+                .frame(width: 1)
+        }
+        .overlay {
+            // Drop target: a tab dragged over the block lands at the end.
+            if isDropHot {
+                ZStack {
+                    gold.opacity(0.35)
+                    Rectangle().strokeBorder(gold, lineWidth: 1.5)
+                }
+                .allowsHitTesting(false)
+            }
+        }
+        .frame(height: appearance.tabBarHeight, alignment: .top)
         .saturation(tabBarSaturation)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: CollapsedBlockWidthKey.self, value: proxy.size.width)
+            }
+        )
+        .onPreferenceChange(CollapsedBlockWidthKey.self) { collapsedBlockWidth = $0 }
         .accessibilityLabel("Show all tabs")
         .accessibilityValue(CollapsedTabAccessibility.value(
             tabCount: pane.tabs.count,
@@ -1085,20 +1156,11 @@ struct TabBarView<TrailingAccessory: View>: View {
         .accessibilityHint(TabActivityAccessibility.help(
             for: activeTab?.activityState == .waiting || hasBackgroundWaiting ? .waiting : nil
         ))
-        .popover(isPresented: $isDropdownOpen, arrowEdge: .bottom) {
-            if tier == .narrow {
-                collapsedDropdownContent      // controls row + tab list
-            } else {
-                collapsedTabListContent       // tab list only (controls inline)
-            }
-        }
     }
 
     /// Background for the collapsed bar: bar fill plus a continuous full-width
     /// bottom accent line (gold when focused, separator otherwise). Drawn behind
-    /// the content so it never covers it or intercepts the tap. Fixes the
-    /// cut-off accent line in dropdown mode (issue 2). The clickable affordance
-    /// is the chip outline above, not a bar-wide tint.
+    /// the content so it never covers it or intercepts the tap.
     @ViewBuilder
     private var collapsedBarBackground: some View {
         let base = isFocused
@@ -1115,206 +1177,45 @@ struct TabBarView<TrailingAccessory: View>: View {
             }
     }
 
-    /// Dropdown body for the medium tier: just the tab list (the controls are
-    /// already inline on the bar, so they are not repeated here).
-    @ViewBuilder
-    private var collapsedTabListContent: some View {
-        VStack(spacing: 0) {
-            if pane.tabs.count > 9 {
-                ScrollView { collapsedTabRows }
-                    .frame(maxHeight: collapsedRowHeight * 9)
-            } else {
-                collapsedTabRows
-            }
+    // MARK: Collapsed sheet
+
+    /// Opens, refreshes, or tears down the sheet panel to match
+    /// `isDropdownOpen` and the current tier.
+    private func syncCollapsedSheet() {
+        guard isDropdownOpen, layoutTier != .full else {
+            sheetPresenter.dismiss()
+            return
         }
-        .frame(width: collapsedDropdownWidth)
-        .padding(.vertical, 4)
-    }
-
-    @ViewBuilder
-    private var collapsedDropdownContent: some View {
-        VStack(spacing: 0) {
-            collapsedControlsRow
-            Divider()
-            if pane.tabs.count > 8 {
-                ScrollView { collapsedTabRows }
-                    .frame(maxHeight: collapsedRowHeight * 9)
-            } else {
-                collapsedTabRows
-            }
-        }
-        .frame(width: collapsedDropdownWidth)
-        .padding(.vertical, 4)
-    }
-
-    @ViewBuilder
-    private var collapsedTabRows: some View {
-        VStack(spacing: 0) {
-            ForEach(pane.tabs) { tab in
-                collapsedTabRow(tab)
-            }
-        }
-    }
-
-    /// One tab per row, full title (no truncation in the common case), with a
-    /// leading selection/activity marker and a trailing close. Each row is the
-    /// draggable unit — reorder within the dropdown, or transfer to another pane.
-    @ViewBuilder
-    private func collapsedTabRow(_ tab: TabItem) -> some View {
-        let isSelected = pane.selectedTabId == tab.id
-        HStack(spacing: 0) {
-            Button {
-                withTransaction(Transaction(animation: nil)) {
-                    pane.selectTab(tab.id)
-                    controller.focusPane(pane.id)
-                }
-                isDropdownOpen = false
-            } label: {
-                HStack(spacing: 8) {
-                    ZStack {
-                        if let state = tab.activityState {
-                            collapsedActivityMark(for: tab, state: state)
-                        } else {
-                            Circle()
-                                .fill(
-                                    isSelected
-                                        ? TabBarColors.activeIndicator(for: appearance)
-                                        : ((tab.showsNotificationBadge || tab.isDirty)
-                                            ? TabBarColors.notificationBadge(for: appearance)
-                                            : Color.clear)
-                                )
-                                .frame(width: 7, height: 7)
-                        }
-                    }
-                    .frame(width: 17, height: 17)
-
-                    Text(tab.displayedTitle(showOrdinals: appearance.showTabOrdinals))
-                        .font(.system(size: appearance.tabTitleFontSize + 1, weight: isSelected ? .semibold : .regular))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundStyle(
-                            isSelected
-                                ? TabBarColors.activeText(for: appearance)
-                                : TabBarColors.inactiveText(for: appearance)
-                        )
-
-                    Spacer(minLength: 8)
-                }
-                .contentShape(Rectangle())
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            .accessibilityValue(collapsedAccessibilityValue(for: tab))
-            .accessibilityHint(TabActivityAccessibility.help(for: tab.activityState))
-
-            if !tab.isPinned {
-                CollapsedTabCloseButton(
-                    tab: tab,
-                    pane: pane,
-                    controller: controller,
-                    appearance: appearance
-                )
-            }
-        }
-        .padding(.horizontal, 10)
-        .frame(height: collapsedRowHeight)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isSelected ? TabBarColors.activeTabBackground(for: appearance) : Color.clear)
-        .contentShape(Rectangle())
-        .onDrag { createItemProvider(for: tab) }
+        sheetPresenter.blockWidth = collapsedBlockWidth
+        sheetPresenter.onDismiss = { isDropdownOpen = false }
+        sheetPresenter.present(rootView: AnyView(
+            CollapsedTabSheetView(
+                pane: pane,
+                controller: controller,
+                splitViewController: splitViewController,
+                appearance: appearance,
+                includesControls: layoutTier == .narrow,
+                width: max(collapsedDropdownWidth, collapsedBlockWidth),
+                rowHeight: collapsedRowHeight,
+                activityAnimationEnabled: activityAnimationEnabled,
+                explicitActivityAnimationEnabled: explicitActivityAnimationEnabled,
+                makeItemProvider: { createItemProvider(for: $0) },
+                dismiss: { isDropdownOpen = false }
+            )
+        ))
     }
 
     private func collapsedActivityMark(
         for tab: TabItem,
         state: BonsplitTabActivityState
     ) -> some View {
-        let presentation = tab.activityPresentation
-        let resolvedMotion = TabActivityMarkMotionPolicy.resolvedMotion(
-            for: state,
-            defaultMotionEnabled: activityAnimationEnabled,
-            explicitMotionEnabled: explicitActivityAnimationEnabled,
-            presentation: presentation
-        )
-        return TabActivityMark(
+        CollapsedActivityMarkView(
+            tab: tab,
             state: state,
             appearance: appearance,
-            phaseId: tab.id,
-            colorOverride: presentation?.colorOverrideHex
-                .flatMap(NSColor.init(bonsplitHex:))
-                .map(Color.init(nsColor:)),
-            motion: resolvedMotion,
-            alternateCoreColor: presentation?.alternateCoreColorHex
-                .flatMap(NSColor.init(bonsplitHex:))
-                .map(Color.init(nsColor:))
-                ?? (presentation?.alternatesWithBaseColor == true
-                    ? TabBarColors.activity(state, for: appearance)
-                    : nil)
+            activityAnimationEnabled: activityAnimationEnabled,
+            explicitActivityAnimationEnabled: explicitActivityAnimationEnabled
         )
-    }
-
-    private func collapsedAccessibilityValue(for tab: TabItem) -> String {
-        [
-            tab.activityPresentation?.accessibilityValue,
-            TabActivityAccessibility.value(for: tab.activityState),
-        ]
-        .compactMap { value in
-            guard let value, !value.isEmpty else { return nil }
-            return value
-        }
-        .joined(separator: ", ")
-    }
-
-    /// The single controls row at the top of the dropdown: the same actions as
-    /// the horizontal strip's trailing chrome, reused verbatim. Each action
-    /// dismisses the dropdown after firing.
-    @ViewBuilder
-    private var collapsedControlsRow: some View {
-        let tooltips = controller.configuration.appearance.splitButtonTooltips
-        let canClosePane = controller.allPaneIds.count > 1
-            || controller.configuration.allowCloseLastPane
-        HStack(spacing: 4) {
-            AgentSpawnButtonCluster(
-                controller: controller,
-                paneId: pane.id,
-                appearance: appearance,
-                afterAction: { isDropdownOpen = false }
-            )
-
-            SplitToolbarButton(systemImage: "terminal", tooltip: tooltips.newTerminal, appearance: appearance) {
-                controller.requestNewTab(kind: "terminal", inPane: pane.id)
-                isDropdownOpen = false
-            }
-            SplitToolbarButton(systemImage: "globe", tooltip: tooltips.newBrowser, appearance: appearance) {
-                controller.requestNewTab(kind: "browser", inPane: pane.id)
-                isDropdownOpen = false
-            }
-            SplitToolbarButton(systemImage: "doc.text", tooltip: tooltips.newMarkdown, appearance: appearance) {
-                controller.requestNewTab(kind: "markdown", inPane: pane.id)
-                isDropdownOpen = false
-            }
-
-            Spacer(minLength: 8)
-
-            SplitToolbarButton(systemImage: "square.split.2x1", tooltip: tooltips.splitRight, appearance: appearance) {
-                controller.splitPane(pane.id, orientation: .horizontal)
-                isDropdownOpen = false
-            }
-            SplitToolbarButton(systemImage: "square.split.1x2", tooltip: tooltips.splitDown, appearance: appearance) {
-                controller.splitPane(pane.id, orientation: .vertical)
-                isDropdownOpen = false
-            }
-            SplitToolbarButton(systemImage: "plus", tooltip: tooltips.newTab, appearance: appearance) {
-                controller.requestNewTab(kind: "newTab", inPane: pane.id)
-                isDropdownOpen = false
-            }
-            SplitToolbarButton(systemImage: "xmark", tooltip: tooltips.closePane, appearance: appearance, isEnabled: canClosePane) {
-                controller.requestClosePane(pane.id)
-                isDropdownOpen = false
-            }
-        }
-        .padding(.horizontal, 10)
-        .frame(height: collapsedRowHeight)
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Tab Item
@@ -1392,12 +1293,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             dropTargetIndex: $dropTargetIndex,
             dropLifecycle: $dropLifecycle
         ))
-        .overlay(alignment: .leading) {
-            if dropTargetIndex == index {
-                dropIndicator
-                    .saturation(tabBarSaturation)
-            }
-        }
+        .opacity(splitViewController.draggingTab?.id == tab.id ? 0.35 : 1)
     }
 
     private func contextMenuState(for tab: TabItem, at index: Int) -> TabContextMenuState {
@@ -1534,6 +1430,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             return true
         }
         .frame(width: 30, height: appearance.tabItemHeight)
+        .overlay { neutralZoneTint(fadesOut: false) }
         .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
             targetIndex: pane.tabs.count,
             pane: pane,
@@ -1542,22 +1439,82 @@ struct TabBarView<TrailingAccessory: View>: View {
             dropTargetIndex: $dropTargetIndex,
             dropLifecycle: $dropLifecycle
         ))
-        .overlay(alignment: .leading) {
-            if dropTargetIndex == pane.tabs.count {
-                dropIndicator
-                    .saturation(tabBarSaturation)
-            }
-        }
     }
 
-    // MARK: - Drop Indicator
+    // MARK: - Drop Indicator (ghost slot)
 
+    /// The tab being dragged, for the ghost slot's label. Read from drag state
+    /// on the controller (never the pasteboard). A drag from another window's
+    /// controller has none, and the slot renders unlabeled.
+    private var ghostTab: TabItem? {
+        splitViewController.draggingTab ?? splitViewController.activeDragTab
+    }
+
+    /// A tab-sized slot at the landing index: dashed gold border, gold wash,
+    /// the dragged tab's mark and title. It carries the same drop delegate as
+    /// the tab it displaces, so the cursor resting on it keeps the same target
+    /// and the strip never strobes as neighbors shift.
     @ViewBuilder
-    private var dropIndicator: some View {
-        Capsule()
-            .fill(TabBarColors.dropIndicator(for: appearance))
-            .frame(width: TabBarMetrics.dropIndicatorWidth, height: TabBarMetrics.dropIndicatorHeight)
-            .offset(x: -1)
+    private func ghostSlot(at index: Int) -> some View {
+        let gold = TabBarColors.activeIndicator(for: appearance)
+        HStack(spacing: 6) {
+            if let tab = ghostTab {
+                if let state = tab.activityState {
+                    collapsedActivityMark(for: tab, state: state)
+                }
+                Text(tab.displayedTitle(showOrdinals: appearance.showTabOrdinals))
+                    .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(gold)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(
+            minWidth: min(appearance.tabMinWidth, 70),
+            maxWidth: appearance.tabMaxWidth,
+            minHeight: appearance.tabItemHeight - 4,
+            maxHeight: appearance.tabItemHeight - 4
+        )
+        .fixedSize(horizontal: true, vertical: false)
+        .background(
+            RoundedRectangle(cornerRadius: 3).fill(gold.opacity(0.16))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 3)
+                .strokeBorder(gold, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+        )
+        .padding(.horizontal, 2)
+        .frame(height: appearance.tabItemHeight)
+        .saturation(tabBarSaturation)
+        .contentShape(Rectangle())
+        .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
+            targetIndex: index,
+            pane: pane,
+            bonsplitController: controller,
+            controller: splitViewController,
+            dropTargetIndex: $dropTargetIndex,
+            dropLifecycle: $dropLifecycle
+        ))
+    }
+
+    /// Gold wash over the neutral (trailing empty) zone while a drop would land
+    /// at the end, so a drop anywhere in the zone visibly lands there.
+    @ViewBuilder
+    private func neutralZoneTint(fadesOut: Bool) -> some View {
+        if dropTargetIndex == pane.tabs.count {
+            let gold = TabBarColors.activeIndicator(for: appearance)
+            ZStack {
+                LinearGradient(
+                    colors: [gold.opacity(0.14), gold.opacity(fadesOut ? 0.05 : 0.14)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                Rectangle().strokeBorder(gold.opacity(0.35), lineWidth: 1)
+            }
+            .saturation(tabBarSaturation)
+            .allowsHitTesting(false)
+        }
     }
 
     // MARK: - Split Buttons
@@ -1818,7 +1775,7 @@ extension TabBarView where TrailingAccessory == EmptyView {
 /// the narrow caret zone opens the picker on any click. All pointer paths run
 /// through RightClickCatchView so they fire deterministically on the real
 /// event; the SplitToolbarButton underneath is visual-only.
-private struct AgentSpawnButtonCluster: View {
+struct AgentSpawnButtonCluster: View {
     let controller: BonsplitController
     let paneId: PaneID
     let appearance: BonsplitConfiguration.Appearance
@@ -1881,7 +1838,7 @@ private struct SplitActionButtonStyle: ButtonStyle {
 /// each button owns its own @State for hover tracking without leaking it into
 /// TabBarView's body (where it would cause spurious invalidations during
 /// typing).
-private struct SplitToolbarButton: View {
+struct SplitToolbarButton: View {
     let systemImage: String
     let labelText: String?
     let tooltip: String
