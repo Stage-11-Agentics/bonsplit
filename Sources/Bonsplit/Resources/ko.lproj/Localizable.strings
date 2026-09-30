@@ -11,7 +11,7 @@
 "tabBar.collapsedList.accessibilityLabel" = "탭 목록";
 "tabBar.collapsedHeader.accessibilityLabel" = "모든 탭 보기";
 "tabBar.collapsedList.selectAction" = "선택";
-"tabBar.sheet.tabNumber" = "탭 %lld";
+"tabBar.sheet.tabNumber" = "탭%lld";
 "tabBar.sheet.column.tab" = "탭";
 "tabBar.sheet.column.title" = "제목";
 "tabBar.sheet.column.agent" = "에이전트";

@@ -78,9 +78,12 @@ final class TabSheetGridTests: XCTestCase {
                 XCTAssertNotEqual(text, "MISSING", "\(locale) \(key)")
                 XCTAssertLessThanOrEqual(width(text, header, kern: 0.6), room, "\(locale) \(key) '\(text)'")
             }
-            // "Tab 9999" at full size: the column is sized per language, so
-            // this only bounds how wide any language can make it.
+            // "Tab9999" at full size: the column is sized per language, so
+            // this only bounds how wide any language can make it. The label has
+            // no separator between the word and the number in any language.
             let tab = String(format: string("tabNumber"), 9999)
+            XCTAssertFalse(tab.contains(" "), "\(locale) '\(tab)' has a space")
+            XCTAssertTrue(tab.hasSuffix("9999"), "\(locale) '\(tab)'")
             XCTAssertLessThanOrEqual(width(tab, mono11) + 12, 130, "\(locale) '\(tab)'")
             // Each status word with the longest age this locale can print
             // (its own format strings and decimal separator), 4pt apart.
@@ -282,5 +285,67 @@ final class TabSheetGridTests: XCTestCase {
         XCTAssertTrue(inPane.contains(a!) && inPane.contains(b!))
         XCTAssertEqual(Set(asked), Set(inPane))
         XCTAssertNotNil(controller.tab(a!)?.detail?.subtitle)
+    }
+
+    // MARK: Sheet drag state machine
+
+    func testTheSheetHidesOutsideAndReturnsWhenTheDragComesBack() {
+        var tracker = SheetDragTracker()
+        tracker.begin()
+        XCTAssertNil(tracker.cursorMoved(insideFrame: true, insideMargin: true))
+        XCTAssertEqual(tracker.cursorMoved(insideFrame: false, insideMargin: false), .hide)
+        XCTAssertNil(tracker.cursorMoved(insideFrame: false, insideMargin: false), "already hidden")
+        // In the margin but not in the frame: stays hidden (no flicker at the edge).
+        XCTAssertNil(tracker.cursorMoved(insideFrame: false, insideMargin: true))
+        XCTAssertEqual(tracker.cursorMoved(insideFrame: true, insideMargin: true), .show)
+        XCTAssertEqual(tracker.cursorMoved(insideFrame: false, insideMargin: false), .hide)
+    }
+
+    func testAReorderDroppedInTheSheetKeepsItOpen() {
+        var tracker = SheetDragTracker()
+        tracker.begin()
+        tracker.droppedInSheetRow()
+        XCTAssertEqual(tracker.end(cursorInsideFrame: true), .keepOpen)
+        // The model's report and the mouse-up backstop arrive later: already resolved.
+        XCTAssertNil(tracker.end(cursorInsideFrame: true))
+        XCTAssertNil(tracker.end(cursorInsideFrame: false))
+    }
+
+    func testADropElsewhereClosesIt() {
+        var tracker = SheetDragTracker()
+        tracker.begin()
+        _ = tracker.cursorMoved(insideFrame: false, insideMargin: false)
+        XCTAssertEqual(tracker.end(cursorInsideFrame: false), .close)
+    }
+
+    func testACancelWithThePointerOverTheSheetKeepsItOpenAndElsewhereCloses() {
+        var over = SheetDragTracker()
+        over.begin()
+        XCTAssertEqual(over.end(cursorInsideFrame: true), .keepOpen)
+
+        var away = SheetDragTracker()
+        away.begin()
+        _ = away.cursorMoved(insideFrame: false, insideMargin: false)
+        XCTAssertEqual(away.end(cursorInsideFrame: false), .close)
+    }
+
+    func testEachDragIsDecidedOnItsOwn() {
+        var tracker = SheetDragTracker()
+        tracker.begin()
+        tracker.droppedInSheetRow()
+        XCTAssertEqual(tracker.end(cursorInsideFrame: true), .keepOpen)
+        // A drop flag from the first drag must not carry into the second.
+        tracker.begin()
+        _ = tracker.cursorMoved(insideFrame: false, insideMargin: false)
+        XCTAssertEqual(tracker.end(cursorInsideFrame: false), .close)
+        // Outside any drag nothing moves or resolves.
+        XCTAssertNil(tracker.cursorMoved(insideFrame: false, insideMargin: false))
+        tracker.droppedInSheetRow()
+        tracker.begin()
+        XCTAssertEqual(tracker.end(cursorInsideFrame: false), .close, "a stray drop flag outside a drag is ignored")
+    }
+
+    func testTheTabLabelHasNoSeparator() {
+        XCTAssertEqual(TabSheetFormat.tabLabel(17), "Tab17")
     }
 }

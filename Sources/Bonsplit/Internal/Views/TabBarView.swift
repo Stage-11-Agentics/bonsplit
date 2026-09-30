@@ -627,9 +627,7 @@ struct TabBarView<TrailingAccessory: View>: View {
         let ruleHeight = isFocused ? appearance.tabActiveIndicatorHeight : 1
         let blockHeight = max(0, appearance.tabBarHeight - ruleHeight)
         let tab = activeTab
-        let number = tab?.displayOrdinal.map {
-            String(format: TabSheetFormat.localized("tabBar.sheet.tabNumber", "Tab %lld"), Int64($0))
-        }
+        let number = tab?.displayOrdinal.map { TabSheetFormat.tabLabel($0) }
         let title = tab?.detail?.title.flatMap { $0.isEmpty ? nil : $0 } ?? tab?.title ?? ""
         return HStack(spacing: 0) {
             HStack(spacing: 8) {
@@ -1345,7 +1343,8 @@ struct TabBarView<TrailingAccessory: View>: View {
                 activityAnimationEnabled: activityAnimationEnabled,
                 explicitActivityAnimationEnabled: explicitActivityAnimationEnabled,
                 makeItemProvider: { createItemProvider(for: $0) },
-                dismiss: { isDropdownOpen = false }
+                dismiss: { isDropdownOpen = false },
+                onReordered: { [weak sheetPresenter] in sheetPresenter?.dropAppliedInSheet() }
             )
         ))
     }

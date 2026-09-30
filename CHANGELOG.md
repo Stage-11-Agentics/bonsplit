@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The tab sheet and rail show the lifecycle mark under the tab number (one column, the title moves left; a tab with no state keeps the space); the label has no space (`Tab17`); reordering rows inside the sheet keeps it open, and it closes only when a drag ends outside it.
 - Round five, tabs stay visible: the strip scrolls sideways when tabs overflow (edge fades, a vertical wheel or two-finger scroll remaps to horizontal, the strip auto-scrolls while a tab is dragged near either end) and folds into the block only when under 150pt remain for tabs. The old medium tier is gone.
 - The tab sheet is exactly its area's width (320pt minimum) with columns that drop by width tier (>=820 all, 600-819 one clock, 440-599 agent on line 2, <440 Tab N, mark, title, status). Hovering a row lights its tab in the strip and the reverse. Opens with a ~120ms single-axis unroll (transform/mask only), skipped under Reduce Motion.
 - Horizontal tabs show their number (`TabItem.numberLabel`) in mono, gold on the visible tab, in place of the `N: ` prefix.

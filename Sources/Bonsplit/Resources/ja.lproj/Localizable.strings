@@ -13,7 +13,7 @@
 "tabBar.collapsedList.accessibilityLabel" = "タブ一覧";
 "tabBar.collapsedHeader.accessibilityLabel" = "すべてのタブを表示";
 "tabBar.collapsedList.selectAction" = "選択";
-"tabBar.sheet.tabNumber" = "タブ %lld";
+"tabBar.sheet.tabNumber" = "タブ%lld";
 "tabBar.sheet.column.tab" = "タブ";
 "tabBar.sheet.column.title" = "タイトル";
 "tabBar.sheet.column.agent" = "エージェント";

@@ -11,7 +11,7 @@
 "tabBar.collapsedList.accessibilityLabel" = "Список вкладок";
 "tabBar.collapsedHeader.accessibilityLabel" = "Показати всі вкладки";
 "tabBar.collapsedList.selectAction" = "Вибрати";
-"tabBar.sheet.tabNumber" = "Вкладка %lld";
+"tabBar.sheet.tabNumber" = "Вкладка%lld";
 "tabBar.sheet.column.tab" = "Вкладка";
 "tabBar.sheet.column.title" = "Назва";
 "tabBar.sheet.column.agent" = "Агент";

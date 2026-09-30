@@ -13,16 +13,15 @@ enum TabSheetMetrics {
     static let leadingRule: CGFloat = 3
     static let trailingPadding: CGFloat = 6
 
-    /// Wide enough for the localized "Tab 9999" at full size, never below 68.
+    /// Wide enough for the localized "Tab9999" at full size, never below 68.
     /// Fixed within a language, so nothing moves while the app runs.
     static let numberWidth: CGFloat = {
-        let sample = String(format: TabSheetFormat.localized("tabBar.sheet.tabNumber", "Tab %lld"), 9999)
+        let sample = TabSheetFormat.tabLabel(9999)
         let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
         let text = ceil((sample as NSString).size(withAttributes: [.font: font]).width)
         return max(68, text + numberTrailingInset + 2)
     }()
     static let numberTrailingInset: CGFloat = 10
-    static let markWidth: CGFloat = 18
     static let minTitleWidth: CGFloat = 260
     static let agentWidth: CGFloat = 150
     static let statusWidth: CGFloat = 104
@@ -36,7 +35,7 @@ enum TabSheetMetrics {
 
     /// Width of everything except the title column.
     static func fixedWidth(clockCount: Int) -> CGFloat {
-        leadingRule + numberWidth + markWidth + agentWidth + statusWidth
+        leadingRule + numberWidth + agentWidth + statusWidth
             + clockWidth * CGFloat(clockCount) + closeWidth + gripWidth + trailingPadding
     }
 
@@ -86,7 +85,7 @@ struct TabSheetLayout: Equatable {
 
     /// Compact sheets use a narrower Tab column (56pt for English).
     private static let compactNumberWidth: CGFloat = {
-        let sample = String(format: TabSheetFormat.localized("tabBar.sheet.tabNumber", "Tab %lld"), 999)
+        let sample = TabSheetFormat.tabLabel(999)
         let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
         return max(56, ceil((sample as NSString).size(withAttributes: [.font: font]).width) + 10)
     }()
@@ -99,7 +98,7 @@ struct TabSheetLayout: Equatable {
 
     /// Width of everything except the title column.
     var fixedWidth: CGFloat {
-        M.leadingRule + numberWidth + M.markWidth
+        M.leadingRule + numberWidth
             + (showsAgentColumn ? M.agentWidth : 0) + M.statusWidth
             + M.clockWidth * CGFloat(clocks.count)
             + (showsClose ? M.closeWidth : 0) + M.gripWidth + M.trailingPadding
@@ -113,6 +112,11 @@ struct TabSheetLayout: Equatable {
 // MARK: - Formatting
 
 enum TabSheetFormat {
+    /// "Tab17": the localized tab label, no separator between word and number.
+    static func tabLabel(_ ordinal: Int) -> String {
+        String(format: localized("tabBar.sheet.tabNumber", "Tab%lld"), Int64(ordinal))
+    }
+
     /// Clock names bonsplit can title on its own; a host can add more through
     /// `BonsplitController.sheetClockTitleProvider`.
     static let builtInClocks: [String] = ["active", "launched", "seen"]

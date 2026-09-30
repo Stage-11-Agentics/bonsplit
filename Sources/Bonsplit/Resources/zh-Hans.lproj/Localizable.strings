@@ -11,7 +11,7 @@
 "tabBar.collapsedList.accessibilityLabel" = "标签页列表";
 "tabBar.collapsedHeader.accessibilityLabel" = "显示所有标签页";
 "tabBar.collapsedList.selectAction" = "选择";
-"tabBar.sheet.tabNumber" = "标签 %lld";
+"tabBar.sheet.tabNumber" = "标签%lld";
 "tabBar.sheet.column.tab" = "标签页";
 "tabBar.sheet.column.title" = "标题";
 "tabBar.sheet.column.agent" = "代理";

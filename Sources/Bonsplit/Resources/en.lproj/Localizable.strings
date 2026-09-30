@@ -13,7 +13,7 @@
 "tabBar.collapsedList.accessibilityLabel" = "Tab list";
 "tabBar.collapsedHeader.accessibilityLabel" = "Show all tabs";
 "tabBar.collapsedList.selectAction" = "Select";
-"tabBar.sheet.tabNumber" = "Tab %lld";
+"tabBar.sheet.tabNumber" = "Tab%lld";
 "tabBar.sheet.column.tab" = "Tab";
 "tabBar.sheet.column.title" = "Title";
 "tabBar.sheet.column.agent" = "Agent";

@@ -248,21 +248,6 @@ struct TabRailView: View {
         let gold = TabBarColors.activeIndicator(for: appearance)
         let title = tab.detail?.title.flatMap { $0.isEmpty ? nil : $0 } ?? tab.title
         return HStack(spacing: 8) {
-            ZStack {
-                if let state = tab.activityState {
-                    CollapsedActivityMarkView(
-                        tab: tab,
-                        state: state,
-                        appearance: appearance,
-                        activityAnimationEnabled: activityAnimationEnabled,
-                        explicitActivityAnimationEnabled: explicitActivityAnimationEnabled
-                    )
-                } else if tab.showsNotificationBadge || tab.isDirty {
-                    Circle().fill(TabBarColors.notificationBadge(for: appearance)).frame(width: 7, height: 7)
-                }
-            }
-            .frame(width: 17, height: 17)
-
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
                     .font(.system(size: appearance.tabTitleFontSize + 0.5, weight: isSelected ? .bold : .regular))
@@ -274,12 +259,26 @@ struct TabRailView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if let ordinal = tab.displayOrdinal {
-                Text(String(format: TabSheetFormat.localized("tabBar.sheet.tabNumber", "Tab %lld"), Int64(ordinal)))
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(isSelected ? gold : palette.faintText)
-                    .lineLimit(1)
-                    .fixedSize()
+            // The number on top, the lifecycle mark under it, as in the sheet.
+            VStack(alignment: .trailing, spacing: 1) {
+                Group {
+                    if let ordinal = tab.displayOrdinal {
+                        Text(TabSheetFormat.tabLabel(ordinal))
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(isSelected ? gold : palette.faintText)
+                            .lineLimit(1)
+                            .fixedSize()
+                    } else {
+                        Color.clear
+                    }
+                }
+                .frame(height: 14)
+                TabLifecycleMarkSlot(
+                    tab: tab,
+                    appearance: appearance,
+                    activityAnimationEnabled: activityAnimationEnabled,
+                    explicitActivityAnimationEnabled: explicitActivityAnimationEnabled
+                )
             }
         }
         .padding(.leading, 7 + TabSheetMetrics.leadingRule)
