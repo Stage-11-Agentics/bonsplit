@@ -348,4 +348,18 @@ final class TabSheetGridTests: XCTestCase {
     func testTheTabLabelHasNoSeparator() {
         XCTAssertEqual(TabSheetFormat.tabLabel(17), "Tab17")
     }
+
+    func testDetailDecodesWithoutClocksOrClockTexts() throws {
+        // A payload written by an older build has neither key.
+        let old = try JSONDecoder().decode(BonsplitTabDetail.self, from: Data(#"{"title":"t","subtitle":"s"}"#.utf8))
+        XCTAssertEqual(old.title, "t")
+        XCTAssertTrue(old.clocks.isEmpty)
+        XCTAssertTrue(old.clockTexts.isEmpty)
+    }
+
+    func testDetailRoundTripsClockTexts() throws {
+        let detail = BonsplitTabDetail(clocks: ["active": Date(timeIntervalSince1970: 5)], clockTexts: ["turn": "4m 12s", "tools": "7"])
+        let back = try JSONDecoder().decode(BonsplitTabDetail.self, from: JSONEncoder().encode(detail))
+        XCTAssertEqual(back, detail)
+    }
 }
