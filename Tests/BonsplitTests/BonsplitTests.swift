@@ -1074,7 +1074,12 @@ final class BonsplitTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         contentView.layoutSubtreeIfNeeded()
 
-        let clickPoint = NSPoint(x: hostingView.bounds.maxX - 12, y: hostingView.bounds.midY)
+        // The count cell (64pt, round three) now owns the trailing end of the bar;
+        // the empty stretch that double-clicks into a new terminal is just left of it.
+        let clickPoint = NSPoint(
+            x: hostingView.bounds.maxX - TabCountCellMetrics.width - 40,
+            y: hostingView.bounds.midY
+        )
         guard let event = try? makeLeftMouseDownEvent(in: hostingView, at: clickPoint, clickCount: 2) else {
             XCTFail("Expected mouse event")
             return
@@ -1159,28 +1164,41 @@ final class BonsplitTests: XCTestCase {
             return
         }
 
-        let terminalButtonPoint = tabBarView.convert(
-            NSPoint(
-                x: tabBarView.bounds.maxX - metrics.effectiveChromeWidth + 17,
-                y: tabBarView.bounds.midY
-            ),
-            to: hostingView
-        )
-        try sendLeftMouseClick(in: hostingView, at: terminalButtonPoint)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
+        // The chrome is [count cell][agent spawn][terminal][browser][markdown]...
+        // and its button offsets are not fixed, so sweep left to right across it
+        // until the new-terminal button answers.
+        var foundTerminalButton = false
+        // Start after the count cell: a click on it opens the sheet.
+        var dx: CGFloat = TabCountCellMetrics.width + 4
+        while dx < metrics.effectiveChromeWidth, !foundTerminalButton {
+            newTabSpy.requestedKind = nil
+            let point = tabBarView.convert(
+                NSPoint(x: tabBarView.bounds.maxX - metrics.effectiveChromeWidth + dx, y: tabBarView.bounds.midY),
+                to: hostingView
+            )
+            try sendLeftMouseClick(in: hostingView, at: point)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+            foundTerminalButton = newTabSpy.requestedKind == "terminal"
+            dx += 6
+        }
+        XCTAssertTrue(foundTerminalButton, "no click across the chrome reached the new-terminal button")
         XCTAssertEqual(newTabSpy.requestedKind, "terminal")
         XCTAssertEqual(newTabSpy.requestedPaneId, pane.id)
 
-        let closeButtonPoint = tabBarView.convert(
-            NSPoint(
-                x: selectedFrame.maxX - TabBarMetrics.tabHorizontalPadding - (TabBarMetrics.closeButtonSize / 2),
-                y: tabBarView.bounds.midY
-            ),
-            to: hostingView
-        )
-        try sendLeftMouseClick(in: hostingView, at: closeButtonPoint)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        // The selected tab scrolls into the clear part of the strip as layout settles
+        // (round five); measure it again rather than trust the first frame.
+        pumpLayout(contentView) { false }
+        let settledFrame = metricsProbe.latest?.selectedTabFrameInBar ?? selectedFrame
+        // The selected tab's close button sits at its trailing edge; with the
+        // simplified tab geometry its hit area is not the old 6pt-padded 16pt
+        // square, so sweep the tab's trailing half from the edge inward.
+        var probe = settledFrame.maxX - 2
+        while probe > settledFrame.midX, closedTabId == nil {
+            let point = tabBarView.convert(NSPoint(x: probe, y: tabBarView.bounds.midY), to: hostingView)
+            try sendLeftMouseClick(in: hostingView, at: point)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+            probe -= 4
+        }
 
         XCTAssertEqual(closedTabId, lastTabId)
         XCTAssertEqual(closedPaneId, pane.id)
@@ -1235,7 +1253,8 @@ final class BonsplitTests: XCTestCase {
             XCTFail("Expected measured trailing content inset")
             return
         }
-        XCTAssertEqual(inset, 100, accuracy: 2)
+        // The host accessory (100pt) plus the count cell that now leads the chrome (round three).
+        XCTAssertEqual(inset, 100 + TabCountCellMetrics.width, accuracy: 2)
     }
 
     func testIconSaturationKeepsRasterFaviconInColorWhenInactive() {
