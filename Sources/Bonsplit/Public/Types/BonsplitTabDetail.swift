@@ -75,4 +75,16 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
         self.clocks = clocks
         self.clockTexts = clockTexts
     }
+
+    /// Decodes tolerantly: a payload written by an older build (drag payloads
+    /// cross builds) has no `clocks` or `clockTexts`, and must still decode.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.title = try c.decodeIfPresent(String.self, forKey: .title)
+        self.agentLabel = try c.decodeIfPresent(String.self, forKey: .agentLabel)
+        self.subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
+        self.status = try c.decodeIfPresent(Status.self, forKey: .status)
+        self.clocks = try c.decodeIfPresent([String: Date].self, forKey: .clocks) ?? [:]
+        self.clockTexts = try c.decodeIfPresent([String: String].self, forKey: .clockTexts) ?? [:]
+    }
 }
