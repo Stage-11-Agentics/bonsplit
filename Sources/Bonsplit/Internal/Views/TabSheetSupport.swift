@@ -158,7 +158,6 @@ struct TabCountCell: View {
     let hasBackgroundActivity: Bool
     let hasBackgroundWaiting: Bool
     let isOpen: Bool
-    let isHovered: Bool
     let appearance: BonsplitConfiguration.Appearance
     let height: CGFloat
 
@@ -185,7 +184,7 @@ struct TabCountCell: View {
         .background(
             isOpen
                 ? TabBarColors.activeIndicator(for: appearance)
-                : (isHovered ? palette.countCellHover : palette.countCell)
+                : palette.countCell
         )
         .overlay(alignment: .leading) {
             Rectangle().fill(TabBarColors.separator(for: appearance)).frame(width: 1)

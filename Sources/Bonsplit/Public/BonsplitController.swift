@@ -71,6 +71,26 @@ public final class BonsplitController {
     /// Unknown names are ignored by the sheet; nil or empty uses the default.
     @ObservationIgnored public var sheetClockOrderProvider: (() -> [String])?
 
+    /// A request to open or close a pane's tab sheet from outside the bar
+    /// (automation, accessibility). The bar acts on it when `paneId` is its own.
+    public struct TabSheetRequest: Equatable {
+        public let paneId: PaneID
+        public let open: Bool
+        let nonce: Int
+    }
+
+    /// Latest tab-sheet request; each call to `setTabSheetOpen` produces a new value.
+    public private(set) var tabSheetRequest: TabSheetRequest?
+
+    /// Opens or closes `paneId`'s tab sheet as if its count cell were tapped.
+    public func setTabSheetOpen(_ open: Bool, inPane paneId: PaneID) {
+        tabSheetRequest = TabSheetRequest(
+            paneId: paneId,
+            open: open,
+            nonce: (tabSheetRequest?.nonce ?? 0) + 1
+        )
+    }
+
     // MARK: - Internal State
 
     internal var internalController: SplitViewController
@@ -300,7 +320,9 @@ public final class BonsplitController {
     public func refreshTabDetails(inPane paneId: PaneID) {
         guard let provider = tabDetailProvider else { return }
         for tab in tabs(inPane: paneId) {
-            updateTab(tab.id, detail: .some(provider(tab.id)))
+            let fresh = provider(tab.id)
+            // Skip unchanged values: assigning invalidates every reader of the pane's tabs.
+            if tab.detail != fresh { updateTab(tab.id, detail: .some(fresh)) }
         }
     }
 

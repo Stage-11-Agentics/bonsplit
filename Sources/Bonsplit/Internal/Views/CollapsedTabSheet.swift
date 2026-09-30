@@ -345,6 +345,8 @@ struct CollapsedSheetAnchorReader: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            // A removal also lands here; never resolve to a detached view.
+            guard window != nil else { return }
             onResolve?(self)
         }
     }
@@ -738,11 +740,11 @@ struct CollapsedTabSheetView: View {
     private func agentCell(_ tab: TabItem) -> some View {
         if let label = tab.detail?.agentLabel, !label.isEmpty {
             Text(label)
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(palette.chipText)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .padding(.horizontal, 5)
+                .padding(.horizontal, 4)
                 .frame(height: 16)
                 .background(palette.chipFill)
                 .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(palette.chipBorder, lineWidth: 1))

@@ -262,7 +262,6 @@ enum TabBarColors {
         let block: Color
         let blockHover: Color
         let countCell: Color
-        let countCellHover: Color
         let text: Color
         let dimText: Color
         let faintText: Color
@@ -291,7 +290,6 @@ enum TabBarColors {
             block: pick(0x111215, 0xfbfbfc),
             blockHover: pick(0x1a1b1f, 0xeef0f4),
             countCell: pick(0x07080a, 0xffffff),
-            countCellHover: pick(0x1a1b1f, 0xeef0f4),
             text: pick(0xe8e8ea, 0x16171b),
             dimText: pick(0x9a9ca3, 0x55585f),
             faintText: pick(0x6f727a, 0x7d8088),

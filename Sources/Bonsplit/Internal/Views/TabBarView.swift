@@ -439,7 +439,8 @@ struct TabBarView<TrailingAccessory: View>: View {
     @State private var selectedTabFrameInBar: CGRect?
     @State private var trailingAccessoryWidth: CGFloat = 0
     @State private var splitButtonsIntrinsicWidth: CGFloat = 0
-    @State private var effectiveChromeWidth: CGFloat = TabBarStyling.splitButtonsBackdropWidth
+    @State private var effectiveChromeWidth: CGFloat =
+        TabBarStyling.splitButtonsBackdropWidth + TabCountCellMetrics.width
     @StateObject private var controlKeyMonitor = TabControlShortcutKeyMonitor()
     @StateObject private var scrollViewBridge = TabBarScrollViewBridge()
     // Responsive tab-strip tier. As a pane narrows the strip degrades in two
@@ -534,8 +535,8 @@ struct TabBarView<TrailingAccessory: View>: View {
         let internalSplitButtonsWidth = showSplitButtons ? splitButtonsIntrinsicWidth : 0
         let measuredWidth = max(max(0, trailingAccessoryWidth), max(0, internalSplitButtonsWidth))
         // The count cell always sits at the left of the chrome, so its fixed
-        // width is part of every measured result. The stored fallback already
-        // includes it.
+        // width is part of every measured result. The stored fallback (its
+        // initial value included) already carries it.
         guard measuredWidth > 0 else {
             return showSplitButtons ? max(0, effectiveChromeWidth) : TabCountCellMetrics.width
         }
@@ -611,6 +612,10 @@ struct TabBarView<TrailingAccessory: View>: View {
         }
         .frame(height: appearance.tabBarHeight)
         .onChange(of: isDropdownOpen) { _, _ in syncCollapsedSheet() }
+        .onChange(of: controller.tabSheetRequest) { _, request in
+            guard let request, request.paneId == pane.id, request.open != isDropdownOpen else { return }
+            isDropdownOpen = request.open
+        }
         .onChange(of: collapsedBlockWidth) { _, _ in
             if isDropdownOpen { syncCollapsedSheet() }
         }
@@ -1138,7 +1143,6 @@ struct TabBarView<TrailingAccessory: View>: View {
             hasBackgroundActivity: hasBackgroundActivity,
             hasBackgroundWaiting: hasBackgroundWaiting,
             isOpen: isDropdownOpen,
-            isHovered: false,
             appearance: appearance,
             height: max(0, appearance.tabBarHeight - ruleHeight)
         )
@@ -1181,7 +1185,6 @@ struct TabBarView<TrailingAccessory: View>: View {
                 hasBackgroundActivity: hasBackgroundActivity,
                 hasBackgroundWaiting: hasBackgroundWaiting,
                 isOpen: isDropdownOpen,
-                isHovered: false,
                 appearance: appearance,
                 height: blockHeight
             )
