@@ -611,7 +611,10 @@ struct TabBarView<TrailingAccessory: View>: View {
             }
         }
         .frame(height: appearance.tabBarHeight)
-        .onChange(of: isDropdownOpen) { _, _ in syncCollapsedSheet() }
+        .onChange(of: isDropdownOpen) { _, open in
+            if open { controller.openTabSheetPaneIds.insert(pane.id) } else { controller.openTabSheetPaneIds.remove(pane.id) }
+            syncCollapsedSheet()
+        }
         .onChange(of: controller.tabSheetRequest) { _, request in
             guard let request, request.paneId == pane.id, request.open != isDropdownOpen else { return }
             isDropdownOpen = request.open
@@ -648,6 +651,7 @@ struct TabBarView<TrailingAccessory: View>: View {
         }
         .onDisappear {
             isDropdownOpen = false
+            controller.openTabSheetPaneIds.remove(pane.id)
             sheetPresenter.dismiss()
         }
     }
@@ -1119,16 +1123,7 @@ struct TabBarView<TrailingAccessory: View>: View {
         })
     }
 
-    /// The dropdown control: a solid block in the active tab's background that
-    /// fills the bar's height (above the bottom rule), square-cornered and
-    /// flush left. Inside: activity mark, `N: title`, and a separate square
-    /// count cell at the right edge (background-waiting dot, count, chevron)
-    /// that fills gold while the sheet is open. Brightens on hover via the
-    /// shared `isHoveringTabBar` (the AppKit hover view). This view only
-    /// DRAWS; it adds no `.onHover`/NSView layer, so the outer bar's tap
-    /// gesture still fires over it. (A child `.onHover` here would create an
-    /// AppKit hosting layer that swallows the mouse-down: that mistake is why
-    /// the tap broke once.)
+    /// Cached per chrome background: a lookup, not a rebuild.
     private var sheetPalette: TabBarColors.SheetPalette {
         TabBarColors.sheetPalette(for: appearance)
     }
@@ -1158,7 +1153,18 @@ struct TabBarView<TrailingAccessory: View>: View {
         }
     }
 
+    /// The dropdown control: a solid block in the active tab's background that
+    /// fills the bar's height (above the bottom rule), square-cornered and
+    /// flush left. Inside: activity mark, `N: title`, and a separate square
+    /// count cell at the right edge (background-waiting dot, count, chevron)
+    /// that fills gold while the sheet is open. Brightens on hover via the
+    /// shared `isHoveringTabBar` (the AppKit hover view). This view only
+    /// DRAWS; it adds no `.onHover`/NSView layer, so the outer bar's tap
+    /// gesture still fires over it. (A child `.onHover` here would create an
+    /// AppKit hosting layer that swallows the mouse-down: that mistake is why
+    /// the tap broke once.)
     private var collapsedHeaderBlock: some View {
+        let palette = sheetPalette
         let ruleHeight = isFocused ? appearance.tabActiveIndicatorHeight : 1
         let blockHeight = max(0, appearance.tabBarHeight - ruleHeight)
         let gold = TabBarColors.activeIndicator(for: appearance)
@@ -1173,7 +1179,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                     .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .foregroundStyle(sheetPalette.text)
+                    .foregroundStyle(palette.text)
 
                 Spacer(minLength: 0)
             }
@@ -1190,7 +1196,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             )
         }
         .frame(height: blockHeight)
-        .background(isHoveringTabBar || isDropdownOpen ? sheetPalette.blockHover : sheetPalette.block)
+        .background(isHoveringTabBar || isDropdownOpen ? palette.blockHover : palette.block)
         .overlay(alignment: .trailing) {
             Rectangle()
                 .fill(TabBarColors.separator(for: appearance))
@@ -1259,7 +1265,12 @@ struct TabBarView<TrailingAccessory: View>: View {
             sheetPresenter.dismiss()
             return
         }
-        let clocks = TabSheetFormat.resolvedClocks(controller.sheetClockOrderProvider?())
+        let titleProvider = controller.sheetClockTitleProvider
+        let clocks = TabSheetFormat.resolvedClocks(controller.sheetClockOrderProvider?()) { name in
+            TabSheetFormat.clockTitle(name, hostTitle: titleProvider?(name)) != nil
+        }
+        var clockTitles: [String: String] = [:]
+        for name in clocks { if let title = titleProvider?(name) { clockTitles[name] = title } }
         if !sheetPresenter.isPresented {
             // Recompute the host detail once as the sheet opens: values that
             // change without a metadata event (the activity clock) are fresh.
@@ -1277,6 +1288,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                 width: max(sheetWidth(clockCount: clocks.count), layoutTier == .full ? 0 : collapsedBlockWidth),
                 controlsRowHeight: sheetControlsRowHeight,
                 clocks: clocks,
+                clockTitles: clockTitles,
                 activityAnimationEnabled: activityAnimationEnabled,
                 explicitActivityAnimationEnabled: explicitActivityAnimationEnabled,
                 makeItemProvider: { createItemProvider(for: $0) },

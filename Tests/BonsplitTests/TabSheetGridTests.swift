@@ -14,6 +14,81 @@ final class TabSheetGridTests: XCTestCase {
         XCTAssertEqual(TabSheetFormat.age(from: base, to: base.addingTimeInterval(72 * 3600)), "3d")
     }
 
+    func testSecondsRoundDown() {
+        XCTAssertEqual(TabSheetFormat.age(from: base, to: base.addingTimeInterval(59.5)), "59s")
+        XCTAssertEqual(TabSheetFormat.age(from: base, to: base.addingTimeInterval(59.99)), "59s")
+        XCTAssertEqual(TabSheetFormat.age(from: base, to: base.addingTimeInterval(60)), "1m")
+    }
+
+    func testHostClocksNeedNoBonsplitChange() {
+        // A clock bonsplit has never heard of is kept when the host knows it.
+        XCTAssertEqual(
+            TabSheetFormat.resolvedClocks(["active", "deploy"]) { $0 == "active" || $0 == "deploy" },
+            ["active", "deploy"]
+        )
+        XCTAssertEqual(TabSheetFormat.clockTitle("deploy", hostTitle: "Deployed"), "Deployed")
+        XCTAssertNil(TabSheetFormat.clockTitle("deploy"))
+        XCTAssertEqual(TabSheetFormat.clockTitle("active"), "Active")
+    }
+
+    func testAttentionRuleBelongsToTheHost() {
+        XCTAssertTrue(BonsplitTabDetail.Status(kind: .waiting).needsAttention)
+        XCTAssertTrue(BonsplitTabDetail.Status(kind: .flagged).needsAttention)
+        XCTAssertFalse(BonsplitTabDetail.Status(kind: .working).needsAttention)
+        // The host can decide otherwise (a suppressed waiting tab, say).
+        let suppressed = TabItem(title: "t", detail: BonsplitTabDetail(status: .init(kind: .waiting, needsAttention: false)))
+        let idleButWanted = TabItem(title: "t", detail: BonsplitTabDetail(status: .init(kind: .idle, needsAttention: true)))
+        XCTAssertEqual(TabSheetFormat.needYouCount([suppressed, idleButWanted]), 1)
+    }
+
+    func testPaletteIsCachedPerBackground() {
+        let dark = BonsplitConfiguration.Appearance(chromeColors: .init(backgroundHex: "#101010"))
+        let light = BonsplitConfiguration.Appearance(chromeColors: .init(backgroundHex: "#F4F4F6"))
+        XCTAssertEqual(TabBarColors.sheetPalette(for: dark).background, TabBarColors.sheetPalette(for: dark).background)
+        XCTAssertNotEqual(TabBarColors.sheetPalette(for: dark).background, TabBarColors.sheetPalette(for: light).background)
+    }
+
+    /// Every localized header, status word and time unit must fit its fixed column
+    /// without truncating: the grid never reflows to make room.
+    func testLocalizedTextFitsItsColumns() throws {
+        let locales = ["en", "ja", "ko", "ru", "uk", "zh-Hans", "zh-Hant"]
+        let header = NSFont.systemFont(ofSize: 10, weight: .bold)
+        let bold11 = NSFont.systemFont(ofSize: 11, weight: .bold)
+        let mono11 = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+        func width(_ text: String, _ font: NSFont, kern: CGFloat = 0) -> CGFloat {
+            (text as NSString).size(withAttributes: [.font: font, .kern: kern]).width
+        }
+        for locale in locales {
+            let path = try XCTUnwrap(
+                Bundle.module.path(forResource: locale, ofType: "lproj")
+                    ?? Bundle.module.path(forResource: locale.lowercased(), ofType: "lproj"),
+                locale
+            )
+            let bundle = try XCTUnwrap(Bundle(path: path))
+            func string(_ key: String) -> String { bundle.localizedString(forKey: "tabBar.sheet.\(key)", value: "MISSING", table: nil) }
+            for (key, room) in [
+                ("column.tab", TabSheetMetrics.numberWidth - 10),
+                ("column.agent", TabSheetMetrics.agentWidth - 10),
+                ("column.status", TabSheetMetrics.statusWidth - 10),
+                ("clock.active", TabSheetMetrics.clockWidth - 8),
+                ("clock.launched", TabSheetMetrics.clockWidth - 8),
+                ("clock.seen", TabSheetMetrics.clockWidth - 8),
+            ] as [(String, CGFloat)] {
+                let text = string(key).uppercased()
+                XCTAssertNotEqual(text, "MISSING", "\(locale) \(key)")
+                XCTAssertLessThanOrEqual(width(text, header, kern: 0.6), room, "\(locale) \(key) '\(text)'")
+            }
+            // "Tab 1024", scaled down to 70% at worst.
+            let tab = String(format: string("tabNumber"), 1024)
+            XCTAssertLessThanOrEqual(width(tab, mono11) * 0.7, TabSheetMetrics.numberWidth - 10, "\(locale) '\(tab)'")
+            // The longest status word with a three-character age and a space.
+            for kind in ["working", "waiting", "flagged", "idle", "cold"] {
+                let word = string("status.\(kind)")
+                XCTAssertLessThanOrEqual(width(word + " 59m", bold11), TabSheetMetrics.statusWidth - 10, "\(locale) \(kind)")
+            }
+        }
+    }
+
     func testAgeNeverNegative() {
         XCTAssertEqual(TabSheetFormat.age(from: base.addingTimeInterval(30), to: base), "1s")
     }

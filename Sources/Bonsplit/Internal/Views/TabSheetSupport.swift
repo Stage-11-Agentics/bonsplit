@@ -39,28 +39,31 @@ enum TabSheetMetrics {
 // MARK: - Formatting
 
 enum TabSheetFormat {
-    static let knownClocks: [String] = ["active", "launched", "seen"]
+    /// Clock names bonsplit can title on its own; a host can add more through
+    /// `BonsplitController.sheetClockTitleProvider`.
+    static let builtInClocks: [String] = ["active", "launched", "seen"]
     static let defaultClocks: [String] = ["active", "launched"]
 
-    /// Normalizes a host-supplied clock list: lowercased, trimmed, unknown
-    /// names dropped, duplicates removed, order kept. Empty falls back to the
-    /// default order.
-    static func resolvedClocks(_ raw: [String]?) -> [String] {
+    /// Normalizes a host-supplied clock list: lowercased, trimmed, names that
+    /// `isKnown` rejects dropped, duplicates removed, order kept. Empty falls
+    /// back to the default order.
+    static func resolvedClocks(_ raw: [String]?, isKnown: (String) -> Bool = { builtInClocks.contains($0) }) -> [String] {
         var seen = Set<String>()
         var out: [String] = []
         for entry in raw ?? [] {
             let name = entry.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard knownClocks.contains(name), seen.insert(name).inserted else { continue }
+            guard isKnown(name), seen.insert(name).inserted else { continue }
             out.append(name)
         }
         return out.isEmpty ? defaultClocks : out
     }
 
-    /// Compact relative age: `5s`, `12m`, `2.2h`, `26h`, `3d`.
+    /// Compact relative age: `5s`, `12m`, `2.2h`, `26h`, `3d`. Every bucket
+    /// rounds down, so 59.5 seconds reads `59s`, never `60s`.
     static func age(from date: Date, to now: Date) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
         if seconds < 60 {
-            return String(format: localized("tabBar.sheet.time.seconds", "%llds"), Int64(max(1, seconds.rounded())))
+            return String(format: localized("tabBar.sheet.time.seconds", "%llds"), Int64(max(1, seconds.rounded(.down))))
         }
         let minutes = seconds / 60
         if minutes < 60 {
@@ -68,13 +71,26 @@ enum TabSheetFormat {
         }
         let hours = minutes / 60
         if hours < 48 {
-            let number = hours < 10
-                ? String(format: "%.1f", (hours * 10).rounded(.down) / 10).replacingOccurrences(of: ".0", with: "")
-                : String(Int64(hours.rounded(.down)))
+            let number: String
+            if hours < 10 {
+                number = hoursFormatter.string(from: NSNumber(value: (hours * 10).rounded(.down) / 10)) ?? String(Int64(hours))
+            } else {
+                number = String(Int64(hours.rounded(.down)))
+            }
             return String(format: localized("tabBar.sheet.time.hours", "%@h"), number)
         }
         return String(format: localized("tabBar.sheet.time.days", "%lldd"), Int64((hours / 24).rounded(.down)))
     }
+
+    /// One decimal at most, in the user's locale (`2,2` in Russian).
+    private static let hoursFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 1
+        formatter.roundingMode = .floor
+        return formatter
+    }()
 
     static func statusWord(_ kind: BonsplitTabDetail.StatusKind) -> String {
         switch kind {
@@ -86,12 +102,14 @@ enum TabSheetFormat {
         }
     }
 
-    static func clockTitle(_ name: String) -> String {
+    /// Header title for a clock: the host's, else bonsplit's built-in, else nil.
+    static func clockTitle(_ name: String, hostTitle: String? = nil) -> String? {
+        if let hostTitle, !hostTitle.isEmpty { return hostTitle }
         switch name {
         case "active": return localized("tabBar.sheet.clock.active", "Active")
         case "launched": return localized("tabBar.sheet.clock.launched", "Launched")
         case "seen": return localized("tabBar.sheet.clock.seen", "Seen")
-        default: return name
+        default: return nil
         }
     }
 
@@ -106,12 +124,11 @@ enum TabSheetFormat {
         String(format: localized("tabBar.sheet.footer.needYou", "%lld need you"), Int64(count))
     }
 
-    /// Tabs that want the operator: waiting plus flagged.
+    /// Tabs the host says want the operator (by default waiting and flagged).
     static func needYouCount(_ tabs: [TabItem]) -> Int {
         tabs.filter { tab in
-            tab.detail?.status?.kind == .flagged
-                || tab.detail?.status?.kind == .waiting
-                || (tab.detail?.status == nil && tab.activityState == .waiting)
+            if let status = tab.detail?.status { return status.needsAttention }
+            return tab.activityState == .waiting
         }.count
     }
 
@@ -125,22 +142,22 @@ enum TabSheetFormat {
     }
 }
 
-// MARK: - Live relative time
+// MARK: - Relative time
 
-/// Relative-time text that refreshes about once a second. It exists only
-/// inside the open sheet, so nothing ticks while the sheet is closed. Digits
-/// are tabular and the caller fixes the width, so a tick never moves a column.
+/// Relative-time text for one cell. It takes the sheet's single shared tick
+/// (`now`), so every cell changes on the same instant and nothing ticks on its
+/// own. Digits are tabular and the caller fixes the width, so a tick never
+/// moves a column.
 struct TabSheetAgeText: View {
     let since: Date
+    let now: Date
     var font: Font = .system(size: 11, design: .monospaced)
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            Text(TabSheetFormat.age(from: since, to: context.date))
-                .font(font)
-                .monospacedDigit()
-                .lineLimit(1)
-        }
+        Text(TabSheetFormat.age(from: since, to: now))
+            .font(font)
+            .monospacedDigit()
+            .lineLimit(1)
     }
 }
 

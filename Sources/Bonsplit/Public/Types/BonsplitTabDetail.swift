@@ -18,10 +18,14 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
         public var kind: StatusKind
         /// When the tab entered `kind`; the sheet renders the elapsed time.
         public var since: Date?
+        /// Whether the operator is wanted (counted as "need you" in the sheet's
+        /// footer). The host decides; the default is waiting and flagged.
+        public var needsAttention: Bool
 
-        public init(kind: StatusKind, since: Date? = nil) {
+        public init(kind: StatusKind, since: Date? = nil, needsAttention: Bool? = nil) {
             self.kind = kind
             self.since = since
+            self.needsAttention = needsAttention ?? (kind == .waiting || kind == .flagged)
         }
     }
 

@@ -271,7 +271,23 @@ enum TabBarColors {
         let chipText: Color
     }
 
+    private static let paletteCacheLock = NSLock()
+    nonisolated(unsafe) private static var paletteCache: [String: SheetPalette] = [:]
+
+    /// One palette per chrome background (or per system appearance when there is
+    /// none). Cached so a sheet body evaluates against stable colors instead of
+    /// rebuilding dynamic NSColors for every row and cell.
     static func sheetPalette(for appearance: BonsplitConfiguration.Appearance) -> SheetPalette {
+        let key = appearance.chromeColors.backgroundHex?.lowercased() ?? ""
+        paletteCacheLock.lock()
+        defer { paletteCacheLock.unlock() }
+        if let cached = paletteCache[key] { return cached }
+        let built = buildSheetPalette(for: appearance)
+        paletteCache[key] = built
+        return built
+    }
+
+    private static func buildSheetPalette(for appearance: BonsplitConfiguration.Appearance) -> SheetPalette {
         let forced: Bool? = chromeBackgroundColor(for: appearance).map { !$0.isBonsplitLightColor }
         func pick(_ dark: UInt32, _ light: UInt32) -> Color {
             if let forced { return Color(nsColor: hex(forced ? dark : light)) }
@@ -298,17 +314,6 @@ enum TabBarColors {
             chipBorder: pick(0x33353c, 0xd3d6dc),
             chipText: pick(0xb9bbc2, 0x3c3f46)
         )
-    }
-
-    /// The flagged accent: c11's flag violet, brightened enough to read on the
-    /// near-black sheet and deepened enough to read on the near-white one.
-    static func flaggedInk(for appearance: BonsplitConfiguration.Appearance) -> Color {
-        let forced: Bool? = chromeBackgroundColor(for: appearance).map { !$0.isBonsplitLightColor }
-        if let forced { return Color(nsColor: hex(forced ? 0xa97cf0 : 0x6d3fc9)) }
-        return Color(nsColor: NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return hex(isDark ? 0xa97cf0 : 0x6d3fc9)
-        })
     }
 
     private static func hex(_ value: UInt32) -> NSColor {

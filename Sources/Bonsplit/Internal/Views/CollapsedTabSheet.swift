@@ -418,6 +418,8 @@ struct CollapsedTabSheetView: View {
     let controlsRowHeight: CGFloat
     /// Ordered clock names, already normalized by `TabSheetFormat.resolvedClocks`.
     let clocks: [String]
+    /// Host-supplied header titles by clock name; missing entries use bonsplit's built-ins.
+    let clockTitles: [String: String]
     let activityAnimationEnabled: Bool
     let explicitActivityAnimationEnabled: Bool
     let makeItemProvider: (TabItem) -> NSItemProvider
@@ -428,13 +430,26 @@ struct CollapsedTabSheetView: View {
 
     private typealias M = TabSheetMetrics
 
+    /// Cached per chrome background, so this is a lookup, not a rebuild.
     private var palette: TabBarColors.SheetPalette { TabBarColors.sheetPalette(for: appearance) }
 
     private var titleColumnWidth: CGFloat {
         max(80, width - M.fixedWidth(clockCount: clocks.count))
     }
 
+    /// The one ticker for the whole sheet: every relative time reads the same
+    /// `now`, and about every five seconds the host re-supplies its detail so
+    /// the clocks and state start times keep advancing while the sheet is open.
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            sheet(now: context.date)
+                .onChange(of: Int(context.date.timeIntervalSinceReferenceDate / 5)) { _, _ in
+                    controller.refreshTabDetails(inPane: pane.id)
+                }
+        }
+    }
+
+    private func sheet(now: Date) -> some View {
         VStack(spacing: 0) {
             if includesControls {
                 controlsRow
@@ -442,10 +457,10 @@ struct CollapsedTabSheetView: View {
             }
             headerRow
             if pane.tabs.count > M.maxVisibleRows {
-                ScrollView { rows }
+                ScrollView { rows(now: now) }
                     .frame(maxHeight: M.rowHeight * CGFloat(M.maxVisibleRows))
             } else {
-                rows
+                rows(now: now)
             }
             footerRow
         }
@@ -470,10 +485,10 @@ struct CollapsedTabSheetView: View {
         ))
     }
 
-    private var rows: some View {
+    private func rows(now: Date) -> some View {
         VStack(spacing: 0) {
             ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
-                row(tab, at: index)
+                row(tab, at: index, now: now)
             }
         }
     }
@@ -489,7 +504,7 @@ struct CollapsedTabSheetView: View {
             headerLabel(TabSheetFormat.localized("tabBar.sheet.column.agent", "Agent"), width: M.agentWidth, alignment: .leading, leadingInset: 10)
             headerLabel(TabSheetFormat.localized("tabBar.sheet.column.status", "Status"), width: M.statusWidth, alignment: .leading, leadingInset: 10)
             ForEach(clocks, id: \.self) { name in
-                headerLabel(TabSheetFormat.clockTitle(name), width: M.clockWidth, alignment: .trailing, trailingInset: 8)
+                headerLabel(TabSheetFormat.clockTitle(name, hostTitle: clockTitles[name]) ?? name, width: M.clockWidth, alignment: .trailing, trailingInset: 8)
             }
             Color.clear.frame(width: M.closeWidth + M.gripWidth + M.trailingPadding)
         }
@@ -560,7 +575,7 @@ struct CollapsedTabSheetView: View {
     }
 
     @ViewBuilder
-    private func row(_ tab: TabItem, at index: Int) -> some View {
+    private func row(_ tab: TabItem, at index: Int, now: Date) -> some View {
         let isSelected = pane.selectedTabId == tab.id
         let isHovered = hoveredTabId == tab.id
         let gold = TabBarColors.activeIndicator(for: appearance)
@@ -574,7 +589,7 @@ struct CollapsedTabSheetView: View {
                         .font(.system(size: 11, weight: .bold, design: .monospaced))
                         .foregroundStyle(isSelected ? gold : palette.faintText)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                        .minimumScaleFactor(0.7)
                         .padding(.trailing, 10)
                 } else {
                     dash().padding(.trailing, 10)
@@ -611,7 +626,7 @@ struct CollapsedTabSheetView: View {
                     agentCell(tab)
                         .padding(.leading, 10)
                         .frame(width: M.agentWidth, alignment: .leading)
-                    statusCell(tab)
+                    statusCell(tab, now: now)
                         .padding(.leading, 10)
                         .frame(width: M.statusWidth, alignment: .leading)
                 }
@@ -628,7 +643,7 @@ struct CollapsedTabSheetView: View {
                 column(width: M.clockWidth, alignment: .trailing) {
                     Group {
                         if let date = TabSheetFormat.clockDate(name, in: tab) {
-                            TabSheetAgeText(since: date)
+                            TabSheetAgeText(since: date, now: now)
                                 .foregroundStyle(palette.dimText)
                         } else {
                             dash()
@@ -757,14 +772,14 @@ struct CollapsedTabSheetView: View {
     }
 
     @ViewBuilder
-    private func statusCell(_ tab: TabItem) -> some View {
+    private func statusCell(_ tab: TabItem, now: Date) -> some View {
         if let status = tab.detail?.status {
-            let color = statusColor(status.kind)
+            let color = statusColor(status.kind, tab: tab)
             HStack(spacing: 4) {
                 Text(TabSheetFormat.statusWord(status.kind))
                     .lineLimit(1)
                 if let since = status.since {
-                    TabSheetAgeText(since: since, font: .system(size: 11, weight: status.kind == .idle || status.kind == .cold ? .semibold : .bold))
+                    TabSheetAgeText(since: since, now: now, font: .system(size: 11, weight: status.kind == .idle || status.kind == .cold ? .semibold : .bold))
                 }
             }
             .font(.system(size: 11, weight: status.kind == .idle || status.kind == .cold ? .semibold : .bold))
@@ -774,11 +789,14 @@ struct CollapsedTabSheetView: View {
         }
     }
 
-    private func statusColor(_ kind: BonsplitTabDetail.StatusKind) -> Color {
+    private func statusColor(_ kind: BonsplitTabDetail.StatusKind, tab: TabItem) -> Color {
         switch kind {
         case .working: return TabBarColors.activity(.running, for: appearance)
         case .waiting: return TabBarColors.activity(.waiting, for: appearance)
-        case .flagged: return TabBarColors.flaggedInk(for: appearance)
+        case .flagged:
+            // The same violet as the tab's activity mark (the host's flag colour).
+            let mark = tab.activityPresentation?.colorOverrideHex.flatMap(NSColor.init(bonsplitHex:))
+            return mark.map(Color.init(nsColor:)) ?? TabBarColors.activity(.waiting, for: appearance)
         case .idle, .cold: return palette.faintText
         }
     }
@@ -805,8 +823,9 @@ struct CollapsedTabSheetView: View {
     }
 
     private func rowBackground(isSelected: Bool, isHovered: Bool) -> Color {
-        if isHovered { return palette.rowHover }
+        // The visible tab keeps its own fill under the pointer.
         if isSelected { return palette.rowActive }
+        if isHovered { return palette.rowHover }
         return .clear
     }
 

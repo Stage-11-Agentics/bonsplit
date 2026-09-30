@@ -91,6 +91,16 @@ public final class BonsplitController {
         )
     }
 
+    /// Host-supplied display title for a clock name (already localized), so a
+    /// clock the host adds needs no bonsplit change. nil falls back to the
+    /// built-in titles for `active`, `launched` and `seen`; a name with neither
+    /// is ignored.
+    @ObservationIgnored public var sheetClockTitleProvider: ((_ clock: String) -> String?)?
+
+    /// Panes whose tab sheet is open right now. The host uses it to skip
+    /// recomputing sheet detail while nothing can show it.
+    @ObservationIgnored public internal(set) var openTabSheetPaneIds: Set<PaneID> = []
+
     // MARK: - Internal State
 
     internal var internalController: SplitViewController
