@@ -214,7 +214,15 @@ final class TabSheetGridTests: XCTestCase {
         // A small area is never crushed by the 200pt floor: at most 45% of it.
         XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 250), 113)
         XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 419), 189)
-        XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 420), 200)
+        XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 420), 189)   // the cap has no cliff at 420
+        XCTAssertEqual(TabRailMetrics.width(forAreaWidth: 444), 200)   // the floor returns once 45% allows it
+        // Continuous: one point of area never moves the rail by more than a point or two.
+        var previous = TabRailMetrics.width(forAreaWidth: 100)
+        for area in stride(from: 101, through: 1200, by: 1) {
+            let width = TabRailMetrics.width(forAreaWidth: CGFloat(area))
+            XCTAssertLessThanOrEqual(abs(width - previous), 2, "jump at area \(area)")
+            previous = width
+        }
     }
 
     @MainActor

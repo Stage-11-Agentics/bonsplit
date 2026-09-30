@@ -63,6 +63,16 @@ enum TabStripScroll {
     static func clampedOffset(_ offset: CGFloat, contentWidth: CGFloat, viewportWidth: CGFloat) -> CGFloat {
         min(max(0, offset), max(0, contentWidth - viewportWidth))
     }
+
+    /// The `ScrollViewProxy.scrollTo` anchor (x) that puts a tab where `delta`
+    /// would have put it: the proxy aligns the anchor point of the tab with the
+    /// same point of the viewport, so the tab's leading edge ends at
+    /// `a * (viewport - width)`.
+    static func proxyAnchor(frameMinX: CGFloat, frameWidth: CGFloat, viewportWidth: CGFloat, delta: CGFloat) -> CGFloat {
+        let travel = viewportWidth - frameWidth
+        guard travel > 0 else { return 0 }
+        return min(1, max(0, (frameMinX - delta) / travel))
+    }
 }
 
 // MARK: - Wheel routing
@@ -90,8 +100,13 @@ enum TabStripWheelAction: Equatable {
 /// phases (a notched mouse wheel) is decided event by event.
 struct TabStripWheelRouter {
     private var latched: Bool?
+    /// This router saw the current gesture begin. A gesture it did not see begin
+    /// (it started in another view, or before routing was on) is never the strip's.
+    private var sawBegin = false
+    /// The finger lifted (`phase` ended) and no momentum has followed yet.
+    private var fingerLifted = false
 
-    mutating func reset() { latched = nil }
+    mutating func reset() { latched = nil; sawBegin = false; fingerLifted = false }
 
     /// `eligible` is asked at most once per gesture, at its first event that
     /// carries movement: it answers whether the strip may take this gesture
@@ -110,15 +125,28 @@ struct TabStripWheelRouter {
 
         if input.phase.contains(.began) || input.phase.contains(.mayBegin) {
             latched = nil
+            sawBegin = true
+            fingerLifted = false
+        } else if fingerLifted, !input.phase.isEmpty {
+            // A new touch sequence whose start was never seen here.
+            latched = false
+            sawBegin = false
+            fingerLifted = false
         }
         if latched == nil, input.momentumPhase.isEmpty, moves {
-            // First moving event of a gesture: vertical-dominant and eligible.
-            latched = abs(input.deltaY) > abs(input.deltaX) && eligible()
+            // First moving event of a gesture: seen from its start, vertical-dominant
+            // and eligible.
+            latched = sawBegin && abs(input.deltaY) > abs(input.deltaX) && eligible()
         }
 
         let takes = latched == true
+        if input.phase.contains(.ended) || input.phase.contains(.cancelled) {
+            fingerLifted = true
+        }
+        if !input.momentumPhase.isEmpty { fingerLifted = false }
         if input.momentumPhase.contains(.ended) || input.momentumPhase.contains(.cancelled) {
             latched = nil
+            sawBegin = false
         }
         guard takes, moves else { return .pass }
         return .remap(-input.deltaY)
@@ -259,6 +287,13 @@ final class TabBarScrollViewBridge: ObservableObject {
     /// reveal runs when it arrives.
     func requestReveal(_ id: UUID, reason: RevealReason) {
         if reason == .selection { userScrolledSinceSelection = false }
+        // A width change must not replace a selection or flash reveal still waiting
+        // for its frame: that one is the stronger request.
+        if reason == .geometry, let pending = pendingReveal, pending.reason != .geometry,
+           Date().timeIntervalSince(pending.at) < 1.5 {
+            performPendingReveal()
+            return
+        }
         pendingReveal = (id, reason, Date())
         performPendingReveal()
     }
@@ -271,12 +306,6 @@ final class TabBarScrollViewBridge: ObservableObject {
         guard Date().timeIntervalSince(pending.at) < 1.5 else { pendingReveal = nil; return }
         guard let metrics = mirrorMetrics else { return }
         let canWrite = scrollToOffset != nil || scrollView != nil
-        guard canWrite else {
-            // Neither driver: fall back to the scroll view proxy, as before.
-            pendingReveal = nil
-            scrollToID?(pending.id, pending.reason == .selection || pending.reason == .flash ? .center : .center)
-            return
-        }
         guard let frame = tabFrames[pending.id] else { return }
         if pending.reason == .geometry,
            !TabStripScroll.shouldRevealAfterGeometryChange(
@@ -297,11 +326,24 @@ final class TabBarScrollViewBridge: ObservableObject {
             trailingObscured: chromeInset
         )
         guard delta != 0 else { return }
-        if scrollHorizontally(by: delta, metrics: metrics) {
-            // The measured frame is stale until SwiftUI lays out again.
-            tabFrames[pending.id] = nil
-            if pending.reason == .hover { userScrolledSinceSelection = true }
+        if canWrite {
+            guard scrollHorizontally(by: delta, metrics: metrics) else { return }
+        } else if let scrollToID {
+            // No offset driver (macOS 14 without a reachable clip view): the proxy
+            // places the tab where the reveal rule wants it, not at the centre.
+            let anchor = TabStripScroll.proxyAnchor(
+                frameMinX: frame.minX,
+                frameWidth: frame.width,
+                viewportWidth: metrics.viewportWidth,
+                delta: delta
+            )
+            scrollToID(pending.id, UnitPoint(x: anchor, y: 0.5))
+        } else {
+            return
         }
+        // The measured frame is stale until SwiftUI lays out again.
+        tabFrames[pending.id] = nil
+        if pending.reason == .hover { userScrolledSinceSelection = true }
     }
 
     // MARK: Leading-edge rules
@@ -395,35 +437,49 @@ final class TabBarScrollViewBridge: ObservableObject {
     }
 
     private func handleScrollWheel(_ event: NSEvent) -> Bool {
-        // Cheap rejects first: this monitor sees every scroll in the app.
-        guard let barView, let window = barView.window, event.window === window,
-              let strip = stripBounds(),
-              strip.contains(barView.convert(event.locationInWindow, from: nil)) else { return false }
-        // Any wheel over the strip counts as the operator scrolling it.
-        userScrolledSinceSelection = true
+        // Cheap reject first: this monitor sees every scroll in the app.
+        guard let barView, let window = barView.window, event.window === window else { return false }
         let input = TabStripWheelInput(
             phase: event.phase,
             momentumPhase: event.momentumPhase,
             deltaX: event.scrollingDeltaX,
             deltaY: event.scrollingDeltaY
         )
-        let action = wheelRouter.route(input) { isEligibleForWheel(event) }
-        guard case .remap(let delta) = action, let metrics = mirrorMetrics else { return false }
-        let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 8
-        return scrollHorizontally(by: delta * scale, metrics: metrics)
+        return handleWheel(input, locationInWindow: event.locationInWindow, precise: event.hasPreciseScrollingDeltas)
     }
 
-    /// Whether the strip may take a vertical scroll that starts here: this bar
-    /// is on screen (not in a hidden workspace or under an overlay), its
-    /// workspace is live, the pointer really hits this bar's content, and there
-    /// is something to scroll.
-    private func isEligibleForWheel(_ event: NSEvent) -> Bool {
-        guard let barView, let window = barView.window, window.isVisible,
+    /// Every scroll in the bar's window passes through the router, so it sees
+    /// each gesture begin and end wherever the pointer is; whether the strip may
+    /// take a gesture is decided once, at its start, by `isEligibleForWheel`
+    /// (which includes the pointer being over the strip). Returns whether the
+    /// event was consumed.
+    func handleWheel(_ input: TabStripWheelInput, locationInWindow: NSPoint, precise: Bool) -> Bool {
+        if isPointerOverStrip(locationInWindow) {
+            // Any wheel over the strip counts as the operator scrolling it.
+            userScrolledSinceSelection = true
+        }
+        let action = wheelRouter.route(input) { isEligibleForWheel(locationInWindow: locationInWindow) }
+        guard case .remap(let delta) = action, let metrics = mirrorMetrics else { return false }
+        return scrollHorizontally(by: delta * (precise ? 1 : 8), metrics: metrics)
+    }
+
+    private func isPointerOverStrip(_ locationInWindow: NSPoint) -> Bool {
+        guard let barView, let strip = stripBounds() else { return false }
+        return strip.contains(barView.convert(locationInWindow, from: nil))
+    }
+
+    /// Whether the strip may take a vertical scroll that starts here: the
+    /// pointer is over the strip, this bar is on screen (not in a hidden
+    /// workspace or under an overlay), its workspace is live, the pointer really
+    /// hits this bar's content, and there is something to scroll.
+    private func isEligibleForWheel(locationInWindow: NSPoint) -> Bool {
+        guard isPointerOverStrip(locationInWindow),
+              let barView, let window = barView.window, window.isVisible,
               !barView.isHiddenOrHasHiddenAncestor,
               isInteractiveProvider?() == true,
               let metrics = mirrorMetrics, metrics.documentWidth > metrics.viewportWidth + 1,
               let content = window.contentView else { return false }
-        let hit = content.hitTest(content.convert(event.locationInWindow, from: nil))
+        let hit = content.hitTest(content.convert(locationInWindow, from: nil))
         guard let hit else { return false }
         return hit.isDescendant(of: hostingAncestor(of: barView))
     }

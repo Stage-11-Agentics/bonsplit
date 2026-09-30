@@ -131,14 +131,16 @@ public final class BonsplitController {
     /// `configuration.appearance.tabLayout == .rail`.
     public internal(set) var railOpenPaneIds: Set<PaneID> = []
 
-    /// Whether anything in `paneId` is currently showing per-tab detail (an
-    /// open sheet or an open rail), so the host can skip computing it otherwise.
+    /// Whether anything is currently showing per-tab detail (an open sheet or an
+    /// open rail in a live workspace), so the host can skip computing it otherwise.
     public var hasVisibleTabDetail: Bool {
         internalController.isInteractive
             && (!openTabSheetPaneIds.isEmpty
                 || (configuration.appearance.tabLayout == .rail && !railOpenPaneIds.isEmpty))
     }
 
+    /// Whether `paneId` is showing per-tab detail right now (its sheet or its
+    /// rail is open), so the host refreshes detail for that pane only.
     public func isTabDetailVisible(inPane paneId: PaneID) -> Bool {
         openTabSheetPaneIds.contains(paneId)
             || (configuration.appearance.tabLayout == .rail && railOpenPaneIds.contains(paneId))

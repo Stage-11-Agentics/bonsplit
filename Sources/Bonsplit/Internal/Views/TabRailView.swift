@@ -9,10 +9,14 @@ enum TabRailMetrics {
     static let headerHeight: CGFloat = 22
     /// Under this width the rail's controls wrap onto two rows.
     static let compactControlsWidth: CGFloat = 260
+    /// Under this width even two rows clip, so the rail keeps the agent spawn
+    /// button and folds the rest into a menu.
+    static let menuControlsWidth: CGFloat = 140
 
+    /// About 38% of the area, 200-300pt, and never more than 45% of the area,
+    /// at every width (the cap only bites in small areas).
     static func width(forAreaWidth area: CGFloat) -> CGFloat {
         let base = min(300, max(200, (area * 0.38).rounded()))
-        guard area < 420 else { return base }
         return min(base, (area * 0.45).rounded())
     }
 }
@@ -166,6 +170,10 @@ struct TabRailView: View {
             }
         }
         .onAppear { controller.refreshTabDetails(inPane: pane.id) }
+        // A workspace coming back to life catches up at once, not at the next tick.
+        .onChange(of: live) { _, isLive in
+            if isLive { controller.refreshTabDetails(inPane: pane.id) }
+        }
         .onChange(of: splitViewController.draggingTab != nil) { _, dragging in
             if dragging { scrollBridge.begin() } else { scrollBridge.end() }
         }
@@ -175,13 +183,15 @@ struct TabRailView: View {
     private func rail(now: Date, width: CGFloat) -> some View {
         VStack(spacing: 0) {
             if includesControls {
-                let compact = width < TabRailMetrics.compactControlsWidth
+                let style: TabControlsRow.Style = width < TabRailMetrics.menuControlsWidth
+                    ? .menu
+                    : (width < TabRailMetrics.compactControlsWidth ? .twoLines : .oneLine)
                 TabControlsRow(
                     pane: pane,
                     controller: controller,
                     appearance: appearance,
-                    height: compact ? 56 : 30,
-                    twoLines: compact
+                    height: style == .twoLines ? 56 : 30,
+                    style: style
                 )
                 Rectangle().fill(palette.separator).frame(height: 1)
             }
@@ -296,7 +306,8 @@ struct TabRailView: View {
             controller: splitViewController,
             bonsplitController: controller,
             dropIndex: $dropIndex,
-            dropOwner: $dropOwner
+            dropOwner: $dropOwner,
+            onDragActive: { scrollBridge.begin() }
         ))
         .onHover { inside in
             if inside {
@@ -366,7 +377,8 @@ struct TabRailView: View {
                 bonsplitController: controller,
                 dropIndex: $dropIndex,
                 dropOwner: $dropOwner,
-                isEndZone: true
+                isEndZone: true,
+                onDragActive: { scrollBridge.begin() }
             ))
     }
 
@@ -461,6 +473,9 @@ struct TabRailRowDropDelegate: DropDelegate {
     @Binding var dropIndex: Int?
     @Binding var dropOwner: Int?
     var isEndZone = false
+    /// A drag is over the rail: start edge auto-scroll (drags from other
+    /// workspaces and windows have no local drag state to start it from).
+    var onDragActive: () -> Void = {}
 
     private var draggedTab: TabItem? { controller.activeDragTab ?? controller.draggingTab }
     private var sourcePaneId: PaneID? { controller.activeDragSourcePaneId ?? controller.dragSourcePaneId }
@@ -488,12 +503,18 @@ struct TabRailRowDropDelegate: DropDelegate {
     }
 
     func validateDrop(info: DropInfo) -> Bool {
-        controller.isInteractive && info.hasItemsConforming(to: [.tabTransfer])
+        guard controller.isInteractive, info.hasItemsConforming(to: [.tabTransfer]) else { return false }
+        onDragActive()
+        return true
     }
 
-    func dropEntered(info: DropInfo) { updateIndicator(for: info) }
+    func dropEntered(info: DropInfo) {
+        onDragActive()
+        updateIndicator(for: info)
+    }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
+        onDragActive()
         updateIndicator(for: info)
         return DropProposal(operation: .move)
     }

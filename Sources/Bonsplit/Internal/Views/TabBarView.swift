@@ -792,10 +792,14 @@ struct TabBarView<TrailingAccessory: View>: View {
                         }
                     }
                     .coordinateSpace(name: "tabScroll")
+                    // The scroll math (offsets, reveal, wheel) is left-to-right only.
+                    .environment(\.layoutDirection, .leftToRight)
                     .modifier(TabStripProxyCapture(bridge: scrollViewBridge, proxy: proxy))
                     .onAppear {
                         containerWidth = containerGeo.size.width
                         scrollViewBridge.mirror.container = containerGeo.size.width
+                        // The first reveal must already clear the controls.
+                        scrollViewBridge.chromeInset = currentEffectiveChromeWidth
                         scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId, reason: .selection)
                     }
                     .onChange(of: containerGeo.size.width) { _, newWidth in

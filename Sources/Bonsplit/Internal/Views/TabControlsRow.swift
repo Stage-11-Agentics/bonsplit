@@ -10,11 +10,27 @@ struct TabControlsRow: View {
     let height: CGFloat
     /// Runs after each action (the sheet dismisses itself).
     var afterAction: () -> Void = {}
-    /// Wrap onto two rows when there is not room for one (a narrow rail).
-    var twoLines = false
+    /// How much room there is: one row, two rows, or the agent spawn button plus
+    /// a menu holding the rest (the narrowest rail).
+    enum Style { case oneLine, twoLines, menu }
+    var style: Style = .oneLine
 
     var body: some View {
-        if twoLines {
+        if style == .menu {
+            HStack(spacing: 4) {
+                AgentSpawnButtonCluster(
+                    controller: controller,
+                    paneId: pane.id,
+                    appearance: appearance,
+                    afterAction: afterAction
+                )
+                overflowMenu
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: height)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if style == .twoLines {
             VStack(spacing: 0) {
                 HStack(spacing: 4) { creationGroup; Spacer(minLength: 0) }
                     .frame(height: height / 2)
@@ -34,6 +50,31 @@ struct TabControlsRow: View {
             .frame(height: height)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    private var overflowMenu: some View {
+        let tooltips = appearance.splitButtonTooltips
+        let canClosePane = controller.allPaneIds.count > 1
+            || controller.configuration.allowCloseLastPane
+        return Menu {
+            Button(tooltips.newTerminal) { controller.requestNewTab(kind: "terminal", inPane: pane.id); afterAction() }
+            Button(tooltips.newBrowser) { controller.requestNewTab(kind: "browser", inPane: pane.id); afterAction() }
+            Button(tooltips.newMarkdown) { controller.requestNewTab(kind: "markdown", inPane: pane.id); afterAction() }
+            Divider()
+            Button(tooltips.splitRight) { controller.splitPane(pane.id, orientation: .horizontal); afterAction() }
+            Button(tooltips.splitDown) { controller.splitPane(pane.id, orientation: .vertical); afterAction() }
+            Button(tooltips.newTab) { controller.requestNewTab(kind: "newTab", inPane: pane.id); afterAction() }
+            Divider()
+            Button(tooltips.closePane) { controller.requestClosePane(pane.id); afterAction() }
+                .disabled(!canClosePane)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: appearance.splitToolbarButtonFrameSize, height: appearance.splitToolbarButtonFrameSize)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
     }
 
     @ViewBuilder
