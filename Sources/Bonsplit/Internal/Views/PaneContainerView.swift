@@ -166,6 +166,11 @@ struct PaneDropInteractionContainer<Content: View, DropLayer: View>: View {
     }
 }
 
+private struct PaneAreaWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 /// Container for a single pane with its tab bar and content area
 struct PaneContainerView<Content: View, EmptyContent: View, TrailingAccessory: View>: View {
     @Environment(BonsplitController.self) private var bonsplitController
@@ -179,11 +184,45 @@ struct PaneContainerView<Content: View, EmptyContent: View, TrailingAccessory: V
     var showSplitButtons: Bool = true
     var contentViewLifecycle: ContentViewLifecycle = .recreateOnSwitch
 
+    @Environment(\.bonsplitActivityAnimationEnabled) private var activityAnimationEnabled
+    @Environment(\.bonsplitExplicitActivityAnimationEnabled) private var explicitActivityAnimationEnabled
+
     @State private var activeDropZone: DropZone?
     @State private var dropLifecycle: PaneDropLifecycle = .idle
+    /// The area's width, for sizing the rail (about 38%, clamped to 200-300pt).
+    @State private var areaWidth: CGFloat = 0
+    /// 0 while the rail is tucked at the area's left edge, 1 once it has slid in.
+    @State private var railReveal: CGFloat = 1
 
     private var isFocused: Bool {
         controller.focusedPaneId == pane.id
+    }
+
+    /// Rail layout with this area's rail open.
+    private var showsRail: Bool {
+        bonsplitController.configuration.appearance.tabLayout == .rail
+            && bonsplitController.railOpenPaneIds.contains(pane.id)
+            && !pane.tabs.isEmpty
+    }
+
+    /// Only used for the reveal slide; the layout places the rail itself.
+    private var railWidth: CGFloat { TabRailMetrics.width(forAreaWidth: areaWidth) }
+
+    @ViewBuilder
+    private var railView: some View {
+        ZStack(alignment: .leading) {
+            TabRailView(
+                pane: pane,
+                controller: bonsplitController,
+                splitViewController: controller,
+                appearance: bonsplitController.configuration.appearance,
+                includesControls: bonsplitController.railNeedsControls.contains(pane.id),
+                activityAnimationEnabled: activityAnimationEnabled,
+                explicitActivityAnimationEnabled: explicitActivityAnimationEnabled
+            )
+            .offset(x: -railWidth * (1 - railReveal))
+        }
+        .clipped()
     }
 
     private var isTabDragActive: Bool {
@@ -202,10 +241,36 @@ struct PaneContainerView<Content: View, EmptyContent: View, TrailingAccessory: V
                 )
             }
 
-            // Content area with drop zones
-            contentAreaWithDropZones
+            // Content area with drop zones. In Rail layout the rail docks on the
+            // left and pushes the content over.
+            RailSplitLayout {
+                if showsRail {
+                    railView
+                }
+                contentAreaWithDropZones
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            GeometryReader { proxy in
+                Color.clear.preference(key: PaneAreaWidthKey.self, value: proxy.size.width)
+            }
+        )
+        .onPreferenceChange(PaneAreaWidthKey.self) { areaWidth = $0 }
+        .onChange(of: showsRail) { _, shown in
+            // The reveal is a single-axis slide of the rail inside its own
+            // slot (transform only); the content is laid out at its final
+            // position at once. Skipped under Reduce Motion.
+            guard shown else { return }
+            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                railReveal = 1
+                return
+            }
+            railReveal = 0
+            withAnimation(.easeOut(duration: 0.16 * max(0.1, BonsplitDebug.tabSheetMotionScale))) {
+                railReveal = 1
+            }
+        }
         // Host-injected pane overlay. Mounted as `.background` (NOT `.overlay`)
         // so the host's view never sits above the tab bar in SwiftUI z-order —
         // an `.overlay` here intercepts clicks on the per-tab close (×) and

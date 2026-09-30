@@ -1074,7 +1074,12 @@ final class BonsplitTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         contentView.layoutSubtreeIfNeeded()
 
-        let clickPoint = NSPoint(x: hostingView.bounds.maxX - 12, y: hostingView.bounds.midY)
+        // The count cell (64pt, round three) now owns the trailing end of the bar;
+        // the empty stretch that double-clicks into a new terminal is just left of it.
+        let clickPoint = NSPoint(
+            x: hostingView.bounds.maxX - TabCountCellMetrics.width - 40,
+            y: hostingView.bounds.midY
+        )
         guard let event = try? makeLeftMouseDownEvent(in: hostingView, at: clickPoint, clickCount: 2) else {
             XCTFail("Expected mouse event")
             return
@@ -1159,31 +1164,115 @@ final class BonsplitTests: XCTestCase {
             return
         }
 
-        let terminalButtonPoint = tabBarView.convert(
-            NSPoint(
-                x: tabBarView.bounds.maxX - metrics.effectiveChromeWidth + 17,
-                y: tabBarView.bounds.midY
-            ),
-            to: hostingView
-        )
-        try sendLeftMouseClick(in: hostingView, at: terminalButtonPoint)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
+        // The chrome is [count cell][agent spawn][terminal][browser][markdown]...
+        // and its button offsets are not fixed, so sweep left to right across it
+        // until the new-terminal button answers.
+        var foundTerminalButton = false
+        // Start after the count cell: a click on it opens the sheet.
+        var dx: CGFloat = TabCountCellMetrics.width + 4
+        while dx < metrics.effectiveChromeWidth, !foundTerminalButton {
+            newTabSpy.requestedKind = nil
+            let point = tabBarView.convert(
+                NSPoint(x: tabBarView.bounds.maxX - metrics.effectiveChromeWidth + dx, y: tabBarView.bounds.midY),
+                to: hostingView
+            )
+            try sendLeftMouseClick(in: hostingView, at: point)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+            foundTerminalButton = newTabSpy.requestedKind == "terminal"
+            dx += 6
+        }
+        XCTAssertTrue(foundTerminalButton, "no click across the chrome reached the new-terminal button")
         XCTAssertEqual(newTabSpy.requestedKind, "terminal")
         XCTAssertEqual(newTabSpy.requestedPaneId, pane.id)
 
-        let closeButtonPoint = tabBarView.convert(
-            NSPoint(
-                x: selectedFrame.maxX - TabBarMetrics.tabHorizontalPadding - (TabBarMetrics.closeButtonSize / 2),
-                y: tabBarView.bounds.midY
-            ),
-            to: hostingView
-        )
-        try sendLeftMouseClick(in: hostingView, at: closeButtonPoint)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        // The selected tab scrolls into the clear part of the strip as layout settles
+        // (round five); measure it again rather than trust the first frame.
+        pumpLayout(contentView) { false }
+        let settledFrame = metricsProbe.latest?.selectedTabFrameInBar ?? selectedFrame
+        // The selected tab's close button sits at its trailing edge; with the
+        // simplified tab geometry its hit area is not the old 6pt-padded 16pt
+        // square, so sweep the tab's trailing half from the edge inward.
+        var probe = settledFrame.maxX - 2
+        while probe > settledFrame.midX, closedTabId == nil {
+            let point = tabBarView.convert(NSPoint(x: probe, y: tabBarView.bounds.midY), to: hostingView)
+            try sendLeftMouseClick(in: hostingView, at: point)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+            probe -= 4
+        }
 
         XCTAssertEqual(closedTabId, lastTabId)
         XCTAssertEqual(closedPaneId, pane.id)
+    }
+
+    private final class CloseVetoDelegate: BonsplitDelegate {
+        @MainActor
+        func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool { false }
+    }
+
+    /// The strip tab's close button must answer across its whole hit area
+    /// (`SimplifiedTabGeometry.closeHitSize`), not only over the "×" glyph.
+    @MainActor
+    func testStripTabCloseButtonHitAreaMatchesItsFrame() throws {
+        // c11 runs the simplified tab UX (always-visible ×), whose hit area is
+        // SimplifiedTabGeometry.closeHitSize.
+        var configuration = BonsplitConfiguration()
+        configuration.simplifiedTabContextMenu = true
+        let controller = BonsplitController(configuration: configuration)
+        var closedTabIds: [TabID] = []
+        controller.onTabCloseRequest = { tabId, _ in closedTabIds.append(tabId) }
+        _ = controller.createTab(title: "Only", icon: "terminal", kind: "terminal")
+        // Veto the close so the tab survives every click and the sweep can go on.
+        let veto = CloseVetoDelegate()
+        controller.delegate = veto
+
+        let hostingView = NSHostingView(
+            rootView: BonsplitView(controller: controller) { _, _ in Color.clear } emptyPane: { _ in Color.clear }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 120),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else { return XCTFail("Expected content view") }
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+        window.makeKeyAndOrderFront(nil)
+        pumpLayout(contentView) { false }
+
+        // Find the tab bar backing view and the selected tab's frame through the same
+        // layout-metrics channel the other hit tests use.
+        guard let tabBarView = firstDescendant(
+            in: hostingView,
+            where: { NSStringFromClass(type(of: $0)).contains("TabBarBackgroundNSView") }
+        ) else { return XCTFail("Expected tab bar backing view") }
+
+        // Sweep the strip left to right in 1pt steps; every click that closes the tab
+        // marks a hit column.
+        var hitColumns: [CGFloat] = []
+        var x: CGFloat = 0
+        while x < min(tabBarView.bounds.maxX, 260) {
+            let before = closedTabIds.count
+            let point = tabBarView.convert(NSPoint(x: x, y: tabBarView.bounds.midY), to: hostingView)
+            try sendLeftMouseClick(in: hostingView, at: point)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+            if closedTabIds.count > before { hitColumns.append(x) }
+            x += 1
+        }
+        // The first contiguous run of hit columns is the tab's own close button (a later
+        // run is the pane-close button in the chrome, which also reports a close request).
+        var run: [CGFloat] = []
+        for column in hitColumns {
+            if let last = run.last, column - last > 1 { break }
+            run.append(column)
+        }
+        let hitWidth = CGFloat(run.count)
+        let expected = SimplifiedTabGeometry.closeHitSize.width
+        XCTAssertFalse(run.isEmpty, "no click reached the close button")
+        XCTAssertGreaterThanOrEqual(
+            hitWidth, expected - 2,
+            "the close button only answers over \(hitWidth)pt of its \(expected)pt frame (x=\(run.first ?? -1)...\(run.last ?? -1))"
+        )
     }
 
     @MainActor
@@ -1235,7 +1324,8 @@ final class BonsplitTests: XCTestCase {
             XCTFail("Expected measured trailing content inset")
             return
         }
-        XCTAssertEqual(inset, 100, accuracy: 2)
+        // The host accessory (100pt) plus the count cell that now leads the chrome (round three).
+        XCTAssertEqual(inset, 100 + TabCountCellMetrics.width, accuracy: 2)
     }
 
     func testIconSaturationKeepsRasterFaviconInColorWhenInactive() {

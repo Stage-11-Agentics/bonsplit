@@ -13,7 +13,7 @@
 "tabBar.collapsedList.accessibilityLabel" = "タブ一覧";
 "tabBar.collapsedHeader.accessibilityLabel" = "すべてのタブを表示";
 "tabBar.collapsedList.selectAction" = "選択";
-"tabBar.sheet.tabNumber" = "タブ %lld";
+"tabBar.sheet.tabNumber" = "タブ%lld";
 "tabBar.sheet.column.tab" = "タブ";
 "tabBar.sheet.column.title" = "タイトル";
 "tabBar.sheet.column.agent" = "エージェント";
@@ -34,3 +34,4 @@
 "tabBar.sheet.footer.tabs" = "%lld タブ";
 "tabBar.sheet.footer.needYou" = "%lld 件が要対応";
 "tabBar.sheet.dragHandle.help" = "ドラッグして並べ替え・移動";
+"tabBar.rail.accessibilityLabel" = "タブレール";

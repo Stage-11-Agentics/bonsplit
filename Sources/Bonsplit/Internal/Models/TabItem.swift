@@ -78,6 +78,14 @@ struct TabItem: Identifiable, Hashable, Codable {
         return "\(ordinal): \(title)"
     }
 
+    /// The host-assigned tab number as shown next to a title ("171"), or nil when
+    /// the appearance turns numbers off or the host assigned none. Bars and the
+    /// sheet share this vocabulary: mono, gold on the visible tab.
+    func numberLabel(showOrdinals: Bool) -> String? {
+        guard showOrdinals, let ordinal = displayOrdinal else { return nil }
+        return String(ordinal)
+    }
+
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }

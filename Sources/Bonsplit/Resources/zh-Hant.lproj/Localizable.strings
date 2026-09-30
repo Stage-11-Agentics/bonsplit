@@ -11,7 +11,7 @@
 "tabBar.collapsedList.accessibilityLabel" = "分頁列表";
 "tabBar.collapsedHeader.accessibilityLabel" = "顯示所有分頁";
 "tabBar.collapsedList.selectAction" = "選取";
-"tabBar.sheet.tabNumber" = "分頁 %lld";
+"tabBar.sheet.tabNumber" = "分頁%lld";
 "tabBar.sheet.column.tab" = "分頁";
 "tabBar.sheet.column.title" = "標題";
 "tabBar.sheet.column.agent" = "代理";
@@ -32,3 +32,4 @@
 "tabBar.sheet.footer.tabs" = "%lld 個分頁";
 "tabBar.sheet.footer.needYou" = "%lld 個需要你處理";
 "tabBar.sheet.dragHandle.help" = "拖曳以重新排序或移動";
+"tabBar.rail.accessibilityLabel" = "分頁側欄";

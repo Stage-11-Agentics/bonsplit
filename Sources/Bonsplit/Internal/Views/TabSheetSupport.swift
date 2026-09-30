@@ -13,16 +13,15 @@ enum TabSheetMetrics {
     static let leadingRule: CGFloat = 3
     static let trailingPadding: CGFloat = 6
 
-    /// Wide enough for the localized "Tab 9999" at full size, never below 68.
+    /// Wide enough for the localized "Tab9999" at full size, never below 68.
     /// Fixed within a language, so nothing moves while the app runs.
     static let numberWidth: CGFloat = {
-        let sample = String(format: TabSheetFormat.localized("tabBar.sheet.tabNumber", "Tab %lld"), 9999)
+        let sample = TabSheetFormat.tabLabel(9999)
         let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
         let text = ceil((sample as NSString).size(withAttributes: [.font: font]).width)
         return max(68, text + numberTrailingInset + 2)
     }()
     static let numberTrailingInset: CGFloat = 10
-    static let markWidth: CGFloat = 18
     static let minTitleWidth: CGFloat = 260
     static let agentWidth: CGFloat = 150
     static let statusWidth: CGFloat = 104
@@ -31,10 +30,12 @@ enum TabSheetMetrics {
     static let gripWidth: CGFloat = 24
 
     static let maxVisibleRows = 9
+    /// The narrowest sheet: an area below this still gets this much.
+    static let minSheetWidth: CGFloat = 320
 
     /// Width of everything except the title column.
     static func fixedWidth(clockCount: Int) -> CGFloat {
-        leadingRule + numberWidth + markWidth + agentWidth + statusWidth
+        leadingRule + numberWidth + agentWidth + statusWidth
             + clockWidth * CGFloat(clockCount) + closeWidth + gripWidth + trailingPadding
     }
 
@@ -44,9 +45,78 @@ enum TabSheetMetrics {
     }
 }
 
+// MARK: - Width tiers
+
+/// The sheet is exactly its area's width, and its columns drop out by that
+/// width, fixed within each tier so nothing jitters:
+/// ≥820 everything · 600–819 first clock only · 440–599 agent tag moves to
+/// line 2, clocks go · <440 Tab N, mark, title and status.
+enum TabSheetTier: Equatable {
+    case full, oneClock, agentInline, compact
+
+    init(width: CGFloat) {
+        // Pane widths arrive as fractional points (819.6 for an 820 area).
+        switch width.rounded() {
+        case 820...: self = .full
+        case 600..<820: self = .oneClock
+        case 440..<600: self = .agentInline
+        default: self = .compact
+        }
+    }
+}
+
+struct TabSheetLayout: Equatable {
+    let width: CGFloat
+    let tier: TabSheetTier
+    /// Clock names actually shown in this tier.
+    let clocks: [String]
+
+    init(width: CGFloat, clocks allClocks: [String]) {
+        self.width = width
+        self.tier = TabSheetTier(width: width)
+        switch tier {
+        case .full: clocks = allClocks
+        case .oneClock: clocks = Array(allClocks.prefix(1))
+        case .agentInline, .compact: clocks = []
+        }
+    }
+
+    typealias M = TabSheetMetrics
+
+    /// Compact sheets use a narrower Tab column (56pt for English).
+    private static let compactNumberWidth: CGFloat = {
+        let sample = TabSheetFormat.tabLabel(999)
+        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+        return max(56, ceil((sample as NSString).size(withAttributes: [.font: font]).width) + 10)
+    }()
+
+    var numberWidth: CGFloat { tier == .compact ? Self.compactNumberWidth : M.numberWidth }
+    var numberTrailingInset: CGFloat { tier == .compact ? 8 : M.numberTrailingInset }
+    var showsAgentColumn: Bool { tier == .full || tier == .oneClock }
+    var agentOnLineTwo: Bool { tier == .agentInline }
+    var showsClose: Bool { tier != .compact }
+
+    /// Width of everything except the title column.
+    var fixedWidth: CGFloat {
+        M.leadingRule + numberWidth
+            + (showsAgentColumn ? M.agentWidth : 0) + M.statusWidth
+            + M.clockWidth * CGFloat(clocks.count)
+            + (showsClose ? M.closeWidth : 0) + M.gripWidth + M.trailingPadding
+    }
+
+    var titleWidth: CGFloat { max(60, width - fixedWidth) }
+    /// Title + agent + status: the span line 2 runs across.
+    var mainWidth: CGFloat { titleWidth + (showsAgentColumn ? M.agentWidth : 0) + M.statusWidth }
+}
+
 // MARK: - Formatting
 
 enum TabSheetFormat {
+    /// "Tab17": the localized tab label, no separator between word and number.
+    static func tabLabel(_ ordinal: Int) -> String {
+        String(format: localized("tabBar.sheet.tabNumber", "Tab%lld"), Int64(ordinal))
+    }
+
     /// Clock names bonsplit can title on its own; a host can add more through
     /// `BonsplitController.sheetClockTitleProvider`.
     static let builtInClocks: [String] = ["active", "launched", "seen"]
@@ -143,9 +213,19 @@ enum TabSheetFormat {
         }.count
     }
 
-    /// Date for a named clock, or nil (`seen` is nil until the host supplies it).
-    static func clockDate(_ name: String, in tab: TabItem) -> Date? {
-        tab.detail?.clocks[name]
+    /// What a clock cell shows: a live age from a date, a plain text value the
+    /// host formatted itself, or nothing (a dash).
+    enum ClockValue: Equatable {
+        case age(Date)
+        case text(String)
+        case none
+    }
+
+    /// The value for a named clock. Dates render as ages; a host that carries
+    /// non-date clocks (turn count, tokens) supplies text through this seam.
+    static func clockValue(_ name: String, in tab: TabItem) -> ClockValue {
+        if let date = tab.detail?.clocks[name] { return .age(date) }
+        return .none
     }
 
     static func localized(_ key: String, _ value: String) -> String {
@@ -175,44 +255,62 @@ struct TabSheetAgeText: View {
 // MARK: - Count cell
 
 enum TabCountCellMetrics {
-    static let width: CGFloat = 54
+    static let width: CGFloat = 64
 }
 
-/// The `N ▾` cell: tab count, background-waiting dot, disclosure chevron.
-/// One primitive shared by every tier: fixed width, so the bar never shifts
-/// as tabs come and go. Draws only; the host attaches the tap.
+/// A bold stroked chevron, 12×8 at 2.4pt: the cell's disclosure mark.
+struct TabCountChevron: View {
+    var body: some View {
+        Path { path in
+            path.move(to: CGPoint(x: 1.5, y: 1.5))
+            path.addLine(to: CGPoint(x: 6, y: 6))
+            path.addLine(to: CGPoint(x: 10.5, y: 1.5))
+        }
+        .stroke(style: StrokeStyle(lineWidth: 2.4, lineCap: .round, lineJoin: .round))
+        .frame(width: 12, height: 8)
+    }
+}
+
+/// The count cell: attention dot, chevron, then the number (`● ⌄ 6`). One
+/// primitive shared by every tier at a fixed width; the dot's slot is always
+/// reserved so nothing shifts when it appears. It sits in the bar's own colour
+/// family and only goes gold while the sheet is open. Draws only; the host
+/// attaches the tap.
 struct TabCountCell: View {
     let count: Int
     let hasBackgroundActivity: Bool
     let hasBackgroundWaiting: Bool
     let isOpen: Bool
+    var isHovered: Bool = false
     let appearance: BonsplitConfiguration.Appearance
     let height: CGFloat
 
     var body: some View {
         let palette = TabBarColors.sheetPalette(for: appearance)
-        HStack(spacing: 5) {
-            if hasBackgroundActivity {
-                Circle()
-                    .fill(hasBackgroundWaiting
+        let openInk = Color(white: 0.1)
+        HStack(spacing: 6) {
+            Circle()
+                .fill(isOpen
+                    ? openInk
+                    : (hasBackgroundWaiting
                         ? TabBarColors.activity(.waiting, for: appearance)
-                        : TabBarColors.notificationBadge(for: appearance))
-                    .frame(width: 6, height: 6)
-            }
+                        : TabBarColors.notificationBadge(for: appearance)))
+                .frame(width: 6, height: 6)
+                .opacity(hasBackgroundActivity ? 1 : 0)
+            TabCountChevron()
             Text("\(count)")
                 .font(.system(size: appearance.tabTitleFontSize, weight: .heavy))
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            Image(systemName: "chevron.down")
-                .font(.system(size: appearance.tabTitleFontSize - 2, weight: .heavy))
+                .frame(minWidth: 14, alignment: .leading)
         }
-        .foregroundStyle(isOpen ? Color(white: 0.1) : palette.text)
+        .foregroundStyle(isOpen ? openInk : palette.text)
         .frame(width: TabCountCellMetrics.width, height: height)
         .background(
             isOpen
                 ? TabBarColors.activeIndicator(for: appearance)
-                : palette.countCell
+                : (isHovered ? palette.countCellHover : palette.countCell)
         )
         .overlay(alignment: .leading) {
             Rectangle().fill(TabBarColors.separator(for: appearance)).frame(width: 1)
