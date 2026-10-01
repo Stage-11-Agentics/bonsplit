@@ -757,8 +757,8 @@ struct CollapsedTabSheetView: View {
             Color.clear.frame(width: M.leadingRule)
             headerLabel(TabSheetFormat.localized("tabBar.sheet.column.tab", "Tab"), width: layout.numberWidth, alignment: .trailing, trailingInset: layout.numberTrailingInset)
             headerLabel(TabSheetFormat.localized("tabBar.sheet.column.title", "Title"), width: titleColumnWidth, alignment: .leading)
-            if layout.showsAgentColumn {
-                headerLabel(TabSheetFormat.localized("tabBar.sheet.column.agent", "Agent"), width: M.agentWidth, alignment: .leading, leadingInset: 10)
+            if layout.showsTypeColumn {
+                headerLabel(TabSheetFormat.localized("tabBar.sheet.column.type", "Type"), width: M.typeWidth, alignment: .leading, leadingInset: 10)
             }
             headerLabel(TabSheetFormat.localized("tabBar.sheet.column.status", "Status"), width: M.statusWidth, alignment: .leading, leadingInset: 10)
             ForEach(clocks, id: \.self) { name in
@@ -872,10 +872,10 @@ struct CollapsedTabSheetView: View {
                         .truncationMode(.tail)
                         .foregroundStyle(isSelected ? palette.text : (isHovered ? palette.text : palette.dimText))
                         .frame(width: titleColumnWidth, alignment: .leading)
-                    if layout.showsAgentColumn {
-                        agentCell(tab)
+                    if layout.showsTypeColumn {
+                        typeCell(tab)
                             .padding(.leading, 10)
-                            .frame(width: M.agentWidth, alignment: .leading)
+                            .frame(width: M.typeWidth, alignment: .leading)
                     }
                     statusCell(tab, now: now)
                         .padding(.leading, 10)
@@ -883,10 +883,10 @@ struct CollapsedTabSheetView: View {
                 }
                 .frame(height: M.lineHeight)
                 HStack(spacing: 4) {
-                    if layout.agentOnLineTwo, let agent = tab.detail?.agentLabel, !agent.isEmpty {
-                        Text(agent + " ·")
+                    if layout.typeOnLineTwo, let type = Self.typeText(tab), !type.isEmpty {
+                        Text(type + " ·")
                             .font(.system(size: 11))
-                            .foregroundStyle(palette.faintText)
+                            .foregroundStyle(agentInk(tab) ?? palette.faintText)
                             .lineLimit(1)
                             .layoutPriority(1)
                     }
@@ -1022,12 +1022,28 @@ struct CollapsedTabSheetView: View {
 
     // MARK: Cells
 
+    /// The Type column's text: the agent (`Harness · model`) when the tab hosts
+    /// one, else the tab's kind.
+    static func typeText(_ tab: TabItem) -> String? {
+        if let agent = tab.detail?.agentLabel, !agent.isEmpty { return agent }
+        if let type = tab.detail?.typeLabel, !type.isEmpty { return type }
+        return nil
+    }
+
+    /// The host's model-family colour for an agent tab, readable on this sheet.
+    private func agentInk(_ tab: TabItem) -> Color? {
+        guard let agent = tab.detail?.agentLabel, !agent.isEmpty,
+              let tint = tab.detail?.agentTintHex.flatMap(NSColor.init(bonsplitHex:)) else { return nil }
+        return TabBarColors.readableInk(tint, for: appearance)
+    }
+
+    /// An agent reads as a chip in its model-family colour; any other kind as plain text.
     @ViewBuilder
-    private func agentCell(_ tab: TabItem) -> some View {
+    private func typeCell(_ tab: TabItem) -> some View {
         if let label = tab.detail?.agentLabel, !label.isEmpty {
             Text(label)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(palette.chipText)
+                .foregroundStyle(agentInk(tab) ?? palette.chipText)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .padding(.horizontal, 4)
@@ -1035,7 +1051,14 @@ struct CollapsedTabSheetView: View {
                 .background(palette.chipFill)
                 .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(palette.chipBorder, lineWidth: 1))
                 .clipShape(RoundedRectangle(cornerRadius: 3))
-                .frame(maxWidth: M.agentWidth - 12, alignment: .leading)
+                .frame(maxWidth: M.typeWidth - 12, alignment: .leading)
+        } else if let label = tab.detail?.typeLabel, !label.isEmpty {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(palette.dimText)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: M.typeWidth - 12, alignment: .leading)
         } else {
             dash()
         }

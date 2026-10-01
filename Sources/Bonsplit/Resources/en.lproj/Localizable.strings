@@ -16,7 +16,7 @@
 "tabBar.sheet.tabNumber" = "Tab%lld";
 "tabBar.sheet.column.tab" = "Tab";
 "tabBar.sheet.column.title" = "Title";
-"tabBar.sheet.column.agent" = "Agent";
+"tabBar.sheet.column.type" = "Type";
 "tabBar.sheet.column.status" = "Status";
 "tabBar.sheet.clock.active" = "Active";
 "tabBar.sheet.clock.launched" = "Launched";

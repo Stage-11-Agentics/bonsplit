@@ -23,7 +23,7 @@ enum TabSheetMetrics {
     }()
     static let numberTrailingInset: CGFloat = 10
     static let minTitleWidth: CGFloat = 260
-    static let agentWidth: CGFloat = 150
+    static let typeWidth: CGFloat = 150
     static let statusWidth: CGFloat = 104
     static let clockWidth: CGFloat = 78
     static let closeWidth: CGFloat = 22
@@ -35,7 +35,7 @@ enum TabSheetMetrics {
 
     /// Width of everything except the title column.
     static func fixedWidth(clockCount: Int) -> CGFloat {
-        leadingRule + numberWidth + agentWidth + statusWidth
+        leadingRule + numberWidth + typeWidth + statusWidth
             + clockWidth * CGFloat(clockCount) + closeWidth + gripWidth + trailingPadding
     }
 
@@ -49,17 +49,17 @@ enum TabSheetMetrics {
 
 /// The sheet is exactly its area's width, and its columns drop out by that
 /// width, fixed within each tier so nothing jitters:
-/// ≥820 everything · 600–819 first clock only · 440–599 agent tag moves to
+/// ≥820 everything · 600–819 first clock only · 440–599 type tag moves to
 /// line 2, clocks go · <440 Tab N, mark, title and status.
 enum TabSheetTier: Equatable {
-    case full, oneClock, agentInline, compact
+    case full, oneClock, typeInline, compact
 
     init(width: CGFloat) {
         // Pane widths arrive as fractional points (819.6 for an 820 area).
         switch width.rounded() {
         case 820...: self = .full
         case 600..<820: self = .oneClock
-        case 440..<600: self = .agentInline
+        case 440..<600: self = .typeInline
         default: self = .compact
         }
     }
@@ -77,7 +77,7 @@ struct TabSheetLayout: Equatable {
         switch tier {
         case .full: clocks = allClocks
         case .oneClock: clocks = Array(allClocks.prefix(1))
-        case .agentInline, .compact: clocks = []
+        case .typeInline, .compact: clocks = []
         }
     }
 
@@ -92,21 +92,21 @@ struct TabSheetLayout: Equatable {
 
     var numberWidth: CGFloat { tier == .compact ? Self.compactNumberWidth : M.numberWidth }
     var numberTrailingInset: CGFloat { tier == .compact ? 8 : M.numberTrailingInset }
-    var showsAgentColumn: Bool { tier == .full || tier == .oneClock }
-    var agentOnLineTwo: Bool { tier == .agentInline }
+    var showsTypeColumn: Bool { tier == .full || tier == .oneClock }
+    var typeOnLineTwo: Bool { tier == .typeInline }
     var showsClose: Bool { tier != .compact }
 
     /// Width of everything except the title column.
     var fixedWidth: CGFloat {
         M.leadingRule + numberWidth
-            + (showsAgentColumn ? M.agentWidth : 0) + M.statusWidth
+            + (showsTypeColumn ? M.typeWidth : 0) + M.statusWidth
             + M.clockWidth * CGFloat(clocks.count)
             + (showsClose ? M.closeWidth : 0) + M.gripWidth + M.trailingPadding
     }
 
     var titleWidth: CGFloat { max(60, width - fixedWidth) }
-    /// Title + agent + status: the span line 2 runs across.
-    var mainWidth: CGFloat { titleWidth + (showsAgentColumn ? M.agentWidth : 0) + M.statusWidth }
+    /// Title + type + status: the span line 2 runs across.
+    var mainWidth: CGFloat { titleWidth + (showsTypeColumn ? M.typeWidth : 0) + M.statusWidth }
 }
 
 // MARK: - Formatting
