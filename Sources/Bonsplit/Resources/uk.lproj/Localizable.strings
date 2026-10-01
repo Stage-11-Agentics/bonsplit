@@ -11,7 +11,7 @@
 "tabBar.collapsedList.accessibilityLabel" = "Список вкладок";
 "tabBar.collapsedHeader.accessibilityLabel" = "Показати всі вкладки";
 "tabBar.collapsedList.selectAction" = "Вибрати";
-"tabBar.sheet.tabNumber" = "Вкладка%lld";
+"tabBar.sheet.tabNumber" = "вкладка%lld";
 "tabBar.sheet.column.tab" = "Вкладка";
 "tabBar.sheet.column.title" = "Назва";
 "tabBar.sheet.column.type" = "Тип";
@@ -32,4 +32,6 @@
 "tabBar.sheet.footer.tabs" = "Вкладок: %lld";
 "tabBar.sheet.footer.needYou" = "Чекають на вас: %lld";
 "tabBar.sheet.dragHandle.help" = "Перетягніть, щоб змінити порядок або перемістити";
+"tabBar.sheet.expand" = "Показати всі стовпці";
+"tabBar.sheet.collapse" = "За шириною області";
 "tabBar.rail.accessibilityLabel" = "Панель вкладок";

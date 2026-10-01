@@ -11,7 +11,7 @@
 "tabBar.collapsedList.accessibilityLabel" = "Список вкладок";
 "tabBar.collapsedHeader.accessibilityLabel" = "Показать все вкладки";
 "tabBar.collapsedList.selectAction" = "Выбрать";
-"tabBar.sheet.tabNumber" = "Вкладка%lld";
+"tabBar.sheet.tabNumber" = "вкладка%lld";
 "tabBar.sheet.column.tab" = "Вкладка";
 "tabBar.sheet.column.title" = "Название";
 "tabBar.sheet.column.type" = "Тип";
@@ -32,4 +32,6 @@
 "tabBar.sheet.footer.tabs" = "Вкладок: %lld";
 "tabBar.sheet.footer.needYou" = "Ждут вас: %lld";
 "tabBar.sheet.dragHandle.help" = "Перетащите, чтобы изменить порядок или переместить";
+"tabBar.sheet.expand" = "Показать все столбцы";
+"tabBar.sheet.collapse" = "По ширине области";
 "tabBar.rail.accessibilityLabel" = "Панель вкладок";

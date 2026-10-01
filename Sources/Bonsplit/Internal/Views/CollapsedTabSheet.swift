@@ -112,6 +112,9 @@ final class CollapsedSheetPresenter: ObservableObject {
     /// Width of the collapsed header block. Clicks inside it are the header's
     /// own toggle, so the click-outside monitor leaves them alone.
     var blockWidth: CGFloat = 0
+    /// The sheet spans the host window (its left edge on the window's) instead
+    /// of hanging under its area.
+    var spansWindow = false
     var onDismiss: (() -> Void)?
 
     private var panel: CollapsedSheetPanel?
@@ -442,7 +445,8 @@ final class CollapsedSheetPresenter: ObservableObject {
         // bottom, and keep the sheet inside the visible frame either way.
         let visible = (aw.screen ?? NSScreen.main)?.visibleFrame
         // The sheet is its area's width: flush under the bar, left edges aligned.
-        var origin = NSPoint(x: rect.minX, y: rect.minY - size.height)
+        // Widened to the window, it starts at the window's left edge instead.
+        var origin = NSPoint(x: spansWindow ? aw.frame.minX : rect.minX, y: rect.minY - size.height)
         if let visible {
             if origin.y < visible.minY {
                 let above = rect.maxY
@@ -681,6 +685,12 @@ struct CollapsedTabSheetView: View {
     let dismiss: () -> Void
     /// A row of this sheet applied a drop (a reorder); the sheet stays open.
     let onReordered: () -> Void
+    /// The area is too narrow for every column: the footer offers a button
+    /// that widens the sheet to the whole window.
+    var canExpand: Bool = false
+    /// The sheet is widened to the window rather than its area.
+    var isExpanded: Bool = false
+    var onToggleExpand: () -> Void = {}
 
     @State private var dropIndex: Int?
     @State private var hoveredTabId: UUID?
@@ -762,7 +772,7 @@ struct CollapsedTabSheetView: View {
             }
             headerLabel(TabSheetFormat.localized("tabBar.sheet.column.status", "Status"), width: M.statusWidth, alignment: .leading, leadingInset: 10)
             ForEach(clocks, id: \.self) { name in
-                headerLabel(TabSheetFormat.clockTitle(name, hostTitle: clockTitles[name]) ?? name, width: M.clockWidth, alignment: .trailing, trailingInset: 8)
+                headerLabel(TabSheetFormat.clockTitle(name, hostTitle: clockTitles[name]) ?? name, width: layout.clockWidth(name), alignment: .trailing, trailingInset: M.clockTrailingInset)
             }
             Color.clear.frame(width: (layout.showsClose ? M.closeWidth : 0) + M.gripWidth + M.trailingPadding)
         }
@@ -798,14 +808,35 @@ struct CollapsedTabSheetView: View {
                     .foregroundStyle(TabBarColors.activity(.waiting, for: appearance))
             }
             Spacer(minLength: 0)
+            if canExpand || isExpanded {
+                expandButton
+            }
         }
         .font(.system(size: 11))
         .monospacedDigit()
-        .padding(.horizontal, 10)
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
         .frame(height: M.footerHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(palette.header)
         .overlay(alignment: .top) { Rectangle().fill(palette.separator).frame(height: 1) }
+    }
+
+    /// Widens the sheet to the whole window (every column), or back to its area.
+    private var expandButton: some View {
+        let label = isExpanded
+            ? TabSheetFormat.localized("tabBar.sheet.collapse", "Fit to Area")
+            : TabSheetFormat.localized("tabBar.sheet.expand", "Show All Columns")
+        return Button(action: onToggleExpand) {
+            Image(systemName: isExpanded ? "arrow.left.to.line" : "arrow.right.to.line")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(palette.dimText)
+                .frame(width: 24, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityLabel(label)
     }
 
     // MARK: Row
@@ -898,7 +929,7 @@ struct CollapsedTabSheetView: View {
             .frame(width: layout.mainWidth, height: M.rowHeight)
 
             ForEach(clocks, id: \.self) { name in
-                column(width: M.clockWidth, alignment: .trailing) {
+                column(width: layout.clockWidth(name), alignment: .trailing) {
                     Group {
                         switch TabSheetFormat.clockValue(name, in: tab) {
                         case .age(let date):
@@ -915,7 +946,7 @@ struct CollapsedTabSheetView: View {
                             dash()
                         }
                     }
-                    .padding(.trailing, 8)
+                    .padding(.trailing, M.clockTrailingInset)
                 }
             }
 

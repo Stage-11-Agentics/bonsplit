@@ -24,8 +24,10 @@ enum TabSheetMetrics {
     static let numberTrailingInset: CGFloat = 10
     static let minTitleWidth: CGFloat = 260
     static let typeWidth: CGFloat = 150
-    static let statusWidth: CGFloat = 104
-    static let clockWidth: CGFloat = 78
+    /// Clock cells right-align their value with this inset.
+    static let clockTrailingInset: CGFloat = 6
+    /// Space between one column's content and the next column's.
+    static let columnGap: CGFloat = 6
     static let closeWidth: CGFloat = 22
     static let gripWidth: CGFloat = 24
 
@@ -33,16 +35,52 @@ enum TabSheetMetrics {
     /// The narrowest sheet: an area below this still gets this much.
     static let minSheetWidth: CGFloat = 320
 
-    /// Width of everything except the title column.
-    static func fixedWidth(clockCount: Int) -> CGFloat {
-        leadingRule + numberWidth + typeWidth + statusWidth
-            + clockWidth * CGFloat(clockCount) + closeWidth + gripWidth + trailingPadding
+    static let headerFont = NSFont.systemFont(ofSize: 10, weight: .bold)
+    static let headerKern: CGFloat = 0.6
+    static let statusFont = NSFont.systemFont(ofSize: 11, weight: .bold)
+    static let valueFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+
+    static func textWidth(_ text: String, _ font: NSFont, kern: CGFloat = 0) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: font, .kern: kern]).width)
     }
 
-    /// Natural sheet width: the fixed columns plus the minimum title column.
-    static func idealWidth(clockCount: Int) -> CGFloat {
-        fixedWidth(clockCount: clockCount) + minTitleWidth
+    /// The widest value a clock prints in this language: an age (`59m`,
+    /// `9.9h`, `99d`), a percentage, or a short count (`12.3k`). Longer host
+    /// text truncates.
+    static func widestClockValue(ages: [String], extras: [String]) -> CGFloat {
+        (ages + extras).map { textWidth($0, valueFont) }.max() ?? 0
     }
+
+    /// A clock column is as wide as its header or its widest value, whichever
+    /// is wider, plus the right inset and one gap: tight, and still fixed
+    /// within a language so nothing moves while a clock ticks.
+    static func clockWidth(title: String, widestValue: CGFloat) -> CGFloat {
+        max(textWidth(title.uppercased(), headerFont, kern: headerKern), widestValue)
+            + clockTrailingInset + columnGap
+    }
+
+    /// The Status column fits its header and every state word with the
+    /// longest age this language prints, after the 10pt lead-in.
+    static func statusWidth(header: String, words: [String], ages: [String]) -> CGFloat {
+        let longestAge = ages.map { textWidth($0, statusFont) }.max() ?? 0
+        let longestWord = words.map { textWidth($0, statusFont) }.max() ?? 0
+        let headerWidth = textWidth(header.uppercased(), headerFont, kern: headerKern)
+        return 10 + max(headerWidth, longestWord + 4 + longestAge) + columnGap
+    }
+
+    /// This language's ages at their widest per unit.
+    static var sampleAges: [String] { TabSheetFormat.widestAges() }
+
+    static let statusWidth: CGFloat = statusWidth(
+        header: TabSheetFormat.localized("tabBar.sheet.column.status", "Status"),
+        words: BonsplitTabDetail.StatusKind.allCases.map(TabSheetFormat.statusWord),
+        ages: sampleAges
+    )
+
+    static let widestClockValueWidth: CGFloat = widestClockValue(
+        ages: sampleAges,
+        extras: ["100%", "12.3k"]
+    )
 }
 
 // MARK: - Width tiers
@@ -70,8 +108,12 @@ struct TabSheetLayout: Equatable {
     let tier: TabSheetTier
     /// Clock names actually shown in this tier.
     let clocks: [String]
+    /// Each shown clock's column width, by name.
+    let clockWidths: [String: CGFloat]
 
-    init(width: CGFloat, clocks allClocks: [String]) {
+    /// `clockTitles` are the header titles by clock name (host or built-in);
+    /// each clock column sizes to its own title.
+    init(width: CGFloat, clocks allClocks: [String], clockTitles: [String: String] = [:]) {
         self.width = width
         self.tier = TabSheetTier(width: width)
         switch tier {
@@ -79,7 +121,15 @@ struct TabSheetLayout: Equatable {
         case .oneClock: clocks = Array(allClocks.prefix(1))
         case .typeInline, .compact: clocks = []
         }
+        var widths: [String: CGFloat] = [:]
+        for name in clocks {
+            let title = TabSheetFormat.clockTitle(name, hostTitle: clockTitles[name]) ?? name
+            widths[name] = M.clockWidth(title: title, widestValue: M.widestClockValueWidth)
+        }
+        clockWidths = widths
     }
+
+    func clockWidth(_ name: String) -> CGFloat { clockWidths[name] ?? 0 }
 
     typealias M = TabSheetMetrics
 
@@ -100,7 +150,7 @@ struct TabSheetLayout: Equatable {
     var fixedWidth: CGFloat {
         M.leadingRule + numberWidth
             + (showsTypeColumn ? M.typeWidth : 0) + M.statusWidth
-            + M.clockWidth * CGFloat(clocks.count)
+            + clocks.reduce(0) { $0 + clockWidth($1) }
             + (showsClose ? M.closeWidth : 0) + M.gripWidth + M.trailingPadding
     }
 
@@ -112,9 +162,19 @@ struct TabSheetLayout: Equatable {
 // MARK: - Formatting
 
 enum TabSheetFormat {
-    /// "Tab17": the localized tab label, no separator between word and number.
+    /// "tab17": the localized tab label, no separator between word and number.
     static func tabLabel(_ ordinal: Int) -> String {
-        String(format: localized("tabBar.sheet.tabNumber", "Tab%lld"), Int64(ordinal))
+        String(format: localized("tabBar.sheet.tabNumber", "tab%lld"), Int64(ordinal))
+    }
+
+    /// The widest age per unit in this language: `59s`, `59m`, `9.9h`, `99d`.
+    static func widestAges() -> [String] {
+        [
+            String(format: localized("tabBar.sheet.time.seconds", "%llds"), Int64(59)),
+            String(format: localized("tabBar.sheet.time.minutes", "%lldm"), Int64(59)),
+            String(format: localized("tabBar.sheet.time.hours", "%@h"), hoursFormatter.string(from: NSNumber(value: 9.9)) ?? "9.9"),
+            String(format: localized("tabBar.sheet.time.days", "%lldd"), Int64(99)),
+        ]
     }
 
     /// Clock names bonsplit can title on its own; a host can add more through

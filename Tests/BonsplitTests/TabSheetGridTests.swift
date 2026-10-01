@@ -69,10 +69,6 @@ final class TabSheetGridTests: XCTestCase {
             for (key, room) in [
                 ("column.tab", TabSheetMetrics.numberWidth - 10),
                 ("column.type", TabSheetMetrics.typeWidth - 10),
-                ("column.status", TabSheetMetrics.statusWidth - 10),
-                ("clock.active", TabSheetMetrics.clockWidth - 8),
-                ("clock.launched", TabSheetMetrics.clockWidth - 8),
-                ("clock.seen", TabSheetMetrics.clockWidth - 8),
             ] as [(String, CGFloat)] {
                 let text = string(key).uppercased()
                 XCTAssertNotEqual(text, "MISSING", "\(locale) \(key)")
@@ -86,7 +82,8 @@ final class TabSheetGridTests: XCTestCase {
             XCTAssertTrue(tab.hasSuffix("9999"), "\(locale) '\(tab)'")
             XCTAssertLessThanOrEqual(width(tab, mono11) + 12, 130, "\(locale) '\(tab)'")
             // Each status word with the longest age this locale can print
-            // (its own format strings and decimal separator), 4pt apart.
+            // (its own format strings and decimal separator), 4pt apart, and
+            // each clock header: the computed widths hold them, and stay tight.
             let decimal = NumberFormatter()
             decimal.locale = Locale(identifier: locale)
             decimal.numberStyle = .decimal
@@ -98,16 +95,28 @@ final class TabSheetGridTests: XCTestCase {
                 hours,
                 String(format: string("time.days"), 99),
             ]
+            let words = ["working", "waiting", "flagged", "idle", "cold"].map { string("status.\($0)") }
+            let statusWidth = TabSheetMetrics.statusWidth(header: string("column.status"), words: words, ages: ages)
             let longestAge = ages.map { width($0, bold11) }.max() ?? 0
-            for kind in ["working", "waiting", "flagged", "idle", "cold"] {
-                let word = string("status.\(kind)")
-                XCTAssertLessThanOrEqual(
-                    width(word, bold11) + 4 + longestAge,
-                    TabSheetMetrics.statusWidth - 10,
-                    "\(locale) \(kind) '\(word)' + \(ages)"
-                )
+            for word in words {
+                XCTAssertLessThanOrEqual(width(word, bold11) + 4 + longestAge, statusWidth - 10, "\(locale) '\(word)' + \(ages)")
+            }
+            XCTAssertLessThanOrEqual(width(string("column.status").uppercased(), header, kern: 0.6), statusWidth - 10, "\(locale) status header")
+            let widest = TabSheetMetrics.widestClockValue(ages: ages, extras: ["100%"])
+            for key in ["clock.active", "clock.launched", "clock.seen"] {
+                let title = string(key)
+                let column = TabSheetMetrics.clockWidth(title: title, widestValue: widest)
+                XCTAssertLessThanOrEqual(width(title.uppercased(), header, kern: 0.6), column - TabSheetMetrics.clockTrailingInset, "\(locale) \(key)")
+                XCTAssertLessThanOrEqual(widest, column - TabSheetMetrics.clockTrailingInset, "\(locale) \(key) values")
             }
         }
+    }
+
+    func testClockColumnsAreTighterThanTheOldFixedWidth() {
+        let layout = TabSheetLayout(width: 1000, clocks: ["active", "seen", "launched"])
+        XCTAssertLessThan(layout.clockWidth("active") + layout.clockWidth("seen") + layout.clockWidth("launched"), 3 * 78)
+        XCTAssertLessThan(layout.clockWidth("seen"), layout.clockWidth("launched"))
+        XCTAssertEqual(layout.titleWidth + layout.fixedWidth, 1000)
     }
 
     func testFlaggedInkReadsOnALightSheet() {
@@ -365,7 +374,7 @@ final class TabSheetGridTests: XCTestCase {
     }
 
     func testTheTabLabelHasNoSeparator() {
-        XCTAssertEqual(TabSheetFormat.tabLabel(17), "Tab17")
+        XCTAssertEqual(TabSheetFormat.tabLabel(17), "tab17")
     }
 
     func testDetailDecodesWithoutClocksOrClockTexts() throws {

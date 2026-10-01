@@ -346,6 +346,9 @@ struct TabBarView<TrailingAccessory: View>: View {
     // dropdown" section.
     @State private var layoutTier: TabStripLayoutTier = .full
     @State private var isDropdownOpen = false
+    /// The open sheet is widened to the whole window (the footer's expand button).
+    /// Resets each time the sheet closes.
+    @State private var isSheetExpanded = false
     @StateObject private var sheetPresenter = CollapsedSheetPresenter()
     @State private var collapsedBlockWidth: CGFloat = 0
     /// The bar's (that is, the area's) width; the sheet is exactly this wide.
@@ -555,6 +558,9 @@ struct TabBarView<TrailingAccessory: View>: View {
                 publishOverflowIfNeeded()
             }
             .onChange(of: collapsedBlockWidth) { _, _ in
+                if isDropdownOpen { syncCollapsedSheet() }
+            }
+            .onChange(of: isSheetExpanded) { _, _ in
                 if isDropdownOpen { syncCollapsedSheet() }
             }
             .onChange(of: splitViewController.draggingTab) { _, newValue in
@@ -1145,12 +1151,29 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// overhangs a neighbour. An area narrower than 320pt still gets 320pt
     /// (anchored left), and the result never exceeds the screen.
     private func sheetWidth() -> CGFloat {
-        let area = barWidth > 1 ? barWidth : (sheetPresenter.anchorView?.bounds.width ?? containerWidth)
-        let wanted = max(TabSheetMetrics.minSheetWidth, area)
+        let area = areaWidth
+        let wanted = isSheetExpanded
+            ? max(TabSheetMetrics.minSheetWidth, windowWidth ?? area)
+            : max(TabSheetMetrics.minSheetWidth, area)
         guard let visible = (sheetPresenter.anchorView?.window?.screen ?? NSScreen.main)?.visibleFrame else {
             return wanted
         }
         return min(wanted, visible.width)
+    }
+
+    private var areaWidth: CGFloat {
+        barWidth > 1 ? barWidth : (sheetPresenter.anchorView?.bounds.width ?? containerWidth)
+    }
+
+    private var windowWidth: CGFloat? {
+        sheetPresenter.anchorView?.window?.frame.width
+    }
+
+    /// The area drops columns that the whole window would show.
+    private var sheetCanExpand: Bool {
+        guard let window = windowWidth else { return false }
+        let areaTier = TabSheetTier(width: max(TabSheetMetrics.minSheetWidth, areaWidth))
+        return areaTier != .full && TabSheetTier(width: window) != areaTier
     }
 
     @ViewBuilder
@@ -1352,6 +1375,8 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// `isDropdownOpen` and the current tier.
     private func syncCollapsedSheet() {
         guard isDropdownOpen else {
+            isSheetExpanded = false
+            sheetPresenter.spansWindow = false
             sheetPresenter.dismissAnimated()
             return
         }
@@ -1367,6 +1392,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             controller.refreshTabDetails(inPane: pane.id)
         }
         sheetPresenter.blockWidth = collapsedBlockWidth
+        sheetPresenter.spansWindow = isSheetExpanded
         sheetPresenter.onDismiss = { isDropdownOpen = false }
         sheetPresenter.present(rootView: AnyView(
             CollapsedTabSheetView(
@@ -1375,14 +1401,17 @@ struct TabBarView<TrailingAccessory: View>: View {
                 splitViewController: splitViewController,
                 appearance: appearance,
                 includesControls: layoutTier == .narrow,
-                layout: TabSheetLayout(width: sheetWidth(), clocks: clocks),
+                layout: TabSheetLayout(width: sheetWidth(), clocks: clocks, clockTitles: clockTitles),
                 controlsRowHeight: sheetControlsRowHeight,
                 clockTitles: clockTitles,
                 activityAnimationEnabled: activityAnimationEnabled,
                 explicitActivityAnimationEnabled: explicitActivityAnimationEnabled,
                 makeItemProvider: { createItemProvider(for: $0) },
                 dismiss: { isDropdownOpen = false },
-                onReordered: { [weak sheetPresenter] in sheetPresenter?.dropAppliedInSheet() }
+                onReordered: { [weak sheetPresenter] in sheetPresenter?.dropAppliedInSheet() },
+                canExpand: sheetCanExpand,
+                isExpanded: isSheetExpanded,
+                onToggleExpand: { isSheetExpanded.toggle() }
             )
         ))
     }

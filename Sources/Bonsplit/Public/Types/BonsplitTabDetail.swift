@@ -6,7 +6,7 @@ import Foundation
 /// its own panels and metadata, and the sheet only draws it.
 public struct BonsplitTabDetail: Codable, Hashable, Sendable {
     /// The lifecycle word shown in the sheet's status column.
-    public enum StatusKind: String, Codable, Hashable, Sendable {
+    public enum StatusKind: String, Codable, Hashable, Sendable, CaseIterable {
         case working
         case waiting
         case flagged
