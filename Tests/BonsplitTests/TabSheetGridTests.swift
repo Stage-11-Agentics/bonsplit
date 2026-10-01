@@ -259,6 +259,7 @@ final class TabSheetGridTests: XCTestCase {
     func testDetailSurvivesTabRoundTrip() throws {
         let detail = BonsplitTabDetail(
             agentLabel: "Claude Code · Sonnet 5.5",
+            agentTintHex: "#5AA0FF",
             typeLabel: "Terminal",
             subtitle: "Doing things",
             status: .init(kind: .flagged, since: base),
@@ -284,6 +285,7 @@ final class TabSheetGridTests: XCTestCase {
         let decoded = try JSONDecoder().decode(BonsplitTabDetail.self, from: data)
         XCTAssertEqual(decoded.agentLabel, "Claude Code")
         XCTAssertNil(decoded.typeLabel)
+        XCTAssertNil(decoded.agentTintHex)
     }
 
     @MainActor

@@ -886,7 +886,7 @@ struct CollapsedTabSheetView: View {
                     if layout.typeOnLineTwo, let type = Self.typeText(tab), !type.isEmpty {
                         Text(type + " ·")
                             .font(.system(size: 11))
-                            .foregroundStyle(palette.faintText)
+                            .foregroundStyle(agentInk(tab) ?? palette.faintText)
                             .lineLimit(1)
                             .layoutPriority(1)
                     }
@@ -1030,13 +1030,20 @@ struct CollapsedTabSheetView: View {
         return nil
     }
 
-    /// An agent reads as a chip; any other kind as plain text.
+    /// The host's model-family colour for an agent tab, readable on this sheet.
+    private func agentInk(_ tab: TabItem) -> Color? {
+        guard let agent = tab.detail?.agentLabel, !agent.isEmpty,
+              let tint = tab.detail?.agentTintHex.flatMap(NSColor.init(bonsplitHex:)) else { return nil }
+        return TabBarColors.readableInk(tint, for: appearance)
+    }
+
+    /// An agent reads as a chip in its model-family colour; any other kind as plain text.
     @ViewBuilder
     private func typeCell(_ tab: TabItem) -> some View {
         if let label = tab.detail?.agentLabel, !label.isEmpty {
             Text(label)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(palette.chipText)
+                .foregroundStyle(agentInk(tab) ?? palette.chipText)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .padding(.horizontal, 4)

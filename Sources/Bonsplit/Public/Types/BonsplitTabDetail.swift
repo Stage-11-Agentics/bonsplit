@@ -47,6 +47,10 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
     /// `Harness · model`, `Harness` alone when the model is unknown, nil when
     /// the tab hosts no agent. The Type column shows it as a chip.
     public var agentLabel: String?
+    /// The agent chip's text colour as `#RRGGBB` (the host colours by model
+    /// family). Deepened on a light sheet until it reads; nil uses the chip's
+    /// default ink.
+    public var agentTintHex: String?
     /// The tab's kind when it hosts no agent (`Terminal`, `Browser`,
     /// `Markdown`), shown as plain text in the Type column.
     public var typeLabel: String?
@@ -66,6 +70,7 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
     public init(
         title: String? = nil,
         agentLabel: String? = nil,
+        agentTintHex: String? = nil,
         typeLabel: String? = nil,
         subtitle: String? = nil,
         status: Status? = nil,
@@ -74,6 +79,7 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
     ) {
         self.title = title
         self.agentLabel = agentLabel
+        self.agentTintHex = agentTintHex
         self.typeLabel = typeLabel
         self.subtitle = subtitle
         self.status = status
@@ -82,11 +88,12 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
     }
 
     /// Decodes tolerantly: a payload written by an older build (drag payloads
-    /// cross builds) has no `typeLabel`, `clocks` or `clockTexts`, and must still decode.
+    /// cross builds) has no `agentTintHex`, `typeLabel`, `clocks` or `clockTexts`, and must still decode.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.title = try c.decodeIfPresent(String.self, forKey: .title)
         self.agentLabel = try c.decodeIfPresent(String.self, forKey: .agentLabel)
+        self.agentTintHex = try c.decodeIfPresent(String.self, forKey: .agentTintHex)
         self.typeLabel = try c.decodeIfPresent(String.self, forKey: .typeLabel)
         self.subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
         self.status = try c.decodeIfPresent(Status.self, forKey: .status)
