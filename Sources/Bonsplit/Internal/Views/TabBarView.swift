@@ -1228,11 +1228,11 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// flush left. Inside: activity mark, `N: title`, and a separate square
     /// count cell at the right edge (background-waiting dot, count, chevron)
     /// that fills gold while the sheet is open. Brightens on hover via the
-    /// shared `isHoveringTabBar` (the AppKit hover view). This view only
-    /// DRAWS; it adds no `.onHover`/NSView layer, so the outer bar's tap
-    /// gesture still fires over it. (A child `.onHover` here would create an
-    /// AppKit hosting layer that swallows the mouse-down: that mistake is why
-    /// the tap broke once.)
+    /// shared `isHoveringTabBar` (the AppKit hover view). Do not add a child
+    /// `.onHover` here: that creates an AppKit hosting layer that swallows
+    /// the mouse-down, which is why the tap broke once. The count cell's
+    /// anchor reader is an NSView whose `hitTest` returns nil, so the outer
+    /// bar's tap still fires over the block.
     private var collapsedHeaderBlock: some View {
         let palette = sheetPalette
         let isBlockLinked = isDropdownOpen && activeTab.map { controller.linkedHoverTabId == $0.id } == true

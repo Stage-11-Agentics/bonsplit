@@ -274,6 +274,9 @@ public final class BonsplitController {
             self.railOpenPaneIds.remove(paneId)
             self.railNeedsControls.remove(paneId)
             self.openTabSheetPaneIds.remove(paneId)
+            self.tabStripOverflowByPane.removeValue(forKey: paneId)
+            self.countCellAnchorByPane.removeValue(forKey: paneId)
+            self.tabSheetOpenByPane.removeValue(forKey: paneId)
         }
     }
 
