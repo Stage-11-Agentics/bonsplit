@@ -147,7 +147,7 @@ enum TabActivityAccessibility {
 
     static func help(for state: BonsplitTabActivityState?) -> String {
         guard state == .waiting else { return "" }
-        return localizedString("tab.activity.waiting.help", default: "This surface needs your response.")
+        return localizedString("tab.activity.waiting.help", default: "This tab needs your response.")
     }
 
     static func composedValue(
@@ -1105,7 +1105,7 @@ struct TabItemView: View {
     @ViewBuilder
     private var simplifiedContextMenuContent: some View {
         contextButton(
-            localizedString("command.surfaceDetails.title", default: "Surface Details"),
+            localizedString("command.surfaceDetails.title", default: "Tab Details"),
             action: .surfaceDetails
         )
         if let surfaceRef = contextMenuState.surfaceRef {
@@ -1120,14 +1120,14 @@ struct TabItemView: View {
             action: .closeTab
         )
         contextButton(
-            localizedString("command.closePane.title", default: "Close Pane"),
+            localizedString("command.closePane.title", default: "Close Area"),
             action: .closePane
         )
     }
 
     @ViewBuilder
     private var legacyContextMenuContent: some View {
-        contextButton("Surface Details", action: .surfaceDetails)
+        contextButton("Tab Details", action: .surfaceDetails)
         if let surfaceRef = contextMenuState.surfaceRef {
             contextButton("Copy \(surfaceRef)", action: .copySurfaceRef)
         }
@@ -1154,14 +1154,14 @@ struct TabItemView: View {
         if contextMenuState.isTerminal {
             localizedContextButton(
                 "command.moveTabToLeftPane.title",
-                defaultValue: "Move to Left Pane",
+                defaultValue: "Move to Left Area",
                 action: .moveToLeftPane
             )
                 .disabled(!contextMenuState.canMoveToLeftPane)
 
             localizedContextButton(
                 "command.moveTabToRightPane.title",
-                defaultValue: "Move to Right Pane",
+                defaultValue: "Move to Right Area",
                 action: .moveToRightPane
             )
                 .disabled(!contextMenuState.canMoveToRightPane)
@@ -1185,7 +1185,7 @@ struct TabItemView: View {
 
         if contextMenuState.hasSplits {
             contextButton(
-                contextMenuState.isZoomed ? "Exit Zoom" : "Zoom Pane",
+                contextMenuState.isZoomed ? "Exit Zoom" : "Zoom Area",
                 action: .toggleZoom
             )
         }

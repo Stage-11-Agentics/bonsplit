@@ -1,5 +1,5 @@
 "command.closeTab.title" = "Закрити вкладку";
-"command.closePane.title" = "Закрити панель";
+"command.closePane.title" = "Закрити область";
 "command.tabColor.title" = "Колір вкладки";
 "command.tabColor.clearColor" = "Очистити колір";
 "command.tabColor.chooseCustom" = "Вибрати власний колір…";
@@ -7,7 +7,7 @@
 "tab.activity.idle" = "Простій";
 "tab.activity.cold" = "Холодна";
 "tab.activity.waiting" = "Очікує на вашу відповідь";
-"tab.activity.waiting.help" = "Ця поверхня потребує вашої відповіді.";
+"tab.activity.waiting.help" = "Ця вкладка потребує вашої відповіді.";
 "tabBar.collapsedList.accessibilityLabel" = "Список вкладок";
 "tabBar.collapsedHeader.accessibilityLabel" = "Показати всі вкладки";
 "tabBar.collapsedList.selectAction" = "Вибрати";

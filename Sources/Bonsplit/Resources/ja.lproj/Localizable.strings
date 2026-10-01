@@ -1,7 +1,7 @@
 "command.closeTab.title" = "タブを閉じる";
-"command.closePane.title" = "ペインを閉じる";
-"command.moveTabToLeftPane.title" = "左のペインへ移動";
-"command.moveTabToRightPane.title" = "右のペインへ移動";
+"command.closePane.title" = "エリアを閉じる";
+"command.moveTabToLeftPane.title" = "左のエリアへ移動";
+"command.moveTabToRightPane.title" = "右のエリアへ移動";
 "command.tabColor.title" = "タブカラー";
 "command.tabColor.clearColor" = "カラーをクリア";
 "command.tabColor.chooseCustom" = "カスタムカラーを選択…";
@@ -9,7 +9,7 @@
 "tab.activity.idle" = "アイドル";
 "tab.activity.cold" = "コールド";
 "tab.activity.waiting" = "応答を待っています";
-"tab.activity.waiting.help" = "このサーフェスには応答が必要です。";
+"tab.activity.waiting.help" = "このタブには応答が必要です。";
 "tabBar.collapsedList.accessibilityLabel" = "タブ一覧";
 "tabBar.collapsedHeader.accessibilityLabel" = "すべてのタブを表示";
 "tabBar.collapsedList.selectAction" = "選択";

@@ -148,7 +148,7 @@ extension BonsplitConfiguration {
             splitRight: String = "Split Right",
             splitDown: String = "Split Down",
             newTab: String = "New Tab",
-            closePane: String = "Close Pane"
+            closePane: String = "Close Area"
         ) {
             self.newAgent = newAgent
             self.chooseAgent = chooseAgent

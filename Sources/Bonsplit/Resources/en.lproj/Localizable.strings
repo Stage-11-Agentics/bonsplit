@@ -1,7 +1,7 @@
 "command.closeTab.title" = "Close Tab";
-"command.closePane.title" = "Close Pane";
-"command.moveTabToLeftPane.title" = "Move to Left Pane";
-"command.moveTabToRightPane.title" = "Move to Right Pane";
+"command.closePane.title" = "Close Area";
+"command.moveTabToLeftPane.title" = "Move to Left Area";
+"command.moveTabToRightPane.title" = "Move to Right Area";
 "command.tabColor.title" = "Tab Color";
 "command.tabColor.clearColor" = "Clear Color";
 "command.tabColor.chooseCustom" = "Choose Custom Color…";
@@ -9,7 +9,7 @@
 "tab.activity.idle" = "Idle";
 "tab.activity.cold" = "Cold";
 "tab.activity.waiting" = "Waiting for your response";
-"tab.activity.waiting.help" = "This surface needs your response.";
+"tab.activity.waiting.help" = "This tab needs your response.";
 "tabBar.collapsedList.accessibilityLabel" = "Tab list";
 "tabBar.collapsedHeader.accessibilityLabel" = "Show all tabs";
 "tabBar.collapsedList.selectAction" = "Select";
