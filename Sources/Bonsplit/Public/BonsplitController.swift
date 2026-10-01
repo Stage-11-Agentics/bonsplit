@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -171,6 +172,66 @@ public final class BonsplitController {
         if open { railOpenPaneIds.insert(paneId) } else { railOpenPaneIds.remove(paneId) }
     }
 
+    /// Called when a pane's tab strip starts or stops overflowing. Overflow
+    /// means the strip can scroll, or it has folded into the solid block.
+    /// False while that pane's rail is open. Edge-triggered: a repeat of the
+    /// same value does not call out.
+    @ObservationIgnored public var onTabStripOverflow: ((_ paneId: PaneID, _ overflowing: Bool) -> Void)?
+
+    /// The count cell's view, for a popover anchored under it. Nil when the
+    /// bar goes away. The same view is not reported twice. The view is not
+    /// retained.
+    @ObservationIgnored public var onCountCellAnchor: ((_ paneId: PaneID, _ view: NSView?) -> Void)?
+
+    /// Called when a pane's tab sheet opens or closes, including when the
+    /// count cell toggles it.
+    @ObservationIgnored public var onTabSheetOpenChanged: ((_ paneId: PaneID, _ isOpen: Bool) -> Void)?
+
+    @ObservationIgnored private var tabStripOverflowByPane: [PaneID: Bool] = [:]
+
+    private final class CountCellAnchor {
+        weak var view: NSView?
+        init(_ view: NSView?) { self.view = view }
+    }
+
+    @ObservationIgnored private var countCellAnchorByPane: [PaneID: CountCellAnchor] = [:]
+
+    func noteTabStripOverflow(paneId: PaneID, overflowing: Bool) {
+        if tabStripOverflowByPane[paneId] == overflowing { return }
+        tabStripOverflowByPane[paneId] = overflowing
+        onTabStripOverflow?(paneId, overflowing)
+    }
+
+    func noteCountCellAnchor(paneId: PaneID, view: NSView?) {
+        let stored = countCellAnchorByPane[paneId]?.view
+        // A reader reports on every update, including while its view is
+        // entering or leaving a window. Only a view in a window can anchor
+        // the popover. A different reader tearing down must not clear the
+        // live one.
+        let incoming: NSView? = (view?.window != nil) ? view : nil
+        if stored === incoming { return }
+        if incoming == nil {
+            if view != nil, stored !== view { return }
+            if stored == nil {
+                countCellAnchorByPane.removeValue(forKey: paneId)
+                return
+            }
+            countCellAnchorByPane.removeValue(forKey: paneId)
+            onCountCellAnchor?(paneId, nil)
+            return
+        }
+        countCellAnchorByPane[paneId] = CountCellAnchor(incoming)
+        onCountCellAnchor?(paneId, incoming)
+    }
+
+    @ObservationIgnored private var tabSheetOpenByPane: [PaneID: Bool] = [:]
+
+    func noteTabSheetOpenChanged(paneId: PaneID, isOpen: Bool) {
+        if tabSheetOpenByPane[paneId] == isOpen { return }
+        tabSheetOpenByPane[paneId] = isOpen
+        onTabSheetOpenChanged?(paneId, isOpen)
+    }
+
     /// The tab lit by linked hover: the sheet row under the pointer lights its
     /// strip tab, and (while the sheet is open) the strip tab under the pointer
     /// lights its row.
@@ -213,6 +274,9 @@ public final class BonsplitController {
             self.railOpenPaneIds.remove(paneId)
             self.railNeedsControls.remove(paneId)
             self.openTabSheetPaneIds.remove(paneId)
+            self.tabStripOverflowByPane.removeValue(forKey: paneId)
+            self.countCellAnchorByPane.removeValue(forKey: paneId)
+            self.tabSheetOpenByPane.removeValue(forKey: paneId)
         }
     }
 
