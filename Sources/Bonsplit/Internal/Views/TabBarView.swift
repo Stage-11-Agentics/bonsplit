@@ -351,6 +351,9 @@ struct TabBarView<TrailingAccessory: View>: View {
     /// The bar's (that is, the area's) width; the sheet is exactly this wide.
     @State private var barWidth: CGFloat = 0
     @State private var isCountCellHovered = false
+    /// Last overflow bit sent to the controller. Nil until the first report,
+    /// so a later identical value does not call out.
+    @State private var publishedOverflow: Bool?
 
     init(
         pane: PaneState,
@@ -373,6 +376,15 @@ struct TabBarView<TrailingAccessory: View>: View {
         let tabsWidth = contentWidth - 30
         guard tabsWidth > containerWidth + 4 else { return false }
         return scrollOffset < tabsWidth - containerWidth
+    }
+
+    /// Scrolling strip, or the solid folded block. False while the rail is
+    /// open (the strip is hidden). Reports only when the bit changes.
+    private func publishOverflowIfNeeded() {
+        let overflowing = !isRailOpen && (layoutTier == .narrow || canScrollLeft || canScrollRight)
+        guard publishedOverflow != overflowing else { return }
+        publishedOverflow = overflowing
+        controller.noteTabStripOverflow(paneId: pane.id, overflowing: overflowing)
     }
 
     /// Whether this tab bar should show full saturation (focused or drag source)
@@ -536,7 +548,11 @@ struct TabBarView<TrailingAccessory: View>: View {
                     // Nothing left to link to: don't leave a tab lit.
                     controller.clearLinkedHover()
                 }
+                controller.noteTabSheetOpenChanged(paneId: pane.id, isOpen: open)
                 syncCollapsedSheet()
+            }
+            .onChange(of: isRailOpen) { _, _ in
+                publishOverflowIfNeeded()
             }
             .onChange(of: collapsedBlockWidth) { _, _ in
                 if isDropdownOpen { syncCollapsedSheet() }
@@ -556,9 +572,16 @@ struct TabBarView<TrailingAccessory: View>: View {
                 }
             }
             .onDisappear {
+                let sheetWasOpen = isDropdownOpen
                 isDropdownOpen = false
                 controller.openTabSheetPaneIds.remove(pane.id)
+                if sheetWasOpen {
+                    controller.noteTabSheetOpenChanged(paneId: pane.id, isOpen: false)
+                }
                 sheetPresenter.dismiss()
+                publishedOverflow = false
+                controller.noteTabStripOverflow(paneId: pane.id, overflowing: false)
+                controller.noteCountCellAnchor(paneId: pane.id, view: nil)
             }
     }
 
@@ -577,6 +600,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             .onAppear {
                 barWidth = outerGeo.size.width
                 recomputeLayoutTier(availableWidth: outerGeo.size.width)
+                publishOverflowIfNeeded()
             }
             .onChange(of: outerGeo.size.width) { _, newWidth in
                 barWidth = newWidth
@@ -660,6 +684,9 @@ struct TabBarView<TrailingAccessory: View>: View {
             .saturation(tabBarSaturation)
             .contentShape(Rectangle())
             .onTapGesture { toggleCountList() }
+            .background(CollapsedSheetTrailingAnchorReader { view in
+                controller.noteCountCellAnchor(paneId: pane.id, view: view)
+            })
 
             if !railBarLacksRoomForControls {
                 splitButtons.saturation(tabBarSaturation)
@@ -740,6 +767,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                                         contentWidth = newFrame.width
                                         scrollViewBridge.mirror.offset = scrollOffset
                                         scrollViewBridge.mirror.content = contentWidth
+                                        publishOverflowIfNeeded()
                                     }
                                     .onAppear {
                                         let frame = contentGeo.frame(in: .named("tabScroll"))
@@ -747,6 +775,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                                         contentWidth = frame.width
                                         scrollViewBridge.mirror.offset = scrollOffset
                                         scrollViewBridge.mirror.content = contentWidth
+                                        publishOverflowIfNeeded()
                                     }
                             }
                         )
@@ -804,6 +833,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                         containerWidth = newWidth
                         scrollViewBridge.mirror.container = newWidth
                         scrollToPreferredTarget(proxy, selectedTabId: pane.selectedTabId, reason: .geometry)
+                        publishOverflowIfNeeded()
                     }
                     .onChange(of: contentWidth) { _, _ in
                         // The ghost slot grows the content mid-drag; scrolling to the
@@ -1103,6 +1133,7 @@ struct TabBarView<TrailingAccessory: View>: View {
         // Close any open dropdown on a tier change: `.full` has no dropdown, and
         // the dropdown's contents differ between medium and narrow.
         if isDropdownOpen { isDropdownOpen = false }
+        publishOverflowIfNeeded()
     }
 
     /// Height of the folded controls row at the top of the narrow-tier sheet.
@@ -1184,7 +1215,10 @@ struct TabBarView<TrailingAccessory: View>: View {
         )
         .onHover { isCountCellHovered = $0 }
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(CollapsedSheetTrailingAnchorReader { sheetPresenter.trailingAnchorView = $0 })
+        .background(CollapsedSheetTrailingAnchorReader { view in
+            sheetPresenter.trailingAnchorView = view
+            controller.noteCountCellAnchor(paneId: pane.id, view: view)
+        })
         .contentShape(Rectangle())
         .onTapGesture { toggleCountList() }
     }
@@ -1238,6 +1272,10 @@ struct TabBarView<TrailingAccessory: View>: View {
                 appearance: appearance,
                 height: blockHeight
             )
+            // hitTest returns nil, so this does not swallow the header's tap.
+            .background(CollapsedSheetTrailingAnchorReader { view in
+                controller.noteCountCellAnchor(paneId: pane.id, view: view)
+            })
         }
         .frame(height: blockHeight)
         .background(isHoveringTabBar || isBlockLinked ? palette.blockHover : palette.block)
