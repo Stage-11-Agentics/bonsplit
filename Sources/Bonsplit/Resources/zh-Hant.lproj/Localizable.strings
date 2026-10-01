@@ -14,7 +14,7 @@
 "tabBar.sheet.tabNumber" = "分頁%lld";
 "tabBar.sheet.column.tab" = "分頁";
 "tabBar.sheet.column.title" = "標題";
-"tabBar.sheet.column.agent" = "代理";
+"tabBar.sheet.column.type" = "類型";
 "tabBar.sheet.column.status" = "狀態";
 "tabBar.sheet.clock.active" = "活動";
 "tabBar.sheet.clock.launched" = "啟動";

@@ -68,7 +68,7 @@ final class TabSheetGridTests: XCTestCase {
             func string(_ key: String) -> String { bundle.localizedString(forKey: "tabBar.sheet.\(key)", value: "MISSING", table: nil) }
             for (key, room) in [
                 ("column.tab", TabSheetMetrics.numberWidth - 10),
-                ("column.agent", TabSheetMetrics.agentWidth - 10),
+                ("column.type", TabSheetMetrics.typeWidth - 10),
                 ("column.status", TabSheetMetrics.statusWidth - 10),
                 ("clock.active", TabSheetMetrics.clockWidth - 8),
                 ("clock.launched", TabSheetMetrics.clockWidth - 8),
@@ -165,8 +165,8 @@ final class TabSheetGridTests: XCTestCase {
         XCTAssertEqual(TabSheetTier(width: 820), .full)
         XCTAssertEqual(TabSheetTier(width: 819), .oneClock)
         XCTAssertEqual(TabSheetTier(width: 600), .oneClock)
-        XCTAssertEqual(TabSheetTier(width: 599), .agentInline)
-        XCTAssertEqual(TabSheetTier(width: 440), .agentInline)
+        XCTAssertEqual(TabSheetTier(width: 599), .typeInline)
+        XCTAssertEqual(TabSheetTier(width: 440), .typeInline)
         XCTAssertEqual(TabSheetTier(width: 439), .compact)
         XCTAssertEqual(TabSheetTier(width: 320), .compact)
     }
@@ -175,13 +175,13 @@ final class TabSheetGridTests: XCTestCase {
         let both = ["active", "launched"]
         XCTAssertEqual(TabSheetLayout(width: 900, clocks: both).clocks, both)
         XCTAssertEqual(TabSheetLayout(width: 700, clocks: both).clocks, ["active"])
-        XCTAssertTrue(TabSheetLayout(width: 700, clocks: both).showsAgentColumn)
+        XCTAssertTrue(TabSheetLayout(width: 700, clocks: both).showsTypeColumn)
         let inline = TabSheetLayout(width: 500, clocks: both)
         XCTAssertEqual(inline.clocks, [])
-        XCTAssertFalse(inline.showsAgentColumn)
-        XCTAssertTrue(inline.agentOnLineTwo)
+        XCTAssertFalse(inline.showsTypeColumn)
+        XCTAssertTrue(inline.typeOnLineTwo)
         let compact = TabSheetLayout(width: 340, clocks: both)
-        XCTAssertFalse(compact.showsAgentColumn || compact.agentOnLineTwo || compact.showsClose)
+        XCTAssertFalse(compact.showsTypeColumn || compact.typeOnLineTwo || compact.showsClose)
         XCTAssertEqual(compact.clocks, [])
         // Within a tier the fixed columns never change with width; only the title flexes.
         XCTAssertEqual(TabSheetLayout(width: 830, clocks: both).fixedWidth, TabSheetLayout(width: 1400, clocks: both).fixedWidth)
@@ -259,6 +259,7 @@ final class TabSheetGridTests: XCTestCase {
     func testDetailSurvivesTabRoundTrip() throws {
         let detail = BonsplitTabDetail(
             agentLabel: "Claude Code · Sonnet 5.5",
+            typeLabel: "Terminal",
             subtitle: "Doing things",
             status: .init(kind: .flagged, since: base),
             clocks: ["active": base, "launched": base.addingTimeInterval(-60)]
@@ -267,6 +268,22 @@ final class TabSheetGridTests: XCTestCase {
         let data = try JSONEncoder().encode(item)
         let decoded = try JSONDecoder().decode(TabItem.self, from: data)
         XCTAssertEqual(decoded.detail, detail)
+    }
+
+    func testTypeColumnShowsTheAgentElseTheTabKind() {
+        let agent = TabItem(title: "a", detail: BonsplitTabDetail(agentLabel: "Codex · gpt-5.5", typeLabel: "Terminal"))
+        XCTAssertEqual(CollapsedTabSheetView.typeText(agent), "Codex · gpt-5.5")
+        let browser = TabItem(title: "b", detail: BonsplitTabDetail(typeLabel: "Browser"))
+        XCTAssertEqual(CollapsedTabSheetView.typeText(browser), "Browser")
+        XCTAssertNil(CollapsedTabSheetView.typeText(TabItem(title: "c", detail: BonsplitTabDetail(agentLabel: "", typeLabel: ""))))
+        XCTAssertNil(CollapsedTabSheetView.typeText(TabItem(title: "d")))
+    }
+
+    func testDetailFromAnOlderBuildDecodesWithoutATypeLabel() throws {
+        let data = Data(#"{"agentLabel":"Claude Code","subtitle":"s"}"#.utf8)
+        let decoded = try JSONDecoder().decode(BonsplitTabDetail.self, from: data)
+        XCTAssertEqual(decoded.agentLabel, "Claude Code")
+        XCTAssertNil(decoded.typeLabel)
     }
 
     @MainActor

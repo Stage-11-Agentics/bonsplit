@@ -16,7 +16,7 @@
 "tabBar.sheet.tabNumber" = "タブ%lld";
 "tabBar.sheet.column.tab" = "タブ";
 "tabBar.sheet.column.title" = "タイトル";
-"tabBar.sheet.column.agent" = "エージェント";
+"tabBar.sheet.column.type" = "種類";
 "tabBar.sheet.column.status" = "状態";
 "tabBar.sheet.clock.active" = "アクティブ";
 "tabBar.sheet.clock.launched" = "起動";

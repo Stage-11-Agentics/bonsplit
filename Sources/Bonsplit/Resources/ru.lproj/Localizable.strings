@@ -14,7 +14,7 @@
 "tabBar.sheet.tabNumber" = "Вкладка%lld";
 "tabBar.sheet.column.tab" = "Вкладка";
 "tabBar.sheet.column.title" = "Название";
-"tabBar.sheet.column.agent" = "Агент";
+"tabBar.sheet.column.type" = "Тип";
 "tabBar.sheet.column.status" = "Статус";
 "tabBar.sheet.clock.active" = "Актив.";
 "tabBar.sheet.clock.launched" = "Запуск";

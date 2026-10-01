@@ -45,8 +45,11 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
     /// label; the sheet's title column has room for the whole title.
     public var title: String?
     /// `Harness · model`, `Harness` alone when the model is unknown, nil when
-    /// the tab hosts no agent.
+    /// the tab hosts no agent. The Type column shows it as a chip.
     public var agentLabel: String?
+    /// The tab's kind when it hosts no agent (`Terminal`, `Browser`,
+    /// `Markdown`), shown as plain text in the Type column.
+    public var typeLabel: String?
     /// Second line of the row: the tab's description, or a kind-specific
     /// fallback (cwd, host, path).
     public var subtitle: String?
@@ -63,6 +66,7 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
     public init(
         title: String? = nil,
         agentLabel: String? = nil,
+        typeLabel: String? = nil,
         subtitle: String? = nil,
         status: Status? = nil,
         clocks: [String: Date] = [:],
@@ -70,6 +74,7 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
     ) {
         self.title = title
         self.agentLabel = agentLabel
+        self.typeLabel = typeLabel
         self.subtitle = subtitle
         self.status = status
         self.clocks = clocks
@@ -77,11 +82,12 @@ public struct BonsplitTabDetail: Codable, Hashable, Sendable {
     }
 
     /// Decodes tolerantly: a payload written by an older build (drag payloads
-    /// cross builds) has no `clocks` or `clockTexts`, and must still decode.
+    /// cross builds) has no `typeLabel`, `clocks` or `clockTexts`, and must still decode.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.title = try c.decodeIfPresent(String.self, forKey: .title)
         self.agentLabel = try c.decodeIfPresent(String.self, forKey: .agentLabel)
+        self.typeLabel = try c.decodeIfPresent(String.self, forKey: .typeLabel)
         self.subtitle = try c.decodeIfPresent(String.self, forKey: .subtitle)
         self.status = try c.decodeIfPresent(Status.self, forKey: .status)
         self.clocks = try c.decodeIfPresent([String: Date].self, forKey: .clocks) ?? [:]
