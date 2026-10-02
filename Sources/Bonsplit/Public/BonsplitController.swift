@@ -187,6 +187,10 @@ public final class BonsplitController {
     /// count cell toggles it.
     @ObservationIgnored public var onTabSheetOpenChanged: ((_ paneId: PaneID, _ isOpen: Bool) -> Void)?
 
+    /// Called before a count-cell tap toggles its list. Return true when the
+    /// host consumed the tap and handled the list action itself.
+    @ObservationIgnored public var onCountCellTapped: ((_ paneId: PaneID) -> Bool)?
+
     @ObservationIgnored private var tabStripOverflowByPane: [PaneID: Bool] = [:]
 
     private final class CountCellAnchor {
@@ -202,8 +206,15 @@ public final class BonsplitController {
         onTabStripOverflow?(paneId, overflowing)
     }
 
-    func noteCountCellAnchor(paneId: PaneID, view: NSView?) {
+    func noteCountCellAnchor(paneId: PaneID, view: NSView?, isDisappearing: Bool = false) {
         let stored = countCellAnchorByPane[paneId]?.view
+        if isDisappearing {
+            guard let view, stored === view else { return }
+            countCellAnchorByPane.removeValue(forKey: paneId)
+            onCountCellAnchor?(paneId, nil)
+            return
+        }
+
         // A reader reports on every update, including while its view is
         // entering or leaving a window. Only a view in a window can anchor
         // the popover. A different reader tearing down must not clear the
@@ -211,11 +222,7 @@ public final class BonsplitController {
         let incoming: NSView? = (view?.window != nil) ? view : nil
         if stored === incoming { return }
         if incoming == nil {
-            if view != nil, stored !== view { return }
-            if stored == nil {
-                countCellAnchorByPane.removeValue(forKey: paneId)
-                return
-            }
+            guard let view, stored === view else { return }
             countCellAnchorByPane.removeValue(forKey: paneId)
             onCountCellAnchor?(paneId, nil)
             return

@@ -310,6 +310,11 @@ struct CollapsedTabCloseButton: View {
     }
 }
 
+@MainActor
+private final class CountCellAnchorReaderState {
+    weak var view: NSView?
+}
+
 struct TabBarView<TrailingAccessory: View>: View {
     @Environment(BonsplitController.self) private var controller
     @Environment(SplitViewController.self) private var splitViewController
@@ -347,6 +352,7 @@ struct TabBarView<TrailingAccessory: View>: View {
     @State private var layoutTier: TabStripLayoutTier = .full
     @State private var isDropdownOpen = false
     @StateObject private var sheetPresenter = CollapsedSheetPresenter()
+    @State private var countCellAnchorReaderState = CountCellAnchorReaderState()
     @State private var collapsedBlockWidth: CGFloat = 0
     /// The bar's (that is, the area's) width; the sheet is exactly this wide.
     @State private var barWidth: CGFloat = 0
@@ -417,12 +423,18 @@ struct TabBarView<TrailingAccessory: View>: View {
         withTransaction(Transaction(animation: nil)) {
             controller.focusPane(pane.id)
         }
+        if controller.onCountCellTapped?(pane.id) == true { return }
         if isRailLayout {
             isDropdownOpen = false
             controller.setRailOpen(!isRailOpen, inPane: pane.id)
         } else {
             isDropdownOpen.toggle()
         }
+    }
+
+    private func noteCountCellAnchor(_ view: NSView) {
+        countCellAnchorReaderState.view = view
+        controller.noteCountCellAnchor(paneId: pane.id, view: view)
     }
 
     private var isMinimalMode: Bool {
@@ -581,7 +593,10 @@ struct TabBarView<TrailingAccessory: View>: View {
                 sheetPresenter.dismiss()
                 publishedOverflow = false
                 controller.noteTabStripOverflow(paneId: pane.id, overflowing: false)
-                controller.noteCountCellAnchor(paneId: pane.id, view: nil)
+                if let anchor = countCellAnchorReaderState.view {
+                    controller.noteCountCellAnchor(paneId: pane.id, view: anchor, isDisappearing: true)
+                    countCellAnchorReaderState.view = nil
+                }
             }
     }
 
@@ -685,7 +700,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             .contentShape(Rectangle())
             .onTapGesture { toggleCountList() }
             .background(CollapsedSheetTrailingAnchorReader { view in
-                controller.noteCountCellAnchor(paneId: pane.id, view: view)
+                noteCountCellAnchor(view)
             })
 
             if !railBarLacksRoomForControls {
@@ -1217,7 +1232,7 @@ struct TabBarView<TrailingAccessory: View>: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background(CollapsedSheetTrailingAnchorReader { view in
             sheetPresenter.trailingAnchorView = view
-            controller.noteCountCellAnchor(paneId: pane.id, view: view)
+            noteCountCellAnchor(view)
         })
         .contentShape(Rectangle())
         .onTapGesture { toggleCountList() }
@@ -1274,7 +1289,7 @@ struct TabBarView<TrailingAccessory: View>: View {
             )
             // hitTest returns nil, so this does not swallow the header's tap.
             .background(CollapsedSheetTrailingAnchorReader { view in
-                controller.noteCountCellAnchor(paneId: pane.id, view: view)
+                noteCountCellAnchor(view)
             })
         }
         .frame(height: blockHeight)
