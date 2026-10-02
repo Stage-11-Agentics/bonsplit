@@ -764,7 +764,7 @@ struct CollapsedTabSheetView: View {
             ForEach(clocks, id: \.self) { name in
                 headerLabel(TabSheetFormat.clockTitle(name, hostTitle: clockTitles[name]) ?? name, width: M.clockWidth, alignment: .trailing, trailingInset: 8)
             }
-            Color.clear.frame(width: (layout.showsClose ? M.closeWidth : 0) + M.gripWidth + M.trailingPadding)
+            Color.clear.frame(width: M.gripWidth + M.trailingPadding)
         }
         .frame(height: M.headerHeight)
         .background(palette.header)
@@ -919,29 +919,26 @@ struct CollapsedTabSheetView: View {
                 }
             }
 
-            if layout.showsClose {
-                column(width: M.closeWidth, alignment: .center) {
-                    // Always laid out so the row never reflows on hover; only the
-                    // glyph's visibility changes.
-                    if !tab.isPinned {
-                        CollapsedTabCloseButton(
-                            tab: tab,
-                            pane: pane,
-                            controller: controller,
-                            appearance: appearance
-                        )
-                        .opacity(isHovered ? 1 : 0)
-                        .allowsHitTesting(isHovered)
-                    }
-                }
-            }
-
+            // Grip on line one, close under it on line two. Every tier keeps
+            // both: however narrow the area, its tabs can still be closed, and
+            // this close never reads as the controls row's close-area button.
             column(width: M.gripWidth, alignment: .center) {
                 Text("\u{22EE}\u{22EE}")
                     .font(.system(size: 13))
                     .tracking(-2)
                     .foregroundStyle(isHovered || isSelected ? palette.dimText : palette.faintText.opacity(0.7))
                     .help(TabSheetFormat.localized("tabBar.sheet.dragHandle.help", "Drag to reorder or move"))
+            } bottom: {
+                if !tab.isPinned {
+                    CollapsedTabCloseButton(
+                        tab: tab,
+                        pane: pane,
+                        controller: controller,
+                        appearance: appearance,
+                        hitSize: CGSize(width: M.gripWidth, height: M.lineHeight)
+                    )
+                    .opacity(isHovered || isSelected ? 1 : 0.6)
+                }
             }
 
             Color.clear.frame(width: M.trailingPadding)

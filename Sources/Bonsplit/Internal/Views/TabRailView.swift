@@ -280,9 +280,26 @@ struct TabRailView: View {
                     explicitActivityAnimationEnabled: explicitActivityAnimationEnabled
                 )
             }
+
+            // Every row keeps its close, always laid out so nothing shifts.
+            Group {
+                if !tab.isPinned {
+                    CollapsedTabCloseButton(
+                        tab: tab,
+                        pane: pane,
+                        controller: controller,
+                        appearance: appearance,
+                        hitSize: CGSize(width: 18, height: TabRailMetrics.rowHeight)
+                    )
+                    .opacity(isHovered || isSelected ? 1 : 0.6)
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: 18)
         }
         .padding(.leading, 7 + TabSheetMetrics.leadingRule)
-        .padding(.trailing, 10)
+        .padding(.trailing, 4)
         .frame(height: TabRailMetrics.rowHeight)
         .background(isSelected ? palette.rowActive : (isHovered ? palette.rowHover : Color.clear))
         .overlay(alignment: .bottom) { Rectangle().fill(palette.separator).frame(height: 1).allowsHitTesting(false) }
@@ -318,6 +335,11 @@ struct TabRailView: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction(named: Text(TabSheetFormat.localized("tabBar.collapsedList.selectAction", "Select"))) { select(tab) }
+        // `.combine` folds the close button into the row, so expose it explicitly.
+        .accessibilityAction(named: Text(TabSheetFormat.localized("command.closeTab.title", "Close Tab"))) {
+            guard !tab.isPinned else { return }
+            CollapsedTabCloseButton.close(tab: tab, pane: pane, controller: controller)
+        }
     }
 
     @ViewBuilder

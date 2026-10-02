@@ -181,7 +181,7 @@ final class TabSheetGridTests: XCTestCase {
         XCTAssertFalse(inline.showsTypeColumn)
         XCTAssertTrue(inline.typeOnLineTwo)
         let compact = TabSheetLayout(width: 340, clocks: both)
-        XCTAssertFalse(compact.showsTypeColumn || compact.typeOnLineTwo || compact.showsClose)
+        XCTAssertFalse(compact.showsTypeColumn || compact.typeOnLineTwo)
         XCTAssertEqual(compact.clocks, [])
         // Within a tier the fixed columns never change with width; only the title flexes.
         XCTAssertEqual(TabSheetLayout(width: 830, clocks: both).fixedWidth, TabSheetLayout(width: 1400, clocks: both).fixedWidth)

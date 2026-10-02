@@ -266,6 +266,7 @@ struct CollapsedTabCloseButton: View {
     let pane: PaneState
     let controller: BonsplitController
     let appearance: BonsplitConfiguration.Appearance
+    var hitSize: CGSize = SimplifiedTabGeometry.closeHitSize
 
     /// Closes `tab` from the collapsed list, restoring the pane's prior
     /// selection when a background tab is closed. Shared by the visible close
@@ -295,13 +296,15 @@ struct CollapsedTabCloseButton: View {
             Text("×")
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(TabBarColors.inactiveText(for: appearance))
-                .frame(
-                    width: SimplifiedTabGeometry.closeHitSize.width,
-                    height: SimplifiedTabGeometry.closeHitSize.height
-                )
+                .frame(width: hitSize.width, height: hitSize.height)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(Bundle.module.localizedString(
+            forKey: "command.closeTab.title",
+            value: "Close Tab",
+            table: nil
+        ))
         .accessibilityLabel(Bundle.module.localizedString(
             forKey: "command.closeTab.title",
             value: "Close Tab",
@@ -686,6 +689,30 @@ struct TabBarView<TrailingAccessory: View>: View {
             .background(palette.block)
             .saturation(tabBarSaturation)
 
+            // The visible tab's close, at every width (as on the folded block),
+            // in a fixed slot so the title never shifts.
+            Group {
+                if let tab, !tab.isPinned {
+                    CollapsedTabCloseButton(
+                        tab: tab,
+                        pane: pane,
+                        controller: controller,
+                        appearance: appearance,
+                        hitSize: CGSize(width: Self.railBarCloseWidth, height: blockHeight)
+                    )
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: Self.railBarCloseWidth, height: blockHeight)
+            .background(palette.block)
+            .overlay(alignment: .trailing) {
+                Rectangle()
+                    .fill(TabBarColors.separator(for: appearance))
+                    .frame(width: 1, height: max(0, blockHeight - 12))
+                    .allowsHitTesting(false)
+            }
+
             TabCountCell(
                 count: pane.tabs.count,
                 hasBackgroundActivity: hasBackgroundActivity,
@@ -726,9 +753,11 @@ struct TabBarView<TrailingAccessory: View>: View {
 
     /// The controls move into the rail only when the bar truly lacks room for
     /// them next to the count cell and a readable title.
+    private static var railBarCloseWidth: CGFloat { 24 }
+
     private var railBarLacksRoomForControls: Bool {
         let minTitleRoom: CGFloat = 110
-        return barWidth - 8 - TabCountCellMetrics.width - estimatedChromeWidth < minTitleRoom
+        return barWidth - 8 - TabCountCellMetrics.width - Self.railBarCloseWidth - estimatedChromeWidth < minTitleRoom
     }
 
     // MARK: - Horizontal Tab Strip (default / wide layout)
@@ -1275,8 +1304,32 @@ struct TabBarView<TrailingAccessory: View>: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 10)
+            .padding(.leading, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            // The active tab's close stays on the block at every width, so a
+            // folded area can always close its tab without opening the sheet.
+            // A Button takes its own click ahead of the bar's tap gesture. The
+            // slot is always laid out (empty for a pinned tab) so the title
+            // never shifts, and a rule keeps it apart from the count cell.
+            Group {
+                if let tab = activeTab, !tab.isPinned {
+                    CollapsedTabCloseButton(
+                        tab: tab,
+                        pane: pane,
+                        controller: controller,
+                        appearance: appearance,
+                        hitSize: CGSize(width: SimplifiedTabGeometry.closeHitSize.width, height: blockHeight)
+                    )
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: SimplifiedTabGeometry.closeHitSize.width, height: blockHeight)
+            Rectangle()
+                .fill(TabBarColors.separator(for: appearance))
+                .frame(width: 1, height: max(0, blockHeight - 12))
+                .allowsHitTesting(false)
 
             TabCountCell(
                 count: pane.tabs.count,
