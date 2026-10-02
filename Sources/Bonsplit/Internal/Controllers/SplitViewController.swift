@@ -261,6 +261,7 @@ final class SplitViewController {
         // Don't close the last pane
         guard rootNode.allPaneIds.count > 1 else { return }
         defer { onPaneClosed?(paneId) }
+        let wasFocusedPane = focusedPaneId == paneId
 
         let (newRoot, siblingPaneId) = closePaneRecursively(node: rootNode, targetPaneId: paneId)
 
@@ -268,11 +269,13 @@ final class SplitViewController {
             rootNode = newRoot
         }
 
-        // Focus the sibling or first available pane
-        if let siblingPaneId {
-            focusedPaneId = siblingPaneId
-        } else if let firstPane = rootNode.allPaneIds.first {
-            focusedPaneId = firstPane
+        // Closing a background pane must not steal focus from the active pane.
+        if wasFocusedPane {
+            if let siblingPaneId {
+                focusedPaneId = siblingPaneId
+            } else if let firstPane = rootNode.allPaneIds.first {
+                focusedPaneId = firstPane
+            }
         }
 
         if let zoomedPaneId, rootNode.findPane(zoomedPaneId) == nil {
