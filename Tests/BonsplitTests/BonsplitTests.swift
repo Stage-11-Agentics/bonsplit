@@ -2425,6 +2425,40 @@ final class BonsplitTests: XCTestCase {
     }
 
     @MainActor
+    /// C11-249: the bar that replaces another reports its count cell before the
+    /// old bar's reader tears down. The old reader's teardown must not clear
+    /// the live anchor; the live reader's own teardown still does.
+    @MainActor
+    func testCountCellAnchorSurvivesAnOlderReaderDisappearing() {
+        let controller = BonsplitController()
+        let pane = controller.focusedPaneId!
+        var reports: [ObjectIdentifier?] = []
+        controller.onCountCellAnchor = { _, view in reports.append(view.map { ObjectIdentifier($0) }) }
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+                              styleMask: [.titled], backing: .buffered, defer: true)
+        let readerA = NSView(frame: NSRect(x: 0, y: 0, width: 20, height: 20))
+        let readerB = NSView(frame: NSRect(x: 30, y: 0, width: 20, height: 20))
+        window.contentView?.addSubview(readerA)
+        window.contentView?.addSubview(readerB)
+
+        controller.noteCountCellAnchor(paneId: pane, view: readerA)
+        controller.noteCountCellAnchor(paneId: pane, view: readerB)
+        XCTAssertEqual(reports, [ObjectIdentifier(readerA), ObjectIdentifier(readerB)])
+
+        controller.noteCountCellAnchor(paneId: pane, view: readerA, isDisappearing: true)
+        XCTAssertEqual(reports, [ObjectIdentifier(readerA), ObjectIdentifier(readerB)],
+                       "The old reader disappearing must not report nil over the live anchor")
+
+        // The live anchor is still held: the same view is not reported twice.
+        controller.noteCountCellAnchor(paneId: pane, view: readerB)
+        XCTAssertEqual(reports.count, 2)
+
+        controller.noteCountCellAnchor(paneId: pane, view: readerB, isDisappearing: true)
+        XCTAssertEqual(reports.count, 3)
+        XCTAssertNil(reports[2], "The live reader disappearing reports nil")
+    }
+
     private func makeLeftMouseDownEvent(
         in view: NSView,
         at point: NSPoint,
