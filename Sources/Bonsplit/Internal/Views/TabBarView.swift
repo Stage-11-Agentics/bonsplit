@@ -667,23 +667,36 @@ struct TabBarView<TrailingAccessory: View>: View {
                     .truncationMode(.tail)
                     .foregroundStyle(palette.text)
                 Spacer(minLength: 0)
-                // The visible tab's close, at every width (as on the folded block).
-                if let tab, !tab.isPinned {
-                    CollapsedTabCloseButton(
-                        tab: tab,
-                        pane: pane,
-                        controller: controller,
-                        appearance: appearance,
-                        hitSize: CGSize(width: 22, height: blockHeight)
-                    )
-                    .padding(.trailing, -6)
-                }
             }
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: blockHeight)
             .background(palette.block)
             .saturation(tabBarSaturation)
+
+            // The visible tab's close, at every width (as on the folded block),
+            // in a fixed slot so the title never shifts.
+            Group {
+                if let tab, !tab.isPinned {
+                    CollapsedTabCloseButton(
+                        tab: tab,
+                        pane: pane,
+                        controller: controller,
+                        appearance: appearance,
+                        hitSize: CGSize(width: Self.railBarCloseWidth, height: blockHeight)
+                    )
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: Self.railBarCloseWidth, height: blockHeight)
+            .background(palette.block)
+            .overlay(alignment: .trailing) {
+                Rectangle()
+                    .fill(TabBarColors.separator(for: appearance))
+                    .frame(width: 1, height: max(0, blockHeight - 12))
+                    .allowsHitTesting(false)
+            }
 
             TabCountCell(
                 count: pane.tabs.count,
@@ -725,9 +738,11 @@ struct TabBarView<TrailingAccessory: View>: View {
 
     /// The controls move into the rail only when the bar truly lacks room for
     /// them next to the count cell and a readable title.
+    private static var railBarCloseWidth: CGFloat { 24 }
+
     private var railBarLacksRoomForControls: Bool {
         let minTitleRoom: CGFloat = 110
-        return barWidth - 8 - TabCountCellMetrics.width - estimatedChromeWidth < minTitleRoom
+        return barWidth - 8 - TabCountCellMetrics.width - Self.railBarCloseWidth - estimatedChromeWidth < minTitleRoom
     }
 
     // MARK: - Horizontal Tab Strip (default / wide layout)
@@ -1275,21 +1290,31 @@ struct TabBarView<TrailingAccessory: View>: View {
                 Spacer(minLength: 0)
             }
             .padding(.leading, 10)
-            .padding(.trailing, activeTab.map { $0.isPinned } == false ? 0 : 10)
             .frame(maxWidth: .infinity, alignment: .leading)
 
             // The active tab's close stays on the block at every width, so a
             // folded area can always close its tab without opening the sheet.
-            // A Button takes its own click ahead of the bar's tap gesture.
-            if let tab = activeTab, !tab.isPinned {
-                CollapsedTabCloseButton(
-                    tab: tab,
-                    pane: pane,
-                    controller: controller,
-                    appearance: appearance,
-                    hitSize: CGSize(width: SimplifiedTabGeometry.closeHitSize.width, height: blockHeight)
-                )
+            // A Button takes its own click ahead of the bar's tap gesture. The
+            // slot is always laid out (empty for a pinned tab) so the title
+            // never shifts, and a rule keeps it apart from the count cell.
+            Group {
+                if let tab = activeTab, !tab.isPinned {
+                    CollapsedTabCloseButton(
+                        tab: tab,
+                        pane: pane,
+                        controller: controller,
+                        appearance: appearance,
+                        hitSize: CGSize(width: SimplifiedTabGeometry.closeHitSize.width, height: blockHeight)
+                    )
+                } else {
+                    Color.clear
+                }
             }
+            .frame(width: SimplifiedTabGeometry.closeHitSize.width, height: blockHeight)
+            Rectangle()
+                .fill(TabBarColors.separator(for: appearance))
+                .frame(width: 1, height: max(0, blockHeight - 12))
+                .allowsHitTesting(false)
 
             TabCountCell(
                 count: pane.tabs.count,
