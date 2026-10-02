@@ -2424,7 +2424,6 @@ final class BonsplitTests: XCTestCase {
         return Data(bytes: bitmapData, count: bitmap.bytesPerRow * bitmap.pixelsHigh)
     }
 
-    @MainActor
     /// C11-249: the bar that replaces another reports its count cell before the
     /// old bar's reader tears down. The old reader's teardown must not clear
     /// the live anchor; the live reader's own teardown still does.
@@ -2459,6 +2458,7 @@ final class BonsplitTests: XCTestCase {
         XCTAssertNil(reports[2], "The live reader disappearing reports nil")
     }
 
+    @MainActor
     private func makeLeftMouseDownEvent(
         in view: NSView,
         at point: NSPoint,
