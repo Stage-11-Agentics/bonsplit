@@ -266,6 +266,7 @@ struct CollapsedTabCloseButton: View {
     let pane: PaneState
     let controller: BonsplitController
     let appearance: BonsplitConfiguration.Appearance
+    var hitSize: CGSize = SimplifiedTabGeometry.closeHitSize
 
     /// Closes `tab` from the collapsed list, restoring the pane's prior
     /// selection when a background tab is closed. Shared by the visible close
@@ -295,13 +296,15 @@ struct CollapsedTabCloseButton: View {
             Text("×")
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(TabBarColors.inactiveText(for: appearance))
-                .frame(
-                    width: SimplifiedTabGeometry.closeHitSize.width,
-                    height: SimplifiedTabGeometry.closeHitSize.height
-                )
+                .frame(width: hitSize.width, height: hitSize.height)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(Bundle.module.localizedString(
+            forKey: "command.closeTab.title",
+            value: "Close Tab",
+            table: nil
+        ))
         .accessibilityLabel(Bundle.module.localizedString(
             forKey: "command.closeTab.title",
             value: "Close Tab",
@@ -664,6 +667,17 @@ struct TabBarView<TrailingAccessory: View>: View {
                     .truncationMode(.tail)
                     .foregroundStyle(palette.text)
                 Spacer(minLength: 0)
+                // The visible tab's close, at every width (as on the folded block).
+                if let tab, !tab.isPinned {
+                    CollapsedTabCloseButton(
+                        tab: tab,
+                        pane: pane,
+                        controller: controller,
+                        appearance: appearance,
+                        hitSize: CGSize(width: 22, height: blockHeight)
+                    )
+                    .padding(.trailing, -6)
+                }
             }
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1260,8 +1274,22 @@ struct TabBarView<TrailingAccessory: View>: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 10)
+            .padding(.leading, 10)
+            .padding(.trailing, activeTab.map { $0.isPinned } == false ? 0 : 10)
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            // The active tab's close stays on the block at every width, so a
+            // folded area can always close its tab without opening the sheet.
+            // A Button takes its own click ahead of the bar's tap gesture.
+            if let tab = activeTab, !tab.isPinned {
+                CollapsedTabCloseButton(
+                    tab: tab,
+                    pane: pane,
+                    controller: controller,
+                    appearance: appearance,
+                    hitSize: CGSize(width: SimplifiedTabGeometry.closeHitSize.width, height: blockHeight)
+                )
+            }
 
             TabCountCell(
                 count: pane.tabs.count,

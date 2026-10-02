@@ -26,7 +26,8 @@ enum TabSheetMetrics {
     static let typeWidth: CGFloat = 150
     static let statusWidth: CGFloat = 104
     static let clockWidth: CGFloat = 78
-    static let closeWidth: CGFloat = 22
+    /// The grip column: the drag handle on line one, the close button under it
+    /// on line two. Present in every tier, so a tab can always be closed.
     static let gripWidth: CGFloat = 24
 
     static let maxVisibleRows = 9
@@ -36,7 +37,7 @@ enum TabSheetMetrics {
     /// Width of everything except the title column.
     static func fixedWidth(clockCount: Int) -> CGFloat {
         leadingRule + numberWidth + typeWidth + statusWidth
-            + clockWidth * CGFloat(clockCount) + closeWidth + gripWidth + trailingPadding
+            + clockWidth * CGFloat(clockCount) + gripWidth + trailingPadding
     }
 
     /// Natural sheet width: the fixed columns plus the minimum title column.
@@ -94,14 +95,13 @@ struct TabSheetLayout: Equatable {
     var numberTrailingInset: CGFloat { tier == .compact ? 8 : M.numberTrailingInset }
     var showsTypeColumn: Bool { tier == .full || tier == .oneClock }
     var typeOnLineTwo: Bool { tier == .typeInline }
-    var showsClose: Bool { tier != .compact }
 
     /// Width of everything except the title column.
     var fixedWidth: CGFloat {
         M.leadingRule + numberWidth
             + (showsTypeColumn ? M.typeWidth : 0) + M.statusWidth
             + M.clockWidth * CGFloat(clocks.count)
-            + (showsClose ? M.closeWidth : 0) + M.gripWidth + M.trailingPadding
+            + M.gripWidth + M.trailingPadding
     }
 
     var titleWidth: CGFloat { max(60, width - fixedWidth) }
