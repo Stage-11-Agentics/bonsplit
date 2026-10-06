@@ -13,7 +13,7 @@ enum TabSheetMetrics {
     static let leadingRule: CGFloat = 3
     static let trailingPadding: CGFloat = 6
 
-    /// Wide enough for the localized "Tab9999" at full size, never below 68.
+    /// Wide enough for the localized "Panel 9999" at full size, never below 68.
     /// Fixed within a language, so nothing moves while the app runs.
     static let numberWidth: CGFloat = {
         let sample = TabSheetFormat.tabLabel(9999)
@@ -84,7 +84,7 @@ struct TabSheetLayout: Equatable {
 
     typealias M = TabSheetMetrics
 
-    /// Compact sheets use a narrower Tab column (56pt for English).
+    /// Compact sheets use a narrower Panel column: sized for "Panel 999", never below 56.
     private static let compactNumberWidth: CGFloat = {
         let sample = TabSheetFormat.tabLabel(999)
         let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
@@ -112,9 +112,9 @@ struct TabSheetLayout: Equatable {
 // MARK: - Formatting
 
 enum TabSheetFormat {
-    /// "Tab17": the localized tab label, no separator between word and number.
+    /// "Panel 17": the localized panel label, the word, one space, the number.
     static func tabLabel(_ ordinal: Int) -> String {
-        String(format: localized("tabBar.sheet.tabNumber", "Tab%lld"), Int64(ordinal))
+        String(format: localized("tabBar.sheet.tabNumber", "Panel %lld"), Int64(ordinal))
     }
 
     /// Clock names bonsplit can title on its own; a host can add more through
@@ -194,11 +194,11 @@ enum TabSheetFormat {
         }
     }
 
-    /// `N tabs`, `1 tab`.
+    /// `N panels`, `1 panel`.
     static func tabsFooter(count: Int) -> String {
         count == 1
-            ? localized("tabBar.sheet.footer.oneTab", "1 tab")
-            : String(format: localized("tabBar.sheet.footer.tabs", "%lld tabs"), Int64(count))
+            ? localized("tabBar.sheet.footer.oneTab", "1 panel")
+            : String(format: localized("tabBar.sheet.footer.tabs", "%lld panels"), Int64(count))
     }
 
     static func needYouFooter(count: Int) -> String {

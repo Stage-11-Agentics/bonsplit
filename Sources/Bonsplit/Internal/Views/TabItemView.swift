@@ -147,7 +147,7 @@ enum TabActivityAccessibility {
 
     static func help(for state: BonsplitTabActivityState?) -> String {
         guard state == .waiting else { return "" }
-        return localizedString("tab.activity.waiting.help", default: "This tab needs your response.")
+        return localizedString("tab.activity.waiting.help", default: "This panel needs your response.")
     }
 
     static func composedValue(
@@ -1039,7 +1039,7 @@ struct TabItemView: View {
                         isCloseHovered = hovering
                     }
                     .saturation(saturation)
-                    .accessibilityLabel(localizedString("command.closeTab.title", default: "Close Tab"))
+                    .accessibilityLabel(localizedString("command.closeTab.title", default: "Close Panel"))
                 }
 
                 if tab.isDirty || (tab.showsNotificationBadge && tab.activityState != .waiting) {
@@ -1194,7 +1194,7 @@ struct TabItemView: View {
     @ViewBuilder
     private var simplifiedContextMenuContent: some View {
         contextButton(
-            localizedString("command.surfaceDetails.title", default: "Tab Details"),
+            localizedString("command.surfaceDetails.title", default: "Panel Details"),
             action: .surfaceDetails
         )
         if let surfaceRef = contextMenuState.surfaceRef {
@@ -1205,7 +1205,7 @@ struct TabItemView: View {
         }
         Divider()
         contextButton(
-            localizedString("command.closeTab.title", default: "Close Tab"),
+            localizedString("command.closeTab.title", default: "Close Panel"),
             action: .closeTab
         )
         contextButton(
@@ -1294,7 +1294,7 @@ struct TabItemView: View {
 
         Divider()
 
-        Menu(localizedString("command.tabColor.title", default: "Tab Color")) {
+        Menu(localizedString("command.tabColor.title", default: "Panel Color")) {
             if contextMenuState.hasCustomColor {
                 Button(localizedString("command.tabColor.clearColor", default: "Clear Color")) {
                     onContextAction(.clearColor)

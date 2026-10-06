@@ -249,7 +249,7 @@ enum CollapsedTabAccessibility {
         activityState: BonsplitTabActivityState?,
         hasBackgroundWaiting: Bool
     ) -> String {
-        var parts = ["\(tabCount) tabs"]
+        var parts = [TabSheetFormat.tabsFooter(count: tabCount)]
         let activity = TabActivityAccessibility.value(for: activityState)
         if !activity.isEmpty {
             parts.append(activity)
@@ -321,12 +321,12 @@ struct CollapsedTabCloseButton: View {
         .animation(.easeInOut(duration: TabBarMetrics.hoverDuration), value: isHovered)
         .help(Bundle.module.localizedString(
             forKey: "command.closeTab.title",
-            value: "Close Tab",
+            value: "Close Panel",
             table: nil
         ))
         .accessibilityLabel(Bundle.module.localizedString(
             forKey: "command.closeTab.title",
-            value: "Close Tab",
+            value: "Close Panel",
             table: nil
         ))
     }
@@ -1408,7 +1408,7 @@ struct TabBarView<TrailingAccessory: View>: View {
         .onPreferenceChange(CollapsedBlockWidthKey.self) { collapsedBlockWidth = $0 }
         .accessibilityLabel(Bundle.module.localizedString(
             forKey: "tabBar.collapsedHeader.accessibilityLabel",
-            value: "Show all tabs",
+            value: "Show all panels",
             table: nil
         ))
         .accessibilityValue(CollapsedTabAccessibility.value(

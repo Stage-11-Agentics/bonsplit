@@ -224,7 +224,7 @@ struct TabRailView: View {
             Rectangle().fill(palette.border).frame(width: 1).allowsHitTesting(false)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(TabSheetFormat.localized("tabBar.rail.accessibilityLabel", "Tab rail"))
+        .accessibilityLabel(TabSheetFormat.localized("tabBar.rail.accessibilityLabel", "Panel rail"))
     }
 
     /// The tab count, and the Tabs | Rail switch at the right. When both do not

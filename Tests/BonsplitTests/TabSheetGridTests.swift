@@ -78,13 +78,13 @@ final class TabSheetGridTests: XCTestCase {
                 XCTAssertNotEqual(text, "MISSING", "\(locale) \(key)")
                 XCTAssertLessThanOrEqual(width(text, header, kern: 0.6), room, "\(locale) \(key) '\(text)'")
             }
-            // "Tab9999" at full size: the column is sized per language, so
-            // this only bounds how wide any language can make it. The label has
-            // no separator between the word and the number in any language.
-            let tab = String(format: string("tabNumber"), 9999)
-            XCTAssertFalse(tab.contains(" "), "\(locale) '\(tab)' has a space")
-            XCTAssertTrue(tab.hasSuffix("9999"), "\(locale) '\(tab)'")
-            XCTAssertLessThanOrEqual(width(tab, mono11) + 12, 130, "\(locale) '\(tab)'")
+            // "Panel 9999" at full size: the column is sized per language, so
+            // this only bounds how wide any language can make it. Every language
+            // writes the word, one space, then the number.
+            let panel = String(format: string("tabNumber"), 9999)
+            XCTAssertTrue(panel.hasSuffix(" 9999"), "\(locale) '\(panel)'")
+            XCTAssertFalse(panel.dropLast(5).contains(" "), "\(locale) '\(panel)' has more than one space")
+            XCTAssertLessThanOrEqual(width(panel, mono11) + 12, 130, "\(locale) '\(panel)'")
             // Each status word with the longest age this locale can print
             // (its own format strings and decimal separator), 4pt apart.
             let decimal = NumberFormatter()
@@ -414,8 +414,17 @@ final class TabSheetGridTests: XCTestCase {
         XCTAssertEqual(tracker.end(cursorInsideFrame: false), .close, "a stray drop flag outside a drag is ignored")
     }
 
-    func testTheTabLabelHasNoSeparator() {
-        XCTAssertEqual(TabSheetFormat.tabLabel(17), "Tab17")
+    func testThePanelLabelSeparatesWordAndNumber() {
+        XCTAssertEqual(TabSheetFormat.tabLabel(17), "Panel 17")
+    }
+
+    func testCollapsedAccessibilityValueCountsPanels() {
+        XCTAssertTrue(
+            CollapsedTabAccessibility.value(tabCount: 7, activityState: nil, hasBackgroundWaiting: false)
+                .hasPrefix(TabSheetFormat.tabsFooter(count: 7))
+        )
+        XCTAssertEqual(TabSheetFormat.tabsFooter(count: 1), "1 panel")
+        XCTAssertEqual(TabSheetFormat.tabsFooter(count: 7), "7 panels")
     }
 
     func testDetailDecodesWithoutClocksOrClockTexts() throws {

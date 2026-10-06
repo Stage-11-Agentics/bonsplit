@@ -750,7 +750,7 @@ struct CollapsedTabSheetView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Bundle.module.localizedString(
             forKey: "tabBar.collapsedList.accessibilityLabel",
-            value: "Tab list",
+            value: "Panel list",
             table: nil
         ))
     }
@@ -768,7 +768,7 @@ struct CollapsedTabSheetView: View {
     private var headerRow: some View {
         HStack(spacing: 0) {
             Color.clear.frame(width: M.leadingRule)
-            headerLabel(TabSheetFormat.localized("tabBar.sheet.column.tab", "Tab"), width: layout.numberWidth, alignment: .trailing, trailingInset: layout.numberTrailingInset)
+            headerLabel(TabSheetFormat.localized("tabBar.sheet.column.tab", "Panel"), width: layout.numberWidth, alignment: .trailing, trailingInset: layout.numberTrailingInset)
             headerLabel(TabSheetFormat.localized("tabBar.sheet.column.title", "Title"), width: titleColumnWidth, alignment: .leading)
             if layout.showsTypeColumn {
                 headerLabel(TabSheetFormat.localized("tabBar.sheet.column.type", "Type"), width: M.typeWidth, alignment: .leading, leadingInset: 10)
@@ -1037,7 +1037,7 @@ struct CollapsedTabSheetView: View {
         ))) { select(tab) }
         .accessibilityAction(named: Text(Bundle.module.localizedString(
             forKey: "command.closeTab.title",
-            value: "Close Tab",
+            value: "Close Panel",
             table: nil
         ))) {
             guard !tab.isPinned else { return }
