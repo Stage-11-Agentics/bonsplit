@@ -811,6 +811,17 @@ struct CollapsedTabSheetView: View {
                     .foregroundStyle(TabBarColors.activity(.waiting, for: appearance))
             }
             Spacer(minLength: 0)
+            // Choosing Rail closes the sheet; the area's rail opens in its place.
+            if let layoutSwitch = controller.tabLayoutSwitch {
+                TabLayoutSwitchView(
+                    paneId: pane.id,
+                    controller: controller,
+                    config: layoutSwitch,
+                    current: appearance.tabLayout,
+                    palette: palette,
+                    beforeSwitch: dismiss
+                )
+            }
         }
         .font(.system(size: 11))
         .monospacedDigit()

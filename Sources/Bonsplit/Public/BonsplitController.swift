@@ -172,6 +172,52 @@ public final class BonsplitController {
         if open { railOpenPaneIds.insert(paneId) } else { railOpenPaneIds.remove(paneId) }
     }
 
+    // MARK: Tab layout switch
+
+    /// The Tabs | Rail switch at the right of the tab sheet's footer and the
+    /// rail's header. The layout is the host's setting (usually global, across
+    /// every controller), so the host supplies the labels and applies the
+    /// choice; nil hides the switch.
+    public struct TabLayoutSwitch {
+        public var tabsLabel: String
+        public var railLabel: String
+        /// Names the switch as a whole for accessibility.
+        public var accessibilityLabel: String
+        /// Tooltip, for example where else the setting lives.
+        public var help: String
+        /// Applies `layout`. By then bonsplit has opened (Rail) or closed
+        /// (Tabs) the pane's rail.
+        public var apply: (_ layout: BonsplitTabLayout, _ paneId: PaneID) -> Void
+
+        public init(
+            tabsLabel: String,
+            railLabel: String,
+            accessibilityLabel: String,
+            help: String,
+            apply: @escaping (_ layout: BonsplitTabLayout, _ paneId: PaneID) -> Void
+        ) {
+            self.tabsLabel = tabsLabel
+            self.railLabel = railLabel
+            self.accessibilityLabel = accessibilityLabel
+            self.help = help
+            self.apply = apply
+        }
+    }
+
+    @ObservationIgnored public var tabLayoutSwitch: TabLayoutSwitch?
+
+    /// The switch in `paneId`'s sheet or rail chose `layout` (also the entry
+    /// point for automation). Rail opens this pane's rail, so the list the
+    /// operator was reading stays in view. Tabs closes it first, so a later
+    /// return to Rail does not reopen a rail they switched away from. Then the
+    /// host applies the layout. A no-op without a host switch or when `layout`
+    /// is already this controller's.
+    public func switchTabLayout(to layout: BonsplitTabLayout, fromPane paneId: PaneID) {
+        guard let tabLayoutSwitch, configuration.appearance.tabLayout != layout else { return }
+        setRailOpen(layout == .rail, inPane: paneId)
+        tabLayoutSwitch.apply(layout, paneId)
+    }
+
     /// Called when a pane's tab strip starts or stops overflowing. Overflow
     /// means the strip can scroll, or it has folded into the solid block.
     /// False while that pane's rail is open. Edge-triggered: a repeat of the

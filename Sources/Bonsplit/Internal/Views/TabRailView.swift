@@ -195,7 +195,7 @@ struct TabRailView: View {
                 )
                 Rectangle().fill(palette.separator).frame(height: 1)
             }
-            header
+            header(width: width)
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
@@ -227,14 +227,27 @@ struct TabRailView: View {
         .accessibilityLabel(TabSheetFormat.localized("tabBar.rail.accessibilityLabel", "Tab rail"))
     }
 
-    private var header: some View {
-        HStack {
+    /// The tab count, and the Tabs | Rail switch at the right whenever the rail
+    /// is wide enough to hold it (the count gives way first).
+    private func header(width: CGFloat) -> some View {
+        HStack(spacing: 6) {
             Text(TabSheetFormat.tabsFooter(count: pane.tabs.count).uppercased())
                 .font(.system(size: 10, weight: .bold))
                 .tracking(0.6)
                 .foregroundStyle(palette.faintText)
                 .lineLimit(1)
             Spacer(minLength: 0)
+            if let layoutSwitch = controller.tabLayoutSwitch,
+               width >= TabLayoutSwitchView.width(layoutSwitch) + 20 {
+                TabLayoutSwitchView(
+                    paneId: pane.id,
+                    controller: controller,
+                    config: layoutSwitch,
+                    current: appearance.tabLayout,
+                    palette: palette
+                )
+                .layoutPriority(1)
+            }
         }
         .padding(.horizontal, 10)
         .frame(height: TabRailMetrics.headerHeight)

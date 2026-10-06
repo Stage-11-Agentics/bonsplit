@@ -249,6 +249,53 @@ final class TabSheetGridTests: XCTestCase {
         XCTAssertTrue(controller.isTabDetailVisible(inPane: pane))
     }
 
+    @MainActor
+    func testLayoutSwitchSetsTheAreasRailThenAsksTheHost() {
+        let controller = BonsplitController()
+        _ = controller.createTab(title: "a")
+        guard let pane = controller.focusedPaneId else { return XCTFail("no pane") }
+        var events: [String] = []
+        controller.onRailToggled = { _, open in events.append(open ? "rail.open" : "rail.close") }
+
+        // Without a host switch there is nothing to apply.
+        controller.switchTabLayout(to: .rail, fromPane: pane)
+        XCTAssertEqual(events, [])
+
+        controller.tabLayoutSwitch = BonsplitController.TabLayoutSwitch(
+            tabsLabel: "Tabs", railLabel: "Rail", accessibilityLabel: "Tab Layout", help: ""
+        ) { [weak controller] layout, paneId in
+            events.append("apply.\(layout.rawValue)")
+            XCTAssertEqual(paneId, pane)
+            controller?.configuration.appearance.tabLayout = layout
+        }
+
+        // From the sheet: the area's rail opens, then the host applies Rail.
+        controller.switchTabLayout(to: .rail, fromPane: pane)
+        XCTAssertEqual(events, ["rail.open", "apply.rail"])
+        XCTAssertTrue(controller.isTabDetailVisible(inPane: pane))
+
+        // The layout already in place is a no-op.
+        controller.switchTabLayout(to: .rail, fromPane: pane)
+        XCTAssertEqual(events.count, 2)
+
+        // From the rail: it closes before Tabs applies, so a later Rail starts closed.
+        controller.switchTabLayout(to: .tabs, fromPane: pane)
+        XCTAssertEqual(events, ["rail.open", "apply.rail", "rail.close", "apply.tabs"])
+        XCTAssertFalse(controller.railOpenPaneIds.contains(pane))
+    }
+
+    func testLayoutSwitchSegmentsHoldTheWiderLabel() {
+        func config(_ tabs: String, _ rail: String) -> BonsplitController.TabLayoutSwitch {
+            BonsplitController.TabLayoutSwitch(tabsLabel: tabs, railLabel: rail, accessibilityLabel: "", help: "") { _, _ in }
+        }
+        XCTAssertEqual(TabLayoutSwitchView.segmentWidth(config("Tabs", "Rail")), 36)
+        let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        let longest = ("Вкладки" as NSString).size(withAttributes: [.font: font]).width
+        let long = config("Вкладки", "Панель")
+        XCTAssertGreaterThanOrEqual(TabLayoutSwitchView.segmentWidth(long), longest + 12)
+        XCTAssertEqual(TabLayoutSwitchView.width(long), TabLayoutSwitchView.segmentWidth(long) * 2)
+    }
+
     func testNumberLabelFollowsTheSetting() {
         let tab = TabItem(title: "t", displayOrdinal: 171)
         XCTAssertEqual(tab.numberLabel(showOrdinals: true), "171")
