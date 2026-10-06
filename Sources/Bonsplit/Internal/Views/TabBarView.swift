@@ -694,8 +694,8 @@ struct TabBarView<TrailingAccessory: View>: View {
             HStack(spacing: 8) {
                 if let tab, let state = tab.activityState {
                     collapsedActivityMark(for: tab, state: state)
-                } else if let tab, tab.showsBrowserGlyph {
-                    collapsedBrowserGlyph
+                } else if let tab, let glyph = tab.kindGlyph {
+                    collapsedKindGlyph(glyph)
                 }
                 Text([number, title].compactMap { $0 }.joined(separator: " · "))
                     .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
@@ -1107,7 +1107,7 @@ struct TabBarView<TrailingAccessory: View>: View {
 
     private func perTabFixedCost(for tab: TabItem) -> CGFloat {
         let leading = tab.activityState.map(TabActivityMarkMetrics.leadingAccessoryWidth)
-            ?? (tab.showsBrowserGlyph
+            ?? (tab.showsKindGlyph
                 ? TabActivityMarkMetrics.leadingAccessoryWidth(for: .idle)
                 : SimplifiedTabGeometry.unmarkedLeadingInset)
         return leading
@@ -1311,8 +1311,8 @@ struct TabBarView<TrailingAccessory: View>: View {
             HStack(spacing: 7) {
                 if let tab = activeTab, let state = tab.activityState {
                     collapsedActivityMark(for: tab, state: state)
-                } else if let tab = activeTab, tab.showsBrowserGlyph {
-                    collapsedBrowserGlyph
+                } else if let tab = activeTab, let glyph = tab.kindGlyph {
+                    collapsedKindGlyph(glyph)
                 }
 
                 if let number = activeTab?.numberLabel(showOrdinals: appearance.showTabOrdinals) {
@@ -1480,8 +1480,8 @@ struct TabBarView<TrailingAccessory: View>: View {
         ))
     }
 
-    private var collapsedBrowserGlyph: some View {
-        TabBrowserGlyph(appearance: appearance)
+    private func collapsedKindGlyph(_ kind: TabKindGlyph.Kind) -> some View {
+        TabKindGlyph(kind: kind, appearance: appearance)
     }
 
     private func collapsedActivityMark(
@@ -1699,8 +1699,8 @@ struct TabBarView<TrailingAccessory: View>: View {
             if let tab = ghostTab {
                 if let state = tab.activityState {
                     collapsedActivityMark(for: tab, state: state)
-                } else if tab.showsBrowserGlyph {
-                    collapsedBrowserGlyph
+                } else if let glyph = tab.kindGlyph {
+                    collapsedKindGlyph(glyph)
                 }
                 Text(tab.title)
                     .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))

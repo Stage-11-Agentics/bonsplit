@@ -231,24 +231,55 @@ enum SimplifiedTabGeometry {
 }
 
 extension TabItem {
-    /// Browser surfaces never carry an agent lifecycle, so a state-less browser
-    /// tab shows a fixed browser glyph in the lifecycle mark's slot instead.
-    var showsBrowserGlyph: Bool { activityState == nil && kind == "browser" }
+    /// Browser and markdown surfaces never carry an agent lifecycle, so a
+    /// state-less one shows a fixed kind glyph in the lifecycle mark's slot instead.
+    var showsKindGlyph: Bool { kindGlyph != nil }
+
+    var kindGlyph: TabKindGlyph.Kind? {
+        guard activityState == nil else { return nil }
+        switch kind {
+        case "browser": return .browser
+        case "markdown": return .markdown
+        default: return nil
+        }
+    }
 }
 
-/// Fixed browser glyph for the lifecycle mark's slot: the same 10pt visible
-/// square, muted, so a browser tab reads at a glance and titles stay aligned
-/// with agent tabs. Deliberately not the page favicon.
-struct TabBrowserGlyph: View {
+/// Fixed kind glyph for the lifecycle mark's slot: the same 10pt visible
+/// square, muted, so a browser or markdown tab reads at a glance and titles
+/// stay aligned with agent tabs. Deliberately not the page favicon.
+struct TabKindGlyph: View {
+    enum Kind {
+        case browser
+        case markdown
+
+        var symbolName: String {
+            switch self {
+            case .browser: return "globe"
+            case .markdown: return "doc.richtext"
+            }
+        }
+
+        var help: String {
+            switch self {
+            case .browser:
+                return Bundle.module.localizedString(forKey: "tab.kind.browser", value: "Browser", table: nil)
+            case .markdown:
+                return Bundle.module.localizedString(forKey: "tab.kind.markdown", value: "Markdown", table: nil)
+            }
+        }
+    }
+
+    let kind: Kind
     let appearance: BonsplitConfiguration.Appearance
 
     var body: some View {
         let size = TabActivityMarkMetrics.visibleSize(for: .idle)
-        Image(systemName: "globe")
+        Image(systemName: kind.symbolName)
             .font(.system(size: size, weight: .regular))
             .foregroundStyle(TabBarColors.inactiveText(for: appearance).opacity(0.8))
             .frame(width: size, height: size)
-            .help(Bundle.module.localizedString(forKey: "tab.kind.browser", value: "Browser", table: nil))
+            .help(kind.help)
             .accessibilityHidden(true)
     }
 }
@@ -886,11 +917,11 @@ struct TabItemView: View {
             } else {
                 mark
             }
-        } else if tab.showsBrowserGlyph {
+        } else if let glyph = tab.kindGlyph {
             HStack(spacing: 0) {
                 Color.clear
                     .frame(width: TabActivityMarkMetrics.leadingEdgeInset(for: .idle))
-                TabBrowserGlyph(appearance: appearance)
+                TabKindGlyph(kind: glyph, appearance: appearance)
                 Color.clear
                     .frame(width: TabActivityMarkMetrics.titleSpacing(for: .idle))
             }

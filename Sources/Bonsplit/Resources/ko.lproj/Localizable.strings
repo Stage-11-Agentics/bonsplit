@@ -9,6 +9,7 @@
 "tab.activity.waiting" = "사용자의 응답을 기다리는 중";
 "tab.activity.waiting.help" = "이 탭에는 사용자의 응답이 필요합니다.";
 "tab.kind.browser" = "브라우저";
+"tab.kind.markdown" = "마크다운";
 "tabBar.collapsedList.accessibilityLabel" = "탭 목록";
 "tabBar.collapsedHeader.accessibilityLabel" = "모든 탭 보기";
 "tabBar.collapsedList.selectAction" = "선택";
