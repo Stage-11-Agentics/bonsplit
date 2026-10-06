@@ -890,12 +890,21 @@ struct CollapsedTabSheetView: View {
 
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
-                    Text(title)
-                        .font(.system(size: appearance.tabTitleFontSize + 1, weight: isSelected ? .bold : .regular))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .foregroundStyle(isSelected ? palette.text : (isHovered ? palette.text : palette.dimText))
-                        .frame(width: titleColumnWidth, alignment: .leading)
+                    HStack(spacing: 5) {
+                        Text(title)
+                            .font(.system(size: appearance.tabTitleFontSize + 1, weight: isSelected ? .bold : .regular))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .foregroundStyle(isSelected ? palette.text : (isHovered ? palette.text : palette.dimText))
+                        TabBadgeView(
+                            glyph: tab.badgeGlyph,
+                            colorHex: tab.customColorHex,
+                            size: appearance.tabIconSize,
+                            foreground: isSelected ? palette.text : palette.dimText
+                        )
+                        .layoutPriority(1)
+                    }
+                    .frame(width: titleColumnWidth, alignment: .leading)
                     if layout.showsTypeColumn {
                         typeCell(tab)
                             .padding(.leading, 10)

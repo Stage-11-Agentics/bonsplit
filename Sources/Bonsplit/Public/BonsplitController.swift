@@ -361,6 +361,7 @@ public final class BonsplitController {
         isLoading: Bool = false,
         isPinned: Bool = false,
         customColorHex: String? = nil,
+        badgeGlyph: String? = nil,
         displayOrdinal: Int? = nil,
         activityState: BonsplitTabActivityState? = nil,
         activityPresentation: BonsplitTabActivityPresentation? = nil,
@@ -379,6 +380,7 @@ public final class BonsplitController {
             isLoading: isLoading,
             isPinned: isPinned,
             customColorHex: customColorHex,
+            badgeGlyph: badgeGlyph,
             displayOrdinal: displayOrdinal,
             activityState: activityState,
             activityPresentation: activityPresentation
@@ -420,6 +422,7 @@ public final class BonsplitController {
             isLoading: isLoading,
             isPinned: isPinned,
             customColorHex: customColorHex,
+            badgeGlyph: badgeGlyph,
             displayOrdinal: displayOrdinal,
             activityState: activityState,
             activityPresentation: activityPresentation
@@ -481,6 +484,8 @@ public final class BonsplitController {
     ///   - isPinned: New pinned state (pass nil to keep current)
     ///   - customColorHex: New custom accent color (pass nil to keep current,
     ///     pass `.some(nil)` to clear, `.some(hex)` to set)
+    ///   - badgeGlyph: New trailing badge glyph (pass nil to keep current,
+    ///     pass `.some(nil)` to clear, `.some(glyph)` to set)
     ///   - displayOrdinal: New host-assigned tab number (pass nil to keep current,
     ///     pass `.some(nil)` to clear, `.some(n)` to set)
     public func updateTab(
@@ -495,6 +500,7 @@ public final class BonsplitController {
         isLoading: Bool? = nil,
         isPinned: Bool? = nil,
         customColorHex: String?? = nil,
+        badgeGlyph: String?? = nil,
         displayOrdinal: Int?? = nil,
         activityState: BonsplitTabActivityState?? = nil,
         activityPresentation: BonsplitTabActivityPresentation?? = nil,
@@ -531,6 +537,9 @@ public final class BonsplitController {
         }
         if let customColorHex = customColorHex {
             pane.tabs[tabIndex].customColorHex = customColorHex
+        }
+        if let badgeGlyph = badgeGlyph {
+            pane.tabs[tabIndex].badgeGlyph = badgeGlyph
         }
         if let displayOrdinal = displayOrdinal {
             pane.tabs[tabIndex].displayOrdinal = displayOrdinal
@@ -733,6 +742,8 @@ public final class BonsplitController {
                 showsNotificationBadge: tab.showsNotificationBadge,
                 isLoading: tab.isLoading,
                 isPinned: tab.isPinned,
+                customColorHex: tab.customColorHex,
+                badgeGlyph: tab.badgeGlyph,
                 displayOrdinal: tab.displayOrdinal,
                 activityState: tab.activityState,
                 activityPresentation: tab.activityPresentation
@@ -798,6 +809,8 @@ public final class BonsplitController {
             showsNotificationBadge: tab.showsNotificationBadge,
             isLoading: tab.isLoading,
             isPinned: tab.isPinned,
+            customColorHex: tab.customColorHex,
+            badgeGlyph: tab.badgeGlyph,
             displayOrdinal: tab.displayOrdinal,
             activityState: tab.activityState,
             activityPresentation: tab.activityPresentation

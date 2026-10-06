@@ -284,11 +284,20 @@ struct TabRailView: View {
         let title = tab.detail?.title.flatMap { $0.isEmpty ? nil : $0 } ?? tab.title
         return HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .font(.system(size: appearance.tabTitleFontSize + 0.5, weight: isSelected ? .bold : .regular))
-                    .foregroundStyle(isSelected || isHovered ? palette.text : palette.dimText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                HStack(spacing: 5) {
+                    Text(title)
+                        .font(.system(size: appearance.tabTitleFontSize + 0.5, weight: isSelected ? .bold : .regular))
+                        .foregroundStyle(isSelected || isHovered ? palette.text : palette.dimText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    TabBadgeView(
+                        glyph: tab.badgeGlyph,
+                        colorHex: tab.customColorHex,
+                        size: appearance.tabIconSize - 1,
+                        foreground: isSelected || isHovered ? palette.text : palette.dimText
+                    )
+                    .layoutPriority(1)
+                }
                 statusLine(tab, now: now)
                     .frame(height: 14, alignment: .leading)
             }

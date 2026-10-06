@@ -21,6 +21,9 @@ public struct Tab: Identifiable, Hashable, Sendable {
     /// applies a restrained accent indicator (top rail + small leading
     /// dot) without otherwise altering the tab chrome.
     public let customColorHex: String?
+    /// Optional glyph pinned left of the close X (usually one emoji, or
+    /// `sf:<symbol>` for an SF Symbol). `customColorHex` tints a badge behind it.
+    public let badgeGlyph: String?
     /// Optional host-assigned tab number, rendered as an "N: " title prefix
     /// when `Appearance.showTabOrdinals` is on.
     public let displayOrdinal: Int?
@@ -40,6 +43,7 @@ public struct Tab: Identifiable, Hashable, Sendable {
         isLoading: Bool = false,
         isPinned: Bool = false,
         customColorHex: String? = nil,
+        badgeGlyph: String? = nil,
         displayOrdinal: Int? = nil,
         activityState: BonsplitTabActivityState? = nil,
         activityPresentation: BonsplitTabActivityPresentation? = nil,
@@ -56,6 +60,7 @@ public struct Tab: Identifiable, Hashable, Sendable {
         self.isLoading = isLoading
         self.isPinned = isPinned
         self.customColorHex = customColorHex
+        self.badgeGlyph = badgeGlyph
         self.displayOrdinal = displayOrdinal
         self.activityState = activityState
         self.activityPresentation = activityPresentation
@@ -74,6 +79,7 @@ public struct Tab: Identifiable, Hashable, Sendable {
         self.isLoading = tabItem.isLoading
         self.isPinned = tabItem.isPinned
         self.customColorHex = tabItem.customColorHex
+        self.badgeGlyph = tabItem.badgeGlyph
         self.displayOrdinal = tabItem.displayOrdinal
         self.activityState = tabItem.activityState
         self.activityPresentation = tabItem.activityPresentation

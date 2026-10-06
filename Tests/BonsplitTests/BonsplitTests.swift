@@ -210,6 +210,43 @@ final class BonsplitTests: XCTestCase {
     }
 
     @MainActor
+    func testBadgeGlyphCreateUpdateClearAndCodableRoundTrip() throws {
+        let controller = BonsplitController()
+        let tabId = controller.createTab(title: "T", icon: "doc", badgeGlyph: "🚀")!
+        XCTAssertEqual(controller.tab(tabId)?.badgeGlyph, "🚀")
+
+        controller.updateTab(tabId, title: "T2")
+        XCTAssertEqual(controller.tab(tabId)?.badgeGlyph, "🚀")
+
+        controller.updateTab(tabId, badgeGlyph: .some("sf:star.fill"))
+        XCTAssertEqual(controller.tab(tabId)?.badgeGlyph, "sf:star.fill")
+
+        controller.updateTab(tabId, badgeGlyph: .some(nil))
+        XCTAssertNil(controller.tab(tabId)?.badgeGlyph)
+
+        let item = TabItem(title: "X", customColorHex: "#1565C0", badgeGlyph: "🧪")
+        let decoded = try JSONDecoder().decode(TabItem.self, from: JSONEncoder().encode(item))
+        XCTAssertEqual(decoded.badgeGlyph, "🧪")
+        XCTAssertEqual(decoded.customColorHex, "#1565C0")
+    }
+
+    func testBadgeRenderedGlyphTrimsCapsAndHidesBlank() {
+        XCTAssertNil(TabBadgeView.renderedGlyph(nil))
+        XCTAssertNil(TabBadgeView.renderedGlyph("   "))
+        XCTAssertNil(TabBadgeView.renderedGlyph("sf:"))
+        XCTAssertNil(TabBadgeView.renderedGlyph("sf:not.a.real.symbol.name"))
+        XCTAssertEqual(TabBadgeView.layoutWidth(glyph: nil, colorHex: nil, size: 14), 0)
+        XCTAssertEqual(TabBadgeView.layoutWidth(glyph: nil, colorHex: "#C0392B", size: 14), 14)
+        XCTAssertGreaterThanOrEqual(TabBadgeView.layoutWidth(glyph: "🚀", colorHex: "#C0392B", size: 14), 14)
+        XCTAssertEqual(TabBadgeView.renderedGlyph(" 🚀 "), "🚀")
+        XCTAssertEqual(TabBadgeView.renderedGlyph("👩‍💻ABCDEF"), "👩‍💻ABC")
+        XCTAssertEqual(TabBadgeView.renderedGlyph("sf:star.fill"), "sf:star.fill")
+        XCTAssertTrue(TabBadgeView.isVisible(glyph: nil, colorHex: "#C0392B"))
+        XCTAssertFalse(TabBadgeView.isVisible(glyph: nil, colorHex: nil))
+        XCTAssertFalse(TabBadgeView.isVisible(glyph: " ", colorHex: "nope"))
+    }
+
+    @MainActor
     func testCreateAndUpdateTabActivityState() {
         let controller = BonsplitController()
         let tabId = controller.createTab(title: "Agent", activityState: .running)!

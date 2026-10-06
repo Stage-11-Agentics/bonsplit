@@ -787,6 +787,7 @@ struct TabItemView: View {
             if useSimplifiedTabUX {
                 simplifiedTrailingAccessory
             } else {
+                trailingBadge
                 trailingAccessory
             }
         }
@@ -955,6 +956,24 @@ struct TabItemView: View {
         )
     }
 
+    /// Glyph and/or color marker set by the host. Laid out only when set,
+    /// so an unmarked tab keeps its geometry.
+    @ViewBuilder
+    private var trailingBadge: some View {
+        if TabBadgeView.isVisible(glyph: tab.badgeGlyph, colorHex: tab.customColorHex) {
+            TabBadgeView(
+                glyph: tab.badgeGlyph,
+                colorHex: tab.customColorHex,
+                size: appearance.tabIconSize,
+                foreground: isSelected
+                    ? TabBarColors.activeText(for: appearance)
+                    : TabBarColors.inactiveText(for: appearance)
+            )
+            .saturation(TabBadgeView.keepsFullColor(glyph: tab.badgeGlyph) ? 1 : saturation)
+            .layoutPriority(1)
+        }
+    }
+
     @ViewBuilder
     private var simplifiedTrailingAccessory: some View {
         HStack(spacing: 0) {
@@ -981,6 +1000,10 @@ struct TabItemView: View {
                     )
                     .allowsHitTesting(false)
             }
+
+            // Host identity badge: pinned immediately left of the close X so
+            // a narrow tab truncates its title, never the badge.
+            trailingBadge
 
             ZStack(alignment: .topLeading) {
                 if !tab.isPinned {

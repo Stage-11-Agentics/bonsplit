@@ -1111,6 +1111,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                 ? TabActivityMarkMetrics.leadingAccessoryWidth(for: .idle)
                 : SimplifiedTabGeometry.unmarkedLeadingInset)
         return leading
+            + TabBadgeView.layoutWidth(glyph: tab.badgeGlyph, colorHex: tab.customColorHex, size: appearance.tabIconSize)
             + SimplifiedTabGeometry.closeHitSize.width
             + SimplifiedTabGeometry.closeTrailingInset
     }

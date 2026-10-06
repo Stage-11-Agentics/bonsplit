@@ -29,6 +29,11 @@ struct TabItem: Identifiable, Hashable, Codable {
     /// consumers that want a host-controlled identity marker can set this;
     /// rendering applies it as a restrained accent in the tab strip.
     var customColorHex: String?
+    /// Optional host-supplied glyph (usually one emoji, or `sf:<symbol>`)
+    /// pinned on the trailing edge of the tab, just left of the close X.
+    /// `customColorHex` tints a rounded badge behind it; with a color and no
+    /// glyph the slot shows a small colored dot instead.
+    var badgeGlyph: String?
     /// Optional host-assigned tab number, rendered as an "N: " title prefix
     /// when `Appearance.showTabOrdinals` is on.
     var displayOrdinal: Int?
@@ -49,6 +54,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         isLoading: Bool = false,
         isPinned: Bool = false,
         customColorHex: String? = nil,
+        badgeGlyph: String? = nil,
         displayOrdinal: Int? = nil,
         activityState: BonsplitTabActivityState? = nil,
         activityPresentation: BonsplitTabActivityPresentation? = nil,
@@ -65,6 +71,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         self.isLoading = isLoading
         self.isPinned = isPinned
         self.customColorHex = customColorHex
+        self.badgeGlyph = badgeGlyph
         self.displayOrdinal = displayOrdinal
         self.activityState = activityState
         self.activityPresentation = activityPresentation
@@ -106,6 +113,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         case isLoading
         case isPinned
         case customColorHex
+        case badgeGlyph
         case displayOrdinal
         case activityState
         case activityPresentation
@@ -125,6 +133,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         self.isLoading = try c.decodeIfPresent(Bool.self, forKey: .isLoading) ?? false
         self.isPinned = try c.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         self.customColorHex = try c.decodeIfPresent(String.self, forKey: .customColorHex)
+        self.badgeGlyph = try c.decodeIfPresent(String.self, forKey: .badgeGlyph)
         self.displayOrdinal = try c.decodeIfPresent(Int.self, forKey: .displayOrdinal)
         self.activityState = try c.decodeIfPresent(BonsplitTabActivityState.self, forKey: .activityState)
         self.activityPresentation = try c.decodeIfPresent(BonsplitTabActivityPresentation.self, forKey: .activityPresentation)
@@ -144,6 +153,7 @@ struct TabItem: Identifiable, Hashable, Codable {
         try c.encode(isLoading, forKey: .isLoading)
         try c.encode(isPinned, forKey: .isPinned)
         try c.encodeIfPresent(customColorHex, forKey: .customColorHex)
+        try c.encodeIfPresent(badgeGlyph, forKey: .badgeGlyph)
         try c.encodeIfPresent(displayOrdinal, forKey: .displayOrdinal)
         try c.encodeIfPresent(activityState, forKey: .activityState)
         try c.encodeIfPresent(activityPresentation, forKey: .activityPresentation)
