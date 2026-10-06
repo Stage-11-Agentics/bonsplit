@@ -284,16 +284,19 @@ final class TabSheetGridTests: XCTestCase {
         XCTAssertFalse(controller.railOpenPaneIds.contains(pane))
     }
 
+    @MainActor
     func testLayoutSwitchSegmentsHoldTheWiderLabel() {
-        func config(_ tabs: String, _ rail: String) -> BonsplitController.TabLayoutSwitch {
-            BonsplitController.TabLayoutSwitch(tabsLabel: tabs, railLabel: rail, accessibilityLabel: "", help: "") { _, _ in }
-        }
-        XCTAssertEqual(TabLayoutSwitchView.segmentWidth(config("Tabs", "Rail")), 36)
         let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-        let longest = ("Вкладки" as NSString).size(withAttributes: [.font: font]).width
-        let long = config("Вкладки", "Панель")
-        XCTAssertGreaterThanOrEqual(TabLayoutSwitchView.segmentWidth(long), longest + 12)
-        XCTAssertEqual(TabLayoutSwitchView.width(long), TabLayoutSwitchView.segmentWidth(long) * 2)
+        func width(_ text: String) -> CGFloat { (text as NSString).size(withAttributes: [.font: font]).width }
+        for (tabs, rail) in [("Tabs", "Rail"), ("Вкладки", "Панель"), ("タブ", "レール"), ("탭", "레일")] {
+            let config = BonsplitController.TabLayoutSwitch(
+                tabsLabel: tabs, railLabel: rail, accessibilityLabel: "", help: ""
+            ) { _, _ in }
+            let segment = TabLayoutSwitchView.segmentWidth(config)
+            XCTAssertGreaterThanOrEqual(segment, 36)
+            XCTAssertGreaterThanOrEqual(segment, max(width(tabs), width(rail)) + 12, "\(tabs) | \(rail)")
+            XCTAssertEqual(TabLayoutSwitchView.width(config), segment * 2)
+        }
     }
 
     func testNumberLabelFollowsTheSetting() {

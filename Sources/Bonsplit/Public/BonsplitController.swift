@@ -186,7 +186,8 @@ public final class BonsplitController {
         /// Tooltip, for example where else the setting lives.
         public var help: String
         /// Applies `layout`. By then bonsplit has opened (Rail) or closed
-        /// (Tabs) the pane's rail.
+        /// (Tabs) the pane's rail; applying it to this controller before
+        /// returning shows both changes in one pass.
         public var apply: (_ layout: BonsplitTabLayout, _ paneId: PaneID) -> Void
 
         public init(

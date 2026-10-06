@@ -195,7 +195,7 @@ struct TabRailView: View {
                 )
                 Rectangle().fill(palette.separator).frame(height: 1)
             }
-            header(width: width)
+            header
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     ForEach(Array(pane.tabs.enumerated()), id: \.element.id) { index, tab in
@@ -227,32 +227,54 @@ struct TabRailView: View {
         .accessibilityLabel(TabSheetFormat.localized("tabBar.rail.accessibilityLabel", "Tab rail"))
     }
 
-    /// The tab count, and the Tabs | Rail switch at the right whenever the rail
-    /// is wide enough to hold it (the count gives way first).
-    private func header(width: CGFloat) -> some View {
-        HStack(spacing: 6) {
-            Text(TabSheetFormat.tabsFooter(count: pane.tabs.count).uppercased())
-                .font(.system(size: 10, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(palette.faintText)
-                .lineLimit(1)
-            Spacer(minLength: 0)
-            if let layoutSwitch = controller.tabLayoutSwitch,
-               width >= TabLayoutSwitchView.width(layoutSwitch) + 20 {
-                TabLayoutSwitchView(
-                    paneId: pane.id,
-                    controller: controller,
-                    config: layoutSwitch,
-                    current: appearance.tabLayout,
-                    palette: palette
-                )
-                .layoutPriority(1)
+    /// The tab count, and the Tabs | Rail switch at the right. When both do not
+    /// fit, the count goes (never cut to "…"); the switch goes only when the
+    /// rail is narrower than the switch itself.
+    private var header: some View {
+        HStack(spacing: 0) {
+            if let layoutSwitch = controller.tabLayoutSwitch {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        headerCount.fixedSize()
+                        Spacer(minLength: 0)
+                        layoutSwitchView(layoutSwitch)
+                    }
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        layoutSwitchView(layoutSwitch)
+                    }
+                    HStack(spacing: 0) {
+                        headerCount
+                        Spacer(minLength: 0)
+                    }
+                }
+            } else {
+                headerCount
+                Spacer(minLength: 0)
             }
         }
         .padding(.horizontal, 10)
         .frame(height: TabRailMetrics.headerHeight)
         .background(palette.header)
         .overlay(alignment: .bottom) { Rectangle().fill(palette.separator).frame(height: 1) }
+    }
+
+    private var headerCount: some View {
+        Text(TabSheetFormat.tabsFooter(count: pane.tabs.count).uppercased())
+            .font(.system(size: 10, weight: .bold))
+            .tracking(0.6)
+            .foregroundStyle(palette.faintText)
+            .lineLimit(1)
+    }
+
+    private func layoutSwitchView(_ layoutSwitch: BonsplitController.TabLayoutSwitch) -> some View {
+        TabLayoutSwitchView(
+            paneId: pane.id,
+            controller: controller,
+            config: layoutSwitch,
+            current: appearance.tabLayout,
+            palette: palette
+        )
     }
 
     private func row(_ tab: TabItem, at index: Int, now: Date) -> some View {
