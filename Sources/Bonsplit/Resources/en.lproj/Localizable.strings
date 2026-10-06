@@ -6,6 +6,7 @@
 "command.tabColor.title" = "Panel Color";
 "command.tabColor.clearColor" = "Clear Color";
 "command.tabColor.chooseCustom" = "Choose Custom Color…";
+"command.copySurfaceRef.prefix" = "Copy";
 "tab.activity.running" = "Running";
 "tab.activity.idle" = "Idle";
 "tab.activity.cold" = "Cold";

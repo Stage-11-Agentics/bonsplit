@@ -6,6 +6,7 @@
 "command.tabColor.title" = "パネルカラー";
 "command.tabColor.clearColor" = "カラーをクリア";
 "command.tabColor.chooseCustom" = "カスタムカラーを選択…";
+"command.copySurfaceRef.prefix" = "コピー";
 "tab.activity.running" = "実行中";
 "tab.activity.idle" = "アイドル";
 "tab.activity.cold" = "コールド";

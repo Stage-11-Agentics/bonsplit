@@ -6,6 +6,7 @@
 "command.tabColor.title" = "Колір панелі";
 "command.tabColor.clearColor" = "Очистити колір";
 "command.tabColor.chooseCustom" = "Вибрати власний колір…";
+"command.copySurfaceRef.prefix" = "Копіювати";
 "tab.activity.running" = "Працює";
 "tab.activity.idle" = "Простій";
 "tab.activity.cold" = "Холодна";
