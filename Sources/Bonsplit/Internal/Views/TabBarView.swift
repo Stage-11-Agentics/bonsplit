@@ -268,6 +268,11 @@ struct CollapsedTabCloseButton: View {
     let appearance: BonsplitConfiguration.Appearance
     var hitSize: CGSize = SimplifiedTabGeometry.closeHitSize
 
+    /// Local hover state: same highlight as the regular tab's close button
+    /// (`TabItemView` simplified close): brighter glyph on a rounded
+    /// `hoveredTabBackground` plate.
+    @State private var isHovered = false
+
     /// Closes `tab` from the collapsed list, restoring the pane's prior
     /// selection when a background tab is closed. Shared by the visible close
     /// button and the row's accessibility action.
@@ -295,11 +300,25 @@ struct CollapsedTabCloseButton: View {
         } label: {
             Text("×")
                 .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(TabBarColors.inactiveText(for: appearance))
+                .foregroundStyle(
+                    isHovered
+                        ? TabBarColors.activeText(for: appearance)
+                        : TabBarColors.inactiveText(for: appearance).opacity(0.7)
+                )
+                .frame(
+                    width: SimplifiedTabGeometry.closeHitSize.width,
+                    height: SimplifiedTabGeometry.closeHitSize.height
+                )
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isHovered ? TabBarColors.hoveredTabBackground(for: appearance) : .clear)
+                )
                 .frame(width: hitSize.width, height: hitSize.height)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.easeInOut(duration: TabBarMetrics.hoverDuration), value: isHovered)
         .help(Bundle.module.localizedString(
             forKey: "command.closeTab.title",
             value: "Close Tab",
