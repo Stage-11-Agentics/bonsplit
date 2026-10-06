@@ -694,6 +694,8 @@ struct TabBarView<TrailingAccessory: View>: View {
             HStack(spacing: 8) {
                 if let tab, let state = tab.activityState {
                     collapsedActivityMark(for: tab, state: state)
+                } else if let tab, tab.showsBrowserGlyph {
+                    collapsedBrowserGlyph
                 }
                 Text([number, title].compactMap { $0 }.joined(separator: " · "))
                     .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
@@ -1105,7 +1107,9 @@ struct TabBarView<TrailingAccessory: View>: View {
 
     private func perTabFixedCost(for tab: TabItem) -> CGFloat {
         let leading = tab.activityState.map(TabActivityMarkMetrics.leadingAccessoryWidth)
-            ?? SimplifiedTabGeometry.unmarkedLeadingInset
+            ?? (tab.showsBrowserGlyph
+                ? TabActivityMarkMetrics.leadingAccessoryWidth(for: .idle)
+                : SimplifiedTabGeometry.unmarkedLeadingInset)
         return leading
             + SimplifiedTabGeometry.closeHitSize.width
             + SimplifiedTabGeometry.closeTrailingInset
@@ -1307,6 +1311,8 @@ struct TabBarView<TrailingAccessory: View>: View {
             HStack(spacing: 7) {
                 if let tab = activeTab, let state = tab.activityState {
                     collapsedActivityMark(for: tab, state: state)
+                } else if let tab = activeTab, tab.showsBrowserGlyph {
+                    collapsedBrowserGlyph
                 }
 
                 if let number = activeTab?.numberLabel(showOrdinals: appearance.showTabOrdinals) {
@@ -1472,6 +1478,10 @@ struct TabBarView<TrailingAccessory: View>: View {
                 onReordered: { [weak sheetPresenter] in sheetPresenter?.dropAppliedInSheet() }
             )
         ))
+    }
+
+    private var collapsedBrowserGlyph: some View {
+        TabBrowserGlyph(appearance: appearance)
     }
 
     private func collapsedActivityMark(
@@ -1689,6 +1699,8 @@ struct TabBarView<TrailingAccessory: View>: View {
             if let tab = ghostTab {
                 if let state = tab.activityState {
                     collapsedActivityMark(for: tab, state: state)
+                } else if tab.showsBrowserGlyph {
+                    collapsedBrowserGlyph
                 }
                 Text(tab.title)
                     .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))

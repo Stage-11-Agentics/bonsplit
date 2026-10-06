@@ -652,6 +652,8 @@ struct TabLifecycleMarkSlot: View {
                 Circle()
                     .fill(TabBarColors.notificationBadge(for: appearance))
                     .frame(width: 7, height: 7)
+            } else if tab.showsBrowserGlyph {
+                TabBrowserGlyph(appearance: appearance)
             }
         }
         .frame(width: 17, height: 17)

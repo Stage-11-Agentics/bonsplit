@@ -230,6 +230,28 @@ enum SimplifiedTabGeometry {
     static let closeTrailingInset: CGFloat = 3
 }
 
+extension TabItem {
+    /// Browser surfaces never carry an agent lifecycle, so a state-less browser
+    /// tab shows a fixed browser glyph in the lifecycle mark's slot instead.
+    var showsBrowserGlyph: Bool { activityState == nil && kind == "browser" }
+}
+
+/// Fixed browser glyph for the lifecycle mark's slot: the same 10pt visible
+/// square, muted, so a browser tab reads at a glance and titles stay aligned
+/// with agent tabs. Deliberately not the page favicon.
+struct TabBrowserGlyph: View {
+    let appearance: BonsplitConfiguration.Appearance
+
+    var body: some View {
+        let size = TabActivityMarkMetrics.visibleSize(for: .idle)
+        Image(systemName: "globe")
+            .font(.system(size: size, weight: .regular))
+            .foregroundStyle(TabBarColors.inactiveText(for: appearance).opacity(0.8))
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
+}
+
 /// Agent-state mark: a hard-edged terminal cell whose shape alone carries the
 /// lifecycle — a typed dot grid for running, frame plus payload for waiting,
 /// an empty frame for idle, and a collapsed line for cold.
@@ -863,6 +885,18 @@ struct TabItemView: View {
             } else {
                 mark
             }
+        } else if tab.showsBrowserGlyph {
+            HStack(spacing: 0) {
+                Color.clear
+                    .frame(width: TabActivityMarkMetrics.leadingEdgeInset(for: .idle))
+                TabBrowserGlyph(appearance: appearance)
+                Color.clear
+                    .frame(width: TabActivityMarkMetrics.titleSpacing(for: .idle))
+            }
+            .frame(
+                width: TabActivityMarkMetrics.leadingAccessoryWidth(for: .idle),
+                height: appearance.tabItemHeight
+            )
         } else {
             Color.clear
                 .frame(
