@@ -181,7 +181,7 @@ enum TabActivityAccessibility {
     }
 }
 
-private struct TabActivityHelpTarget<Content: View>: View {
+struct TabActivityHelpTarget<Content: View>: View {
     let help: BonsplitTabActivityHelp
     @ViewBuilder let content: () -> Content
 
@@ -248,6 +248,7 @@ struct TabBrowserGlyph: View {
             .font(.system(size: size, weight: .regular))
             .foregroundStyle(TabBarColors.inactiveText(for: appearance).opacity(0.8))
             .frame(width: size, height: size)
+            .help(Bundle.module.localizedString(forKey: "tab.kind.browser", value: "Browser", table: nil))
             .accessibilityHidden(true)
     }
 }

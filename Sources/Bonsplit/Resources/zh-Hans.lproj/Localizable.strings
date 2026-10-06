@@ -8,6 +8,7 @@
 "tab.activity.cold" = "冷态";
 "tab.activity.waiting" = "正在等待您的回应";
 "tab.activity.waiting.help" = "此标签页需要您的回应。";
+"tab.kind.browser" = "浏览器";
 "tabBar.collapsedList.accessibilityLabel" = "标签页列表";
 "tabBar.collapsedHeader.accessibilityLabel" = "显示所有标签页";
 "tabBar.collapsedList.selectAction" = "选择";

@@ -606,6 +606,17 @@ struct CollapsedActivityMarkView: View {
 
     var body: some View {
         let presentation = tab.activityPresentation
+        if let help = presentation?.help {
+            TabActivityHelpTarget(help: help) { mark(state: state, presentation: presentation) }
+        } else {
+            mark(state: state, presentation: presentation)
+        }
+    }
+
+    private func mark(
+        state: BonsplitTabActivityState,
+        presentation: BonsplitTabActivityPresentation?
+    ) -> some View {
         TabActivityMark(
             state: state,
             appearance: appearance,

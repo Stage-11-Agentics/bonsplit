@@ -8,6 +8,7 @@
 "tab.activity.cold" = "Холодная";
 "tab.activity.waiting" = "Ожидает вашего ответа";
 "tab.activity.waiting.help" = "Этой вкладке требуется ваш ответ.";
+"tab.kind.browser" = "Браузер";
 "tabBar.collapsedList.accessibilityLabel" = "Список вкладок";
 "tabBar.collapsedHeader.accessibilityLabel" = "Показать все вкладки";
 "tabBar.collapsedList.selectAction" = "Выбрать";
