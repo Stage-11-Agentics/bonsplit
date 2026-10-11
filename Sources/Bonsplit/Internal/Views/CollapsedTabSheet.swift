@@ -108,9 +108,9 @@ struct SheetDragTracker {
 public final class CollapsedSheetPresenter: ObservableObject {
     /// The tab bar's own background view; its screen frame anchors the sheet.
     public weak var anchorView: NSView?
-    /// The full tier's count cell. When set, the sheet's right edge aligns to
-    /// this cell's right edge and clicks on the cell are its own toggle.
-    /// Collapsed tiers leave it nil and anchor flush-left under the bar.
+    /// The control that toggles the sheet (the full tier's count cell). A
+    /// mouse-down on it is left to that control's own toggle instead of
+    /// dismissing. The sheet always hangs flush-left under `anchorView`.
     public weak var trailingAnchorView: NSView?
     /// Width of the collapsed header block. Clicks inside it are the header's
     /// own toggle, so the click-outside monitor leaves them alone.
