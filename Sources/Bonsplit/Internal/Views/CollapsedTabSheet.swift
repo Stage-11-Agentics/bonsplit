@@ -90,6 +90,9 @@ struct SheetDragTracker {
 // MARK: - Presenter
 
 /// Hosts the collapsed-tab list as a solid sheet hung flush under the tab bar.
+/// Public so a host app can hang its own drawer the same way (c11's mailbox
+/// drawer hangs under a panel's subtitle bar with the same motion and
+/// dismissal); the host supplies the anchor views and the root view.
 ///
 /// The sheet is a borderless child `NSPanel` of the bar's window, not a SwiftUI
 /// overlay: terminal surfaces are AppKit views in a portal layer and would draw
@@ -102,17 +105,17 @@ struct SheetDragTracker {
 /// being ordered out, so the panes beneath become drop targets while the source
 /// view stays alive. It is torn down only after the drag ends.
 @MainActor
-final class CollapsedSheetPresenter: ObservableObject {
+public final class CollapsedSheetPresenter: ObservableObject {
     /// The tab bar's own background view; its screen frame anchors the sheet.
-    weak var anchorView: NSView?
+    public weak var anchorView: NSView?
     /// The full tier's count cell. When set, the sheet's right edge aligns to
     /// this cell's right edge and clicks on the cell are its own toggle.
     /// Collapsed tiers leave it nil and anchor flush-left under the bar.
-    weak var trailingAnchorView: NSView?
+    public weak var trailingAnchorView: NSView?
     /// Width of the collapsed header block. Clicks inside it are the header's
     /// own toggle, so the click-outside monitor leaves them alone.
     var blockWidth: CGFloat = 0
-    var onDismiss: (() -> Void)?
+    public var onDismiss: (() -> Void)?
 
     private var panel: CollapsedSheetPanel?
     private var hosting: CollapsedSheetHostingView?
@@ -131,7 +134,9 @@ final class CollapsedSheetPresenter: ObservableObject {
     /// panel is its drag source and must not be torn down until it ends.
     private(set) var isDragging = false
 
-    var isPresented: Bool { panel != nil }
+    public var isPresented: Bool { panel != nil }
+
+    public init() {}
 
     deinit {
         dragTimer?.invalidate()
@@ -144,7 +149,7 @@ final class CollapsedSheetPresenter: ObservableObject {
         }
     }
 
-    func present(rootView: AnyView) {
+    public func present(rootView: AnyView) {
         if isRollingUp { cancelRollUp() }
         if let hosting, panel != nil {
             hosting.rootView = rootView
@@ -265,7 +270,7 @@ final class CollapsedSheetPresenter: ObservableObject {
 
     /// Rolls the sheet up (when motion is allowed), then tears it down. The
     /// panel stops taking clicks the moment it starts closing.
-    func dismissAnimated() {
+    public func dismissAnimated() {
         if isDragging, panel != nil { return }
         guard panel != nil, !isRollingUp else { return }
         guard hosting?.layer != nil, !Self.reduceMotion else {
@@ -287,7 +292,7 @@ final class CollapsedSheetPresenter: ObservableObject {
     /// Asks the sheet to go away. While a row drag is in flight the request is
     /// held until the drag ends: tearing down the hosting view would kill the
     /// drag source (tier changes and title churn can request this mid-drag).
-    func dismiss() {
+    public func dismiss() {
         if isDragging, panel != nil { return }
         forceDismiss()
     }
@@ -553,24 +558,28 @@ private final class CollapsedSheetHostingView: NSHostingView<AnyView> {
 
 /// Reports the tab bar's NSView so the presenter can read its screen frame.
 /// Never hit-tests: it sits behind the header and must not swallow its tap.
-struct CollapsedSheetAnchorReader: NSViewRepresentable {
+public struct CollapsedSheetAnchorReader: NSViewRepresentable {
     let onResolve: (NSView) -> Void
 
-    func makeNSView(context: Context) -> AnchorView {
+    public init(onResolve: @escaping (NSView) -> Void) {
+        self.onResolve = onResolve
+    }
+
+    public func makeNSView(context: Context) -> AnchorView {
         let view = AnchorView()
         view.onResolve = onResolve
         return view
     }
 
-    func updateNSView(_ nsView: AnchorView, context: Context) {
+    public func updateNSView(_ nsView: AnchorView, context: Context) {
         nsView.onResolve = onResolve
         onResolve(nsView)
     }
 
-    final class AnchorView: NSView {
+    public final class AnchorView: NSView {
         var onResolve: ((NSView) -> Void)?
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        override func viewDidMoveToWindow() {
+        override public func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override public func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             // A removal also lands here; never resolve to a detached view.
             guard window != nil else { return }
@@ -580,16 +589,20 @@ struct CollapsedSheetAnchorReader: NSViewRepresentable {
 }
 
 /// Same as `CollapsedSheetAnchorReader`, for the full tier's count cell.
-struct CollapsedSheetTrailingAnchorReader: NSViewRepresentable {
+public struct CollapsedSheetTrailingAnchorReader: NSViewRepresentable {
     let onResolve: (NSView) -> Void
 
-    func makeNSView(context: Context) -> CollapsedSheetAnchorReader.AnchorView {
+    public init(onResolve: @escaping (NSView) -> Void) {
+        self.onResolve = onResolve
+    }
+
+    public func makeNSView(context: Context) -> CollapsedSheetAnchorReader.AnchorView {
         let view = CollapsedSheetAnchorReader.AnchorView()
         view.onResolve = onResolve
         return view
     }
 
-    func updateNSView(_ nsView: CollapsedSheetAnchorReader.AnchorView, context: Context) {
+    public func updateNSView(_ nsView: CollapsedSheetAnchorReader.AnchorView, context: Context) {
         nsView.onResolve = onResolve
         onResolve(nsView)
     }
