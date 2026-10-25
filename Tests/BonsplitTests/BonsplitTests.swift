@@ -230,6 +230,23 @@ final class BonsplitTests: XCTestCase {
         XCTAssertEqual(decoded.customColorHex, "#1565C0")
     }
 
+    func testCustomColorFillPicksReadableInkAndDimsUnselected() {
+        // Every c11 palette color is dark: white ink.
+        for hex in ["#C0392B", "#7D6608", "#006B6B", "#1565C0", "#3E4B5E", "#AD1457"] {
+            XCTAssertTrue(TabItemStyling.prefersLightInk(on: NSColor(bonsplitHex: hex)!), hex)
+        }
+        // Light custom colors get black ink.
+        for hex in ["#FFFF00", "#F5F5F5", "#7FFFD4"] {
+            XCTAssertFalse(TabItemStyling.prefersLightInk(on: NSColor(bonsplitHex: hex)!), hex)
+        }
+        XCTAssertEqual(TabItemStyling.customFillOpacity(isSelected: true, isHovered: false), 1.0)
+        XCTAssertLessThan(
+            TabItemStyling.customFillOpacity(isSelected: false, isHovered: false),
+            TabItemStyling.customFillOpacity(isSelected: false, isHovered: true)
+        )
+        XCTAssertLessThan(TabItemStyling.customFillOpacity(isSelected: false, isHovered: true), 1.0)
+    }
+
     func testBadgeRenderedGlyphTrimsCapsAndHidesBlank() {
         XCTAssertNil(TabBadgeView.renderedGlyph(nil))
         XCTAssertNil(TabBadgeView.renderedGlyph("   "))

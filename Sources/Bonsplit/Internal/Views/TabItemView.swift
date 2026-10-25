@@ -82,6 +82,26 @@ enum TabItemStyling {
         isHovered && !isSelected
     }
 
+    /// Strength of a host-colored tab's fill: full when selected, brighter
+    /// on hover, dimmed otherwise so the selected tab still stands out.
+    static func customFillOpacity(isSelected: Bool, isHovered: Bool) -> Double {
+        if isSelected { return 1.0 }
+        return isHovered ? 0.7 : 0.55
+    }
+
+    /// True when white text reads better than black on `fill` (WCAG
+    /// relative luminance below the midpoint where the two contrasts cross).
+    static func prefersLightInk(on fill: NSColor) -> Bool {
+        guard let rgb = fill.usingColorSpace(.sRGB) else { return true }
+        func linear(_ c: CGFloat) -> CGFloat {
+            c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        let luminance = 0.2126 * linear(rgb.redComponent)
+            + 0.7152 * linear(rgb.greenComponent)
+            + 0.0722 * linear(rgb.blueComponent)
+        return luminance < 0.179
+    }
+
     static func widthRange(for appearance: BonsplitConfiguration.Appearance) -> ClosedRange<CGFloat> {
         let minWidth = max(1, appearance.tabMinWidth)
         let maxWidth = max(minWidth, appearance.tabMaxWidth)
@@ -677,8 +697,8 @@ struct TabItemView: View {
             HStack(spacing: appearance.tabContentSpacing) {
                 let iconSlotSize = appearance.tabIconSize
                 let iconTint = isSelected
-                    ? TabBarColors.activeText(for: appearance)
-                    : TabBarColors.inactiveText(for: appearance)
+                    ? activeInk
+                    : inactiveInk
                 let faviconImage = renderedFaviconImage ?? tab.iconImageData.flatMap { NSImage(data: $0) }
 
                 // Simplified tabs reserve the leading slot for host activity
@@ -734,8 +754,8 @@ struct TabItemView: View {
                         .font(.system(size: appearance.tabTitleFontSize - 2, weight: .bold, design: .monospaced))
                         .foregroundStyle(
                             isSelected
-                                ? TabBarColors.activeIndicator(for: appearance)
-                                : TabBarColors.inactiveText(for: appearance).opacity(0.75)
+                                ? (customAccentNSColor() == nil ? TabBarColors.activeIndicator(for: appearance) : activeInk)
+                                : inactiveInk.opacity(0.75)
                         )
                         .lineLimit(1)
                         .saturation(saturation)
@@ -747,8 +767,8 @@ struct TabItemView: View {
                     .truncationMode(.tail)
                     .foregroundStyle(
                         isSelected
-                            ? TabBarColors.activeText(for: appearance)
-                            : TabBarColors.inactiveText(for: appearance)
+                            ? activeInk
+                            : inactiveInk
                     )
                     .saturation(saturation)
 
@@ -760,8 +780,8 @@ struct TabItemView: View {
                             .font(.system(size: accessoryFontSize, weight: .semibold))
                             .foregroundStyle(
                                 isZoomHovered
-                                    ? TabBarColors.activeText(for: appearance)
-                                    : TabBarColors.inactiveText(for: appearance)
+                                    ? activeInk
+                                    : inactiveInk
                             )
                             .frame(width: accessorySlotSize, height: accessorySlotSize)
                             .background(
@@ -956,18 +976,19 @@ struct TabItemView: View {
         )
     }
 
-    /// Glyph and/or color marker set by the host. Laid out only when set,
-    /// so an unmarked tab keeps its geometry.
+    /// Glyph set by the host. The tab's color fills its background, so the
+    /// strip badge carries no tint. Laid out only when set, so an unmarked
+    /// tab keeps its geometry.
     @ViewBuilder
     private var trailingBadge: some View {
-        if TabBadgeView.isVisible(glyph: tab.badgeGlyph, colorHex: tab.customColorHex) {
+        if TabBadgeView.isVisible(glyph: tab.badgeGlyph, colorHex: nil) {
             TabBadgeView(
                 glyph: tab.badgeGlyph,
-                colorHex: tab.customColorHex,
+                colorHex: nil,
                 size: appearance.tabIconSize,
                 foreground: isSelected
-                    ? TabBarColors.activeText(for: appearance)
-                    : TabBarColors.inactiveText(for: appearance)
+                    ? activeInk
+                    : inactiveInk
             )
             .saturation(TabBadgeView.keepsFullColor(glyph: tab.badgeGlyph) ? 1 : saturation)
             .layoutPriority(1)
@@ -985,8 +1006,8 @@ struct TabItemView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(
                         isSelected
-                            ? TabBarColors.activeText(for: appearance)
-                            : TabBarColors.inactiveText(for: appearance)
+                            ? activeInk
+                            : inactiveInk
                     )
                     .padding(.horizontal, 4)
                     .padding(.vertical, 1)
@@ -1014,8 +1035,8 @@ struct TabItemView: View {
                             .font(.system(size: 12, weight: .regular))
                             .foregroundStyle(
                                 isCloseHovered
-                                    ? TabBarColors.activeText(for: appearance)
-                                    : TabBarColors.inactiveText(for: appearance).opacity(0.7)
+                                    ? activeInk
+                                    : inactiveInk.opacity(0.7)
                             )
                             .frame(
                                 width: SimplifiedTabGeometry.closeHitSize.width,
@@ -1078,8 +1099,8 @@ struct TabItemView: View {
                     .fixedSize(horizontal: true, vertical: false)
                     .foregroundStyle(
                         isSelected
-                            ? TabBarColors.activeText(for: appearance)
-                            : TabBarColors.inactiveText(for: appearance)
+                            ? activeInk
+                            : inactiveInk
                     )
                     .padding(.horizontal, 4)
                     .padding(.vertical, 1)
@@ -1391,8 +1412,17 @@ struct TabItemView: View {
     @ViewBuilder
     private var tabBackground: some View {
         ZStack(alignment: .top) {
-            // Background fill (selected / hover)
-            if isSelected {
+            // Background fill: the host color when set, else selected / hover.
+            // The color is the tab's identity, so like an emoji badge it keeps
+            // full saturation in unfocused areas.
+            if let fill = customAccentNSColor() {
+                Rectangle()
+                    .fill(Color(nsColor: fill))
+                    .opacity(TabItemStyling.customFillOpacity(
+                        isSelected: isSelected,
+                        isHovered: isHovered || isLinkedHover
+                    ))
+            } else if isSelected {
                 Rectangle()
                     .fill(TabBarColors.activeTabBackground(for: appearance))
             } else if isLinkedHover {
@@ -1405,17 +1435,8 @@ struct TabItemView: View {
                 Color.clear
             }
 
-            // Top accent indicator. Selected tabs always render a rail; if
-            // the tab carries a customColorHex it overrides the default
-            // `activeIndicator` color. Unselected tabs render a rail only
-            // when a customColorHex is set, so the accent acts as a calm
-            // identity marker without dominating chrome.
-            if let accentNSColor = customAccentNSColor() {
-                Rectangle()
-                    .fill(Color(nsColor: accentNSColor))
-                    .frame(height: appearance.tabActiveIndicatorHeight)
-                    .opacity(isSelected ? 1.0 : 0.85)
-            } else if isSelected {
+            // Top accent indicator marks the selected tab, colored or not.
+            if isSelected {
                 Rectangle()
                     .fill(TabBarColors.activeIndicator(for: appearance))
                     .frame(height: appearance.tabActiveIndicatorHeight)
@@ -1424,7 +1445,7 @@ struct TabItemView: View {
             // Linked hover: a 2pt underline ties the tab to its sheet row.
             if isLinkedHover {
                 Rectangle()
-                    .fill(TabBarColors.activeText(for: appearance))
+                    .fill(activeInk)
                     .frame(height: 2)
                     .frame(maxHeight: .infinity, alignment: .bottom)
             }
@@ -1442,6 +1463,18 @@ struct TabItemView: View {
     private func customAccentNSColor() -> NSColor? {
         guard let hex = tab.customColorHex else { return nil }
         return NSColor(bonsplitHex: hex)
+    }
+
+    /// Text and glyph color at full emphasis: black or white for contrast
+    /// on a host-colored tab, else the theme's active text.
+    private var activeInk: Color {
+        guard let fill = customAccentNSColor() else { return TabBarColors.activeText(for: appearance) }
+        return TabItemStyling.prefersLightInk(on: fill) ? .white : .black
+    }
+
+    private var inactiveInk: Color {
+        guard customAccentNSColor() != nil else { return TabBarColors.inactiveText(for: appearance) }
+        return activeInk.opacity(0.78)
     }
 
     // MARK: - Close Button / Dirty Indicator
@@ -1472,7 +1505,7 @@ struct TabItemView: View {
                     || (!tab.isDirty && (!tab.showsNotificationBadge || tab.activityState == .waiting)) {
                     Image(systemName: "pin.fill")
                         .font(.system(size: appearance.tabCloseIconSize, weight: .semibold))
-                        .foregroundStyle(TabBarColors.inactiveText(for: appearance))
+                        .foregroundStyle(inactiveInk)
                         .frame(width: accessorySlotSize, height: accessorySlotSize)
                         .saturation(saturation)
                 }
@@ -1487,8 +1520,8 @@ struct TabItemView: View {
                         .font(.system(size: appearance.tabCloseIconSize, weight: .semibold))
                         .foregroundStyle(
                             isCloseHovered
-                                ? TabBarColors.activeText(for: appearance)
-                                : TabBarColors.inactiveText(for: appearance)
+                                ? activeInk
+                                : inactiveInk
                         )
                         .frame(width: accessorySlotSize, height: accessorySlotSize)
                         .background(
