@@ -1187,10 +1187,11 @@ struct TabItemView: View {
         }
     }
 
-    /// C11-26: minimal right-click menu — Close Tab + Close Pane. The
+    /// C11-26: minimal right-click menu — details, ref, color, close. The
     /// reduced surface trades feature breadth for clarity; rename, pin,
     /// reorder, etc. are still reachable through the command palette,
-    /// keyboard, or direct gestures.
+    /// keyboard, or direct gestures. Panel Color stays here because it has
+    /// no other operator path besides the CLI.
     @ViewBuilder
     private var simplifiedContextMenuContent: some View {
         contextButton(
@@ -1203,6 +1204,8 @@ struct TabItemView: View {
                 action: .copySurfaceRef
             )
         }
+        Divider()
+        panelColorMenu
         Divider()
         contextButton(
             localizedString("command.closeTab.title", default: "Close Panel"),
@@ -1294,6 +1297,11 @@ struct TabItemView: View {
 
         Divider()
 
+        panelColorMenu
+    }
+
+    @ViewBuilder
+    private var panelColorMenu: some View {
         Menu(localizedString("command.tabColor.title", default: "Panel Color")) {
             if contextMenuState.hasCustomColor {
                 Button(localizedString("command.tabColor.clearColor", default: "Clear Color")) {
