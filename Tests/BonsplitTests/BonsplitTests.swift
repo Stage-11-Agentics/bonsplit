@@ -245,6 +245,13 @@ final class BonsplitTests: XCTestCase {
             TabItemStyling.customFillOpacity(isSelected: false, isHovered: true)
         )
         XCTAssertLessThan(TabItemStyling.customFillOpacity(isSelected: false, isHovered: true), 1.0)
+
+        // A dimmed dark fill over a light bar reads as light: black ink.
+        let teal = NSColor(bonsplitHex: "#006B6B")!
+        let dimmedOnLight = TabItemStyling.blend(teal, opacity: 0.3, over: .white)
+        XCTAssertFalse(TabItemStyling.prefersLightInk(on: dimmedOnLight))
+        XCTAssertTrue(TabItemStyling.prefersLightInk(on: TabItemStyling.blend(teal, opacity: 0.55, over: .black)))
+        XCTAssertEqual(TabItemStyling.blend(teal, opacity: 1, over: .white), teal)
     }
 
     func testBadgeRenderedGlyphTrimsCapsAndHidesBlank() {

@@ -99,6 +99,20 @@ enum TabItemStyling {
         prefersLightInk(on: fill) ? .white : .black
     }
 
+    /// `fill` drawn at `opacity` over `base`: the color the ink must read on.
+    static func blend(_ fill: NSColor, opacity: Double, over base: NSColor) -> NSColor {
+        guard opacity < 1,
+              let top = fill.usingColorSpace(.sRGB),
+              let bottom = base.usingColorSpace(.sRGB) else { return fill }
+        let a = CGFloat(opacity)
+        return NSColor(
+            srgbRed: top.redComponent * a + bottom.redComponent * (1 - a),
+            green: top.greenComponent * a + bottom.greenComponent * (1 - a),
+            blue: top.blueComponent * a + bottom.blueComponent * (1 - a),
+            alpha: 1
+        )
+    }
+
     /// True when white text reads better than black on `fill` (WCAG
     /// relative luminance below the midpoint where the two contrasts cross).
     static func prefersLightInk(on fill: NSColor) -> Bool {
@@ -1475,10 +1489,19 @@ struct TabItemView: View {
     }
 
     /// Text and glyph color at full emphasis: black or white for contrast
-    /// on a host-colored tab, else the theme's active text.
+    /// on a host-colored tab (as drawn over the bar), else the theme's
+    /// active text.
     private var activeInk: Color {
         guard let fill = customAccentNSColor() else { return TabBarColors.activeText(for: appearance) }
-        return TabItemStyling.ink(on: fill)
+        let opacity = TabItemStyling.customFillOpacity(
+            isSelected: isSelected,
+            isHovered: isHovered || isLinkedHover
+        )
+        return TabItemStyling.ink(on: TabItemStyling.blend(
+            fill,
+            opacity: opacity,
+            over: TabBarColors.nsColorBarBackground(for: appearance)
+        ))
     }
 
     private var inactiveInk: Color {

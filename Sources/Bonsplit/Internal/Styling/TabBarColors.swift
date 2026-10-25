@@ -70,7 +70,11 @@ enum TabBarColors {
     }
 
     static func barBackground(for appearance: BonsplitConfiguration.Appearance) -> Color {
-        Color(nsColor: effectiveBackgroundColor(for: appearance, fallback: .windowBackgroundColor))
+        Color(nsColor: nsColorBarBackground(for: appearance))
+    }
+
+    static func nsColorBarBackground(for appearance: BonsplitConfiguration.Appearance) -> NSColor {
+        effectiveBackgroundColor(for: appearance, fallback: .windowBackgroundColor)
     }
 
     static var barMaterial: Material {
