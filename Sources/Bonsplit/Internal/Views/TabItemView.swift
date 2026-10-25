@@ -89,6 +89,16 @@ enum TabItemStyling {
         return isHovered ? 0.7 : 0.55
     }
 
+    /// The host color a tab is filled with, nil when unset or unparseable.
+    static func customFill(_ hex: String?) -> NSColor? {
+        hex.flatMap { NSColor(bonsplitHex: $0) }
+    }
+
+    /// Full-emphasis ink on a custom fill: white or black, whichever reads.
+    static func ink(on fill: NSColor) -> Color {
+        prefersLightInk(on: fill) ? .white : .black
+    }
+
     /// True when white text reads better than black on `fill` (WCAG
     /// relative luminance below the midpoint where the two contrasts cross).
     static func prefersLightInk(on fill: NSColor) -> Bool {
@@ -639,7 +649,7 @@ struct TabItemView: View {
                 maxHeight: appearance.tabItemHeight
             )
             .padding(.bottom, isSelected ? 1 : 0)
-            .background(tabBackground.saturation(saturation))
+            .background(tabBackground.saturation(customAccentNSColor() == nil ? saturation : 1))
             .overlay {
                 Rectangle()
                     .fill(TabBarColors.activeIndicator(for: appearance).opacity(flashOpacity))
@@ -1414,7 +1424,7 @@ struct TabItemView: View {
         ZStack(alignment: .top) {
             // Background fill: the host color when set, else selected / hover.
             // The color is the tab's identity, so like an emoji badge it keeps
-            // full saturation in unfocused areas.
+            // full saturation in unfocused areas (see the caller).
             if let fill = customAccentNSColor() {
                 Rectangle()
                     .fill(Color(nsColor: fill))
@@ -1461,15 +1471,14 @@ struct TabItemView: View {
     }
 
     private func customAccentNSColor() -> NSColor? {
-        guard let hex = tab.customColorHex else { return nil }
-        return NSColor(bonsplitHex: hex)
+        TabItemStyling.customFill(tab.customColorHex)
     }
 
     /// Text and glyph color at full emphasis: black or white for contrast
     /// on a host-colored tab, else the theme's active text.
     private var activeInk: Color {
         guard let fill = customAccentNSColor() else { return TabBarColors.activeText(for: appearance) }
-        return TabItemStyling.prefersLightInk(on: fill) ? .white : .black
+        return TabItemStyling.ink(on: fill)
     }
 
     private var inactiveInk: Color {

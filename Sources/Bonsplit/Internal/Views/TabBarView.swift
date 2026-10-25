@@ -267,6 +267,8 @@ struct CollapsedTabCloseButton: View {
     let controller: BonsplitController
     let appearance: BonsplitConfiguration.Appearance
     var hitSize: CGSize = SimplifiedTabGeometry.closeHitSize
+    /// Glyph ink when the button sits on a tab's custom color fill.
+    var ink: Color? = nil
 
     /// Local hover state: same highlight as the regular tab's close button
     /// (`TabItemView` simplified close): brighter glyph on a rounded
@@ -302,8 +304,8 @@ struct CollapsedTabCloseButton: View {
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(
                     isHovered
-                        ? TabBarColors.activeText(for: appearance)
-                        : TabBarColors.inactiveText(for: appearance).opacity(0.7)
+                        ? (ink ?? TabBarColors.activeText(for: appearance))
+                        : (ink ?? TabBarColors.inactiveText(for: appearance)).opacity(0.7)
                 )
                 .frame(
                     width: SimplifiedTabGeometry.closeHitSize.width,
@@ -690,6 +692,10 @@ struct TabBarView<TrailingAccessory: View>: View {
         let tab = activeTab
         let number = tab?.displayOrdinal.map { TabSheetFormat.tabLabel($0) }
         let title = tab?.detail?.title.flatMap { $0.isEmpty ? nil : $0 } ?? tab?.title ?? ""
+        // A colored tab fills its title and close like the tab it stands for.
+        let fill = TabItemStyling.customFill(tab?.customColorHex)
+        let ink = fill.map(TabItemStyling.ink(on:))
+        let blockFill = fill.map { Color(nsColor: $0) } ?? palette.block
         return HStack(spacing: 0) {
             HStack(spacing: 8) {
                 if let tab, let state = tab.activityState {
@@ -701,14 +707,14 @@ struct TabBarView<TrailingAccessory: View>: View {
                     .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .foregroundStyle(palette.text)
+                    .foregroundStyle(ink ?? palette.text)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: blockHeight)
-            .background(palette.block)
-            .saturation(tabBarSaturation)
+            .background(blockFill)
+            .saturation(fill == nil ? tabBarSaturation : 1)
 
             // The visible tab's close, at every width (as on the folded block),
             // in a fixed slot so the title never shifts.
@@ -719,14 +725,15 @@ struct TabBarView<TrailingAccessory: View>: View {
                         pane: pane,
                         controller: controller,
                         appearance: appearance,
-                        hitSize: CGSize(width: Self.railBarCloseWidth, height: blockHeight)
+                        hitSize: CGSize(width: Self.railBarCloseWidth, height: blockHeight),
+                        ink: ink
                     )
                 } else {
                     Color.clear
                 }
             }
             .frame(width: Self.railBarCloseWidth, height: blockHeight)
-            .background(palette.block)
+            .background(blockFill)
             .overlay(alignment: .trailing) {
                 Rectangle()
                     .fill(TabBarColors.separator(for: appearance))
@@ -1308,6 +1315,9 @@ struct TabBarView<TrailingAccessory: View>: View {
         let blockHeight = max(0, appearance.tabBarHeight - ruleHeight)
         let gold = TabBarColors.activeIndicator(for: appearance)
         let isDropHot = splitViewController.draggingTab != nil && dropTargetIndex == pane.tabs.count
+        // A colored tab fills its title and close like the tab it stands for.
+        let fill = TabItemStyling.customFill(activeTab?.customColorHex)
+        let ink = fill.map(TabItemStyling.ink(on:))
         return HStack(spacing: 0) {
             HStack(spacing: 7) {
                 if let tab = activeTab, let state = tab.activityState {
@@ -1319,19 +1329,21 @@ struct TabBarView<TrailingAccessory: View>: View {
                 if let number = activeTab?.numberLabel(showOrdinals: appearance.showTabOrdinals) {
                     Text(number)
                         .font(.system(size: appearance.tabTitleFontSize - 2, weight: .bold, design: .monospaced))
-                        .foregroundStyle(gold)
+                        .foregroundStyle(ink ?? gold)
                 }
 
                 Text(activeTab?.title ?? "")
                     .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .foregroundStyle(palette.text)
+                    .foregroundStyle(ink ?? palette.text)
 
                 Spacer(minLength: 0)
             }
             .padding(.leading, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: blockHeight)
+            .background { if let fill { Color(nsColor: fill) } }
 
             // The active tab's close stays on the block at every width, so a
             // folded area can always close its tab without opening the sheet.
@@ -1345,13 +1357,15 @@ struct TabBarView<TrailingAccessory: View>: View {
                         pane: pane,
                         controller: controller,
                         appearance: appearance,
-                        hitSize: CGSize(width: SimplifiedTabGeometry.closeHitSize.width, height: blockHeight)
+                        hitSize: CGSize(width: SimplifiedTabGeometry.closeHitSize.width, height: blockHeight),
+                        ink: ink
                     )
                 } else {
                     Color.clear
                 }
             }
             .frame(width: SimplifiedTabGeometry.closeHitSize.width, height: blockHeight)
+            .background { if let fill { Color(nsColor: fill) } }
             Rectangle()
                 .fill(TabBarColors.separator(for: appearance))
                 .frame(width: 1, height: max(0, blockHeight - 12))
@@ -1387,7 +1401,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                 .frame(width: 1)
         }
         .frame(height: appearance.tabBarHeight, alignment: .top)
-        .saturation(tabBarSaturation)
+        .saturation(fill == nil ? tabBarSaturation : 1)
         .overlay(alignment: .top) {
             // Drop target: a tab dragged over the block lands at the end. Drawn
             // after the desaturation so it stays gold on an unfocused pane.
