@@ -101,10 +101,11 @@ enum TabItemStyling {
 
     /// `fill` drawn at `opacity` over `base`: the color the ink must read on.
     static func blend(_ fill: NSColor, opacity: Double, over base: NSColor) -> NSColor {
-        guard opacity < 1,
-              let top = fill.usingColorSpace(.sRGB),
+        guard let top = fill.usingColorSpace(.sRGB),
               let bottom = base.usingColorSpace(.sRGB) else { return fill }
-        let a = CGFloat(opacity)
+        // An 8-digit hex color carries its own alpha on top of the opacity.
+        let a = CGFloat(opacity) * top.alphaComponent
+        guard a < 1 else { return fill }
         return NSColor(
             srgbRed: top.redComponent * a + bottom.redComponent * (1 - a),
             green: top.greenComponent * a + bottom.greenComponent * (1 - a),
@@ -316,12 +317,14 @@ struct TabKindGlyph: View {
 
     let kind: Kind
     let appearance: BonsplitConfiguration.Appearance
+    /// Ink on a tab's custom color fill; nil keeps the muted theme ink.
+    var ink: Color? = nil
 
     var body: some View {
         let size = TabActivityMarkMetrics.visibleSize(for: .idle)
         Image(systemName: kind.symbolName)
             .font(.system(size: size, weight: .regular))
-            .foregroundStyle(TabBarColors.inactiveText(for: appearance).opacity(0.8))
+            .foregroundStyle((ink ?? TabBarColors.inactiveText(for: appearance)).opacity(0.8))
             .frame(width: size, height: size)
             .help(kind.help)
             .accessibilityHidden(true)
@@ -966,7 +969,7 @@ struct TabItemView: View {
             HStack(spacing: 0) {
                 Color.clear
                     .frame(width: TabActivityMarkMetrics.leadingEdgeInset(for: .idle))
-                TabKindGlyph(kind: glyph, appearance: appearance)
+                TabKindGlyph(kind: glyph, appearance: appearance, ink: customAccentNSColor() == nil ? nil : activeInk)
                 Color.clear
                     .frame(width: TabActivityMarkMetrics.titleSpacing(for: .idle))
             }

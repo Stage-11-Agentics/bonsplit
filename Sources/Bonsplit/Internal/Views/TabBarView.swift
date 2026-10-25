@@ -1496,7 +1496,11 @@ struct TabBarView<TrailingAccessory: View>: View {
     }
 
     private func collapsedKindGlyph(_ kind: TabKindGlyph.Kind) -> some View {
-        TabKindGlyph(kind: kind, appearance: appearance)
+        TabKindGlyph(
+            kind: kind,
+            appearance: appearance,
+            ink: TabItemStyling.customFill(activeTab?.customColorHex).map(TabItemStyling.ink(on:))
+        )
     }
 
     private func collapsedActivityMark(

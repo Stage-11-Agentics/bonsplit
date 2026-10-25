@@ -252,6 +252,9 @@ final class BonsplitTests: XCTestCase {
         XCTAssertFalse(TabItemStyling.prefersLightInk(on: dimmedOnLight))
         XCTAssertTrue(TabItemStyling.prefersLightInk(on: TabItemStyling.blend(teal, opacity: 0.55, over: .black)))
         XCTAssertEqual(TabItemStyling.blend(teal, opacity: 1, over: .white), teal)
+        // A translucent 8-digit color blends by its own alpha too.
+        let faintTeal = NSColor(bonsplitHex: "#006B6B33")!
+        XCTAssertFalse(TabItemStyling.prefersLightInk(on: TabItemStyling.blend(faintTeal, opacity: 1, over: .white)))
     }
 
     func testBadgeRenderedGlyphTrimsCapsAndHidesBlank() {
