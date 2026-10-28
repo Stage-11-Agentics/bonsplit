@@ -436,15 +436,8 @@ private struct TabActivityMarkLeaf: View {
 
     var body: some View {
         let size = TabActivityMarkMetrics.visibleSize(for: state)
-        // A lineage mark pins its 9pt cell to the slot's top-left so its 1pt
-        // rules land on whole points; centring 9pt in the 10pt slot would put
-        // them on half points.
         markShape
-            .frame(
-                width: size,
-                height: size,
-                alignment: lineageDepth > 0 ? .topLeading : .center
-            )
+            .frame(width: size, height: size)
             .opacity(markOpacity)
             .accessibilityHidden(true)
             .onAppear { refreshClockSubscription() }
