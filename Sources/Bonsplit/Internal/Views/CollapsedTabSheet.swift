@@ -648,7 +648,8 @@ struct CollapsedActivityMarkView: View {
                 .map(Color.init(nsColor:))
                 ?? (presentation?.alternatesWithBaseColor == true
                     ? TabBarColors.activity(state, for: appearance)
-                    : nil)
+                    : nil),
+            lineageDepth: presentation?.lineageDepth ?? 0
         )
     }
 }

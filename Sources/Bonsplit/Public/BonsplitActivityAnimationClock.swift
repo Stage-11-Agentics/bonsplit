@@ -104,6 +104,9 @@ public struct BonsplitTabActivityPresentation: Codable, Equatable, Hashable, Sen
     public let suppressesDefaultMotion: Bool
     public let accessibilityValue: String?
     public let help: BonsplitTabActivityHelp?
+    /// Delegate hops above this mark's agent; nil or zero draws no baseline.
+    /// Optional so presentations persisted before it existed still decode.
+    public let lineageDepth: Int?
 
     public init(
         colorOverrideHex: String? = nil,
@@ -112,7 +115,8 @@ public struct BonsplitTabActivityPresentation: Codable, Equatable, Hashable, Sen
         alternatesWithBaseColor: Bool = false,
         suppressesDefaultMotion: Bool = false,
         accessibilityValue: String? = nil,
-        help: BonsplitTabActivityHelp? = nil
+        help: BonsplitTabActivityHelp? = nil,
+        lineageDepth: Int? = nil
     ) {
         self.colorOverrideHex = colorOverrideHex
         self.motion = motion
@@ -121,6 +125,57 @@ public struct BonsplitTabActivityPresentation: Codable, Equatable, Hashable, Sen
         self.suppressesDefaultMotion = suppressesDefaultMotion
         self.accessibilityValue = accessibilityValue
         self.help = help
+        self.lineageDepth = lineageDepth
+    }
+}
+
+/// Whole-point geometry of the 9pt mark when it carries a lineage baseline:
+/// one 1pt rule per delegate hop under a shortened mark, display capped at two
+/// rules. Shared by Bonsplit's tab mark and host-owned renderers so both draw
+/// the same pixels.
+public enum BonsplitActivityMarkLineage {
+    public static let cellSide: CGFloat = 9
+    public static let ruleThickness: CGFloat = 1
+    public static let maximumDisplayedDepth = 2
+
+    /// Number of rules drawn for a true hop count.
+    public static func displayedDepth(_ depth: Int) -> Int {
+        min(max(depth, 0), maximumDisplayedDepth)
+    }
+
+    /// Height of the lifecycle shape above the rules: the full cell, rows 0-6
+    /// over one rule, or rows 0-4 over two.
+    public static func markHeight(depth: Int) -> CGFloat {
+        switch displayedDepth(depth) {
+        case 0: return cellSide
+        case 1: return 6
+        default: return 4
+        }
+    }
+
+    /// Top edge of each rule, in points from the top of the cell. Two rules
+    /// keep 2pt of air between them.
+    public static func ruleOffsets(depth: Int) -> [CGFloat] {
+        switch displayedDepth(depth) {
+        case 0: return []
+        case 1: return [8]
+        default: return [5, 8]
+        }
+    }
+
+    /// Rows of the working dot grid that fit the shortened mark: three for a
+    /// full cell, two over one rule, one over two.
+    public static func workingDotRows(depth: Int) -> Int {
+        switch displayedDepth(depth) {
+        case 0: return 3
+        case 1: return 2
+        default: return 1
+        }
+    }
+
+    /// Height of the waiting payload; the full cell keeps its 4pt square.
+    public static func waitingCoreHeight(depth: Int) -> CGFloat {
+        displayedDepth(depth) == 0 ? 4 : 2
     }
 }
 

@@ -348,6 +348,7 @@ struct TabActivityMark: View {
     let colorOverride: Color?
     let motion: BonsplitActivityMarkMotion?
     let alternateCoreColor: Color?
+    let lineageDepth: Int
 
     init(
         state: BonsplitTabActivityState,
@@ -355,7 +356,8 @@ struct TabActivityMark: View {
         phaseId: UUID = Self.defaultPhaseId,
         colorOverride: Color? = nil,
         motion: BonsplitActivityMarkMotion? = nil,
-        alternateCoreColor: Color? = nil
+        alternateCoreColor: Color? = nil,
+        lineageDepth: Int = 0
     ) {
         self.state = state
         self.appearance = appearance
@@ -363,6 +365,7 @@ struct TabActivityMark: View {
         self.colorOverride = colorOverride
         self.motion = motion
         self.alternateCoreColor = alternateCoreColor
+        self.lineageDepth = lineageDepth
     }
 
     var body: some View {
@@ -371,7 +374,8 @@ struct TabActivityMark: View {
             color: colorOverride ?? TabBarColors.activity(state, for: appearance),
             phaseId: phaseId,
             motion: motion,
-            alternateCoreColor: alternateCoreColor
+            alternateCoreColor: alternateCoreColor,
+            lineageDepth: BonsplitActivityMarkLineage.displayedDepth(lineageDepth)
         )
     }
 }
@@ -411,6 +415,8 @@ private struct TabActivityMarkLeaf: View {
     let phaseId: UUID
     let motion: BonsplitActivityMarkMotion?
     let alternateCoreColor: Color?
+    /// Displayed delegate depth (0, 1 or 2).
+    let lineageDepth: Int
 
     @State private var clockToken: UUID?
     @State private var visibleWorkingDots = 9
@@ -442,6 +448,92 @@ private struct TabActivityMarkLeaf: View {
 
     @ViewBuilder
     private var markShape: some View {
+        if lineageDepth > 0 {
+            lineageMarkShape
+        } else {
+            fullCellMarkShape
+        }
+    }
+
+    /// A delegate's mark: the lifecycle shape shortened above one 1pt rule per
+    /// delegate hop. Whole-point offsets from the cell's top edge.
+    private var lineageMarkShape: some View {
+        let height = BonsplitActivityMarkLineage.markHeight(depth: lineageDepth)
+        let side = TabActivityMarkMetrics.cellSide
+        return ZStack(alignment: .topLeading) {
+            lineageLifecycleShape(height: height)
+                .frame(width: side, height: height)
+            ForEach(BonsplitActivityMarkLineage.ruleOffsets(depth: lineageDepth), id: \.self) { y in
+                Rectangle()
+                    .fill(color)
+                    .frame(width: side, height: BonsplitActivityMarkLineage.ruleThickness)
+                    .offset(y: y)
+            }
+        }
+        .frame(width: side, height: side, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func lineageLifecycleShape(height: CGFloat) -> some View {
+        let side = TabActivityMarkMetrics.cellSide
+        switch state {
+        case .running:
+            let rows = BonsplitActivityMarkLineage.workingDotRows(depth: lineageDepth)
+            ZStack {
+                Rectangle()
+                    .fill(color.opacity(0.25))
+                VStack(spacing: TabActivityMarkMetrics.workingDotSpacing) {
+                    ForEach(0..<rows, id: \.self) { row in
+                        HStack(spacing: TabActivityMarkMetrics.workingDotSpacing) {
+                            ForEach(0..<3, id: \.self) { column in
+                                let rank = (rows - 1 - row) * 3 + column
+                                Rectangle()
+                                    .fill(color)
+                                    .frame(
+                                        width: TabActivityMarkMetrics.workingDotSide,
+                                        height: TabActivityMarkMetrics.workingDotSide
+                                    )
+                                    .opacity(rank < visibleWorkingDots ? 1 : 0)
+                            }
+                        }
+                    }
+                }
+            }
+
+        case .waiting:
+            let coreHeight = BonsplitActivityMarkLineage.waitingCoreHeight(depth: lineageDepth)
+            ZStack {
+                Rectangle()
+                    .strokeBorder(
+                        color,
+                        lineWidth: TabActivityMarkMetrics.waitingFrameThickness
+                    )
+                Rectangle()
+                    .fill(color)
+                    .frame(width: TabActivityMarkMetrics.waitingCoreSide, height: coreHeight)
+                    .opacity(motion == .binaryFlash ? 1 : waitingCoreOpacity)
+                if let alternateCoreColor {
+                    Rectangle()
+                        .fill(alternateCoreColor)
+                        .frame(width: TabActivityMarkMetrics.waitingCoreSide, height: coreHeight)
+                        .opacity(showsAlternateCore ? 1 : 0)
+                }
+            }
+
+        case .idle:
+            Rectangle()
+                .strokeBorder(color, lineWidth: 1)
+
+        case .cold:
+            Rectangle()
+                .fill(color)
+                .frame(width: side, height: TabActivityMarkMetrics.coldLineThickness)
+                .frame(width: side, height: height)
+        }
+    }
+
+    @ViewBuilder
+    private var fullCellMarkShape: some View {
         switch state {
         case .running:
             ZStack {
@@ -936,7 +1028,8 @@ struct TabItemView: View {
                             .map(Color.init(nsColor:))
                             ?? (tab.activityPresentation?.alternatesWithBaseColor == true
                                 ? TabBarColors.activity(state, for: appearance)
-                                : nil)
+                                : nil),
+                        lineageDepth: tab.activityPresentation?.lineageDepth ?? 0
                     )
                     .background {
                         GeometryReader { proxy in
