@@ -143,8 +143,8 @@ public enum BonsplitActivityMarkLineage {
         min(max(depth, 0), maximumDisplayedDepth)
     }
 
-    /// Height of the lifecycle shape above the rules: the full cell, rows 0-6
-    /// over one rule, or rows 0-4 over two.
+    /// Height of the lifecycle shape above the rules: the full cell, 6pt over
+    /// one rule, or 4pt over two (card E+ of the C11-486 mock).
     public static func markHeight(depth: Int) -> CGFloat {
         switch displayedDepth(depth) {
         case 0: return cellSide
