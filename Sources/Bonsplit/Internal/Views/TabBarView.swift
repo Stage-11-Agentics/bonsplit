@@ -210,6 +210,8 @@ struct TabContextMenuState {
     /// Host-supplied stable handle for the tab's surface (e.g. `surface:75`).
     /// nil when the host has no handle; the copy-handle menu item is hidden.
     let surfaceRef: String?
+    /// Host can copy a navigation link independently of the surface handle.
+    let canCopyLink: Bool
 
     var canMarkAsUnread: Bool {
         !isUnread
@@ -1636,7 +1638,8 @@ struct TabBarView<TrailingAccessory: View>: View {
             hasSplits: splitViewController.rootNode.allPaneIds.count > 1,
             shortcuts: controller.contextMenuShortcuts,
             tabColorPalette: controller.tabColorPalette,
-            surfaceRef: controller.surfaceRefProvider.flatMap { $0(TabID(id: tab.id)) }
+            surfaceRef: controller.surfaceRefProvider.flatMap { $0(TabID(id: tab.id)) },
+            canCopyLink: controller.copyLinkAvailabilityProvider?(TabID(id: tab.id)) ?? false
         )
     }
 

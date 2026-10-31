@@ -1328,7 +1328,7 @@ struct TabItemView: View {
         }
     }
 
-    /// C11-26: minimal right-click menu — details, ref, color, close. The
+    /// C11-26: minimal right-click menu — details, ref, link, color, close. The
     /// reduced surface trades feature breadth for clarity; rename, pin,
     /// reorder, etc. are still reachable through the command palette,
     /// keyboard, or direct gestures. Panel Color stays here because it has
@@ -1345,6 +1345,7 @@ struct TabItemView: View {
                 action: .copySurfaceRef
             )
         }
+        copyLinkMenuItem
         Divider()
         panelColorMenu
         Divider()
@@ -1364,6 +1365,7 @@ struct TabItemView: View {
         if let surfaceRef = contextMenuState.surfaceRef {
             contextButton("Copy \(surfaceRef)", action: .copySurfaceRef)
         }
+        copyLinkMenuItem
         Divider()
         contextButton("Rename Tab…", action: .rename)
 
@@ -1499,6 +1501,16 @@ struct TabItemView: View {
         image.isTemplate = false
         tabColorSwatchCache.setObject(image, forKey: key)
         return image
+    }
+
+    @ViewBuilder
+    private var copyLinkMenuItem: some View {
+        if contextMenuState.canCopyLink {
+            contextButton(
+                localizedString("command.copyLink.title", default: "Copy Link"),
+                action: .copyLink
+            )
+        }
     }
 
     @ViewBuilder

@@ -62,6 +62,11 @@ public final class BonsplitController {
     /// since it is called while building each tab's context-menu state.
     @ObservationIgnored public var surfaceRefProvider: ((_ tabId: TabID) -> String?)?
 
+    /// Whether the host can copy a navigation link for this tab. Nil or false
+    /// hides Copy Link without affecting Copy ref. Keep this query cheap:
+    /// it runs while building each tab's context-menu state.
+    @ObservationIgnored public var copyLinkAvailabilityProvider: ((_ tabId: TabID) -> Bool)?
+
     /// Host-supplied builder for a tab's sheet detail (agent, subtitle, status,
     /// clocks). Called for every tab in a pane when its sheet opens, so values
     /// that change without a metadata event (the activity clock) are fresh.

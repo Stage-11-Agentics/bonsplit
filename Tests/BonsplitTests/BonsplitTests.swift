@@ -1117,6 +1117,26 @@ final class BonsplitTests: XCTestCase {
     }
 
     @MainActor
+    func testCopyLinkAndCopyRefTargetUnselectedTabWithoutChangingSelection() throws {
+        let controller = BonsplitController()
+        let pane = try XCTUnwrap(controller.focusedPaneId)
+        let selectedTabId = try XCTUnwrap(controller.createTab(title: "Selected", kind: "terminal"))
+        let targetTabId = try XCTUnwrap(controller.createTab(title: "Copy target", kind: "browser"))
+        controller.selectTab(selectedTabId)
+        let spy = TabContextActionDelegateSpy()
+        controller.delegate = spy
+
+        for action in [TabContextAction.copyLink, .copySurfaceRef] {
+            controller.requestTabContextAction(action, for: targetTabId, inPane: pane)
+
+            XCTAssertEqual(spy.action, action)
+            XCTAssertEqual(spy.tabId, targetTabId)
+            XCTAssertEqual(spy.paneId, pane)
+            XCTAssertEqual(controller.selectedTab(inPane: pane)?.id, selectedTabId)
+        }
+    }
+
+    @MainActor
     func testRequestTabContextActionForwardsMarkAsReadToDelegate() {
         let controller = BonsplitController()
         let pane = controller.focusedPaneId!
@@ -2015,7 +2035,8 @@ final class BonsplitTests: XCTestCase {
             hasSplits: false,
             shortcuts: [:],
             tabColorPalette: [],
-            surfaceRef: nil
+            surfaceRef: nil,
+            canCopyLink: false
         )
         let hostingView = NSHostingView(rootView: TabItemView(
             tab: tab,

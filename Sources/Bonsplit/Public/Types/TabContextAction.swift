@@ -42,4 +42,7 @@ public enum TabContextAction: String, CaseIterable, Sendable {
     /// clipboard. The host performs the copy and any confirmation feedback.
     /// c11-specific.
     case copySurfaceRef
+    /// Copy a host-supplied navigation link for this tab. This is independent
+    /// of its process-local surface ref; the host owns formatting and feedback.
+    case copyLink
 }

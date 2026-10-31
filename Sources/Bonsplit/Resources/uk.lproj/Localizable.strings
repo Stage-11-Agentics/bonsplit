@@ -7,6 +7,7 @@
 "command.tabColor.clearColor" = "Очистити колір";
 "command.tabColor.chooseCustom" = "Вибрати власний колір…";
 "command.copySurfaceRef.prefix" = "Копіювати";
+"command.copyLink.title" = "Копіювати посилання";
 "tab.activity.running" = "Працює";
 "tab.activity.idle" = "Простій";
 "tab.activity.cold" = "Холодна";

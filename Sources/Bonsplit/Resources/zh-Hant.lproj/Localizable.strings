@@ -7,6 +7,7 @@
 "command.tabColor.clearColor" = "清除顏色";
 "command.tabColor.chooseCustom" = "選擇自訂顏色…";
 "command.copySurfaceRef.prefix" = "拷貝";
+"command.copyLink.title" = "複製連結";
 "tab.activity.running" = "執行中";
 "tab.activity.idle" = "閒置";
 "tab.activity.cold" = "冷態";
