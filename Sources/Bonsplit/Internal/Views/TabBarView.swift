@@ -655,6 +655,11 @@ struct TabBarView<TrailingAccessory: View>: View {
             }
         }
         .frame(height: appearance.tabBarHeight)
+        .overlay {
+            if let opacity = appearance.chromeScanlinesOpacity, opacity > 0 {
+                BonsplitScanlines(opacity: opacity)
+            }
+        }
     }
 
     private func handleDraggingTabChange(_ newValue: TabItem?) {
@@ -705,8 +710,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                 } else if let tab, let glyph = tab.kindGlyph {
                     collapsedKindGlyph(glyph)
                 }
-                Text([number, title].compactMap { $0 }.joined(separator: " · "))
-                    .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
+                TabTitleFont.text([number, title].compactMap { $0 }.joined(separator: " · "), for: appearance, defaultWeight: .semibold)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .foregroundStyle(ink ?? palette.text)
@@ -1109,9 +1113,7 @@ struct TabBarView<TrailingAccessory: View>: View {
     }
 
     private func measuredTitleWidth(_ title: String, bold: Bool) -> CGFloat {
-        let weight: NSFont.Weight = bold ? .semibold : .regular
-        let font = NSFont.systemFont(ofSize: appearance.tabTitleFontSize, weight: weight)
-        return ceil((title as NSString).size(withAttributes: [.font: font]).width)
+        TabTitleFont.measuredWidth(title, for: appearance, selected: bold)
     }
 
     private func perTabFixedCost(for tab: TabItem) -> CGFloat {
@@ -1334,8 +1336,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                         .foregroundStyle(ink ?? gold)
                 }
 
-                Text(activeTab?.title ?? "")
-                    .font(.system(size: appearance.tabTitleFontSize, weight: .semibold))
+                TabTitleFont.text(activeTab?.title ?? "", for: appearance, defaultWeight: .semibold)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .foregroundStyle(ink ?? palette.text)

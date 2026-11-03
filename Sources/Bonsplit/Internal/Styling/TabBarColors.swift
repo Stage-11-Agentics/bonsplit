@@ -42,6 +42,10 @@ enum TabBarColors {
         for appearance: BonsplitConfiguration.Appearance,
         secondary: Bool
     ) -> NSColor {
+        let themed = secondary ? appearance.tabTextColors.textSecondaryHex : appearance.tabTextColors.textHex
+        if let themed = themed.flatMap({ NSColor(bonsplitHex: $0) }) {
+            return themed
+        }
         guard let custom = chromeBackgroundColor(for: appearance) else {
             return secondary ? .secondaryLabelColor : .labelColor
         }
@@ -88,6 +92,9 @@ enum TabBarColors {
     }
 
     static func activeTabBackground(for appearance: BonsplitConfiguration.Appearance) -> Color {
+        if let fill = appearance.chromeColors.activeFillHex.flatMap({ NSColor(bonsplitHex: $0) }) {
+            return Color(nsColor: fill)
+        }
         guard let custom = chromeBackgroundColor(for: appearance) else {
             return activeTabBackground
         }
@@ -151,6 +158,38 @@ enum TabBarColors {
 
     static func nsColorInactiveText(for appearance: BonsplitConfiguration.Appearance) -> NSColor {
         effectiveTextColor(for: appearance, secondary: true)
+    }
+
+    /// The selected tab's title: the theme's active text, else the strip's text.
+    static func nsColorSelectedText(for appearance: BonsplitConfiguration.Appearance) -> NSColor {
+        appearance.tabTextColors.activeTextHex.flatMap { NSColor(bonsplitHex: $0) }
+            ?? nsColorActiveText(for: appearance)
+    }
+
+    static func selectedText(for appearance: BonsplitConfiguration.Appearance) -> Color {
+        Color(nsColor: nsColorSelectedText(for: appearance))
+    }
+
+    /// The selected tab's number when it is not inverted: the theme's number
+    /// color, else the active indicator (today's look).
+    static func selectedNumber(for appearance: BonsplitConfiguration.Appearance) -> Color {
+        if let number = appearance.tabTextColors.numberHex.flatMap({ NSColor(bonsplitHex: $0) }) {
+            return Color(nsColor: number)
+        }
+        return activeIndicator(for: appearance)
+    }
+
+    /// The fill behind an inverted selected tab: the active fill, else the
+    /// active indicator color.
+    static func nsColorInvertedFill(for appearance: BonsplitConfiguration.Appearance) -> NSColor {
+        appearance.chromeColors.activeFillHex.flatMap { NSColor(bonsplitHex: $0) }
+            ?? nsColorActiveIndicator(for: appearance)
+    }
+
+    /// Text on the count cell: the theme's strip text, else the sheet palette's.
+    static func countCellText(for appearance: BonsplitConfiguration.Appearance, palette: SheetPalette) -> Color {
+        appearance.tabTextColors.textHex.flatMap { NSColor(bonsplitHex: $0) }.map { Color(nsColor: $0) }
+            ?? palette.text
     }
 
     static func splitActionIcon(for appearance: BonsplitConfiguration.Appearance, isPressed: Bool) -> Color {
@@ -224,14 +263,23 @@ enum TabBarColors {
     }
 
     static func notificationBadge(for appearance: BonsplitConfiguration.Appearance) -> Color {
-        _ = appearance
-        return notificationBadge
+        guard let themed = appearance.chromeColors.notificationHex.flatMap({ NSColor(bonsplitHex: $0) }) else {
+            return notificationBadge
+        }
+        return Color(nsColor: themed)
     }
 
     static func activity(
         _ state: BonsplitTabActivityState,
         for appearance: BonsplitConfiguration.Appearance
     ) -> Color {
+        Color(nsColor: nsColorActivity(state, for: appearance))
+    }
+
+    static func nsColorActivity(
+        _ state: BonsplitTabActivityState,
+        for appearance: BonsplitConfiguration.Appearance
+    ) -> NSColor {
         let colors = appearance.tabActivityColors
         let override: String?
         let fallback: NSColor
@@ -249,7 +297,7 @@ enum TabBarColors {
             override = colors.waitingHex
             fallback = .systemYellow
         }
-        return Color(nsColor: override.flatMap { NSColor(bonsplitHex: $0) } ?? fallback)
+        return override.flatMap { NSColor(bonsplitHex: $0) } ?? fallback
     }
 
     static func waitingInk(for appearance: BonsplitConfiguration.Appearance) -> Color {

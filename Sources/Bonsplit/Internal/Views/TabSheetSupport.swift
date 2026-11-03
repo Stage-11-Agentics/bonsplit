@@ -306,7 +306,7 @@ struct TabCountCell: View {
                 .minimumScaleFactor(0.7)
                 .frame(minWidth: 14, alignment: .leading)
         }
-        .foregroundStyle(isOpen ? openInk : palette.text)
+        .foregroundStyle(isOpen ? openInk : TabBarColors.countCellText(for: appearance, palette: palette))
         .frame(width: TabCountCellMetrics.width, height: height)
         .background(
             isOpen

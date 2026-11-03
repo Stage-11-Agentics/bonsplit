@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -22,6 +23,48 @@ public enum NewTabPosition: Sendable {
 
     /// Insert the new tab at the end of the tab list.
     case end
+}
+
+/// How the selected tab is marked in the strip.
+public enum BonsplitTabSelectionStyle: String, Sendable, Equatable, CaseIterable {
+    /// The accent bar along the tab's top edge, at `tabActiveIndicatorHeight`.
+    case indicator
+    /// A 2pt rule along the top edge in the active indicator color.
+    case overline
+    /// A 2pt rule along the bottom edge in the active indicator color.
+    case underline
+    /// The selected tab fills with the active fill (else the indicator color)
+    /// and draws its title, number and marks in the active text color.
+    case invert
+}
+
+/// Font weights a host can ask for on tab titles.
+public enum BonsplitFontWeight: String, Sendable, Equatable, CaseIterable {
+    case regular
+    case medium
+    case semibold
+    case bold
+    case heavy
+
+    public var fontWeight: Font.Weight {
+        switch self {
+        case .regular: return .regular
+        case .medium: return .medium
+        case .semibold: return .semibold
+        case .bold: return .bold
+        case .heavy: return .heavy
+        }
+    }
+
+    public var nsFontWeight: NSFont.Weight {
+        switch self {
+        case .regular: return .regular
+        case .medium: return .medium
+        case .semibold: return .semibold
+        case .bold: return .bold
+        case .heavy: return .heavy
+        }
+    }
 }
 
 /// Configuration for the split tab bar appearance and behavior
@@ -176,14 +219,85 @@ extension BonsplitConfiguration {
             /// active indicator. When unset, Bonsplit uses the system accent color.
             public var activeIndicatorHex: String?
 
+            /// Optional hex color for the selected tab's fill. When unset, Bonsplit
+            /// derives it from the chrome background (or uses the system color).
+            public var activeFillHex: String?
+
+            /// Optional hex color for the notification badge dot (a tab's unread
+            /// dot and the count cell's attention dot). When unset, system blue.
+            public var notificationHex: String?
+
             public init(
                 backgroundHex: String? = nil,
                 borderHex: String? = nil,
-                activeIndicatorHex: String? = nil
+                activeIndicatorHex: String? = nil,
+                activeFillHex: String? = nil,
+                notificationHex: String? = nil
             ) {
                 self.backgroundHex = backgroundHex
                 self.borderHex = borderHex
                 self.activeIndicatorHex = activeIndicatorHex
+                self.activeFillHex = activeFillHex
+                self.notificationHex = notificationHex
+            }
+        }
+
+        /// Strip text colors. Every field is optional: unset keeps the color
+        /// Bonsplit derives today.
+        public struct TabTextColors: Sendable, Equatable {
+            /// Primary strip text: the count cell's number, hovered glyphs.
+            public var textHex: String?
+            /// Unselected tab titles and the strip's secondary glyphs.
+            public var textSecondaryHex: String?
+            /// The selected tab's title (and, with `invert`, its number and mark).
+            public var activeTextHex: String?
+            /// The selected tab's number.
+            public var numberHex: String?
+
+            public init(
+                textHex: String? = nil,
+                textSecondaryHex: String? = nil,
+                activeTextHex: String? = nil,
+                numberHex: String? = nil
+            ) {
+                self.textHex = textHex
+                self.textSecondaryHex = textSecondaryHex
+                self.activeTextHex = activeTextHex
+                self.numberHex = numberHex
+            }
+        }
+
+        /// A tab title's type. Every field is optional; `.unset` draws exactly
+        /// the system font Bonsplit uses today.
+        public struct TabTextStyle: Sendable, Equatable {
+            /// `nil` is the system font; `system-mono`, `system-rounded` and
+            /// `system-serif` are the system designs; anything else is an
+            /// installed family name (the host checks it is installed).
+            public var familyName: String?
+            /// Multiplies `tabTitleFontSize`.
+            public var scale: CGFloat?
+            /// Replaces both the selected (semibold) and unselected (regular) weights.
+            public var weight: BonsplitFontWeight?
+            public var uppercase: Bool
+            /// Letter spacing in em.
+            public var trackingEm: CGFloat?
+
+            public static let unset = TabTextStyle()
+
+            public var isUnset: Bool { self == .unset }
+
+            public init(
+                familyName: String? = nil,
+                scale: CGFloat? = nil,
+                weight: BonsplitFontWeight? = nil,
+                uppercase: Bool = false,
+                trackingEm: CGFloat? = nil
+            ) {
+                self.familyName = familyName
+                self.scale = scale
+                self.weight = weight
+                self.uppercase = uppercase
+                self.trackingEm = trackingEm
             }
         }
 
@@ -334,6 +448,21 @@ extension BonsplitConfiguration {
 
         /// Style knobs for pane dividers.
         public var dividerStyle: DividerStyle
+
+        /// Strip text colors; unset fields keep today's derived colors.
+        public var tabTextColors: TabTextColors = .init()
+
+        /// Tab title type; `.unset` keeps the system font.
+        public var tabTextStyle: TabTextStyle = .unset
+
+        /// How the selected tab is marked.
+        public var tabSelectionStyle: BonsplitTabSelectionStyle = .indicator
+
+        /// Corner brackets on the hovered tab (Datasheet Mono's hover mark).
+        public var tabHoverBrackets: Bool = false
+
+        /// Scanline overlay opacity over the tab bar; nil or 0 draws none.
+        public var chromeScanlinesOpacity: Double? = nil
 
         // MARK: - Presets
 

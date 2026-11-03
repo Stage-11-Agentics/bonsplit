@@ -127,6 +127,13 @@ enum TabItemStyling {
         return luminance < 0.179
     }
 
+    /// A mark on an inverted selected tab keeps its color while it still
+    /// reads on the fill (3:1, the non-text contrast floor), so attention
+    /// colors survive; otherwise it takes the tab's ink.
+    static func markColorOnInvertedFill(_ mark: NSColor, fill: NSColor, ink: NSColor) -> NSColor {
+        TabBarColors.contrastRatio(mark, fill) >= 3 ? mark : ink
+    }
+
     static func widthRange(for appearance: BonsplitConfiguration.Appearance) -> ClosedRange<CGFloat> {
         let minWidth = max(1, appearance.tabMinWidth)
         let maxWidth = max(minWidth, appearance.tabMaxWidth)
@@ -764,6 +771,14 @@ struct TabItemView: View {
                     .fill(TabBarColors.activeIndicator(for: appearance).opacity(flashOpacity))
                     .allowsHitTesting(false)
             }
+            .overlay {
+                if appearance.tabHoverBrackets && isHovered {
+                    TabHoverBrackets(
+                        ink: TabBarColors.activeText(for: appearance).opacity(0.78),
+                        halo: TabBarColors.barBackground(for: appearance)
+                    )
+                }
+            }
     }
 
     private var interactiveTabContent: some View {
@@ -873,15 +888,16 @@ struct TabItemView: View {
                         .font(.system(size: appearance.tabTitleFontSize - 2, weight: .bold, design: .monospaced))
                         .foregroundStyle(
                             isSelected
-                                ? (customAccentNSColor() == nil ? TabBarColors.activeIndicator(for: appearance) : activeInk)
+                                ? (customAccentNSColor() == nil && !isInverted
+                                    ? TabBarColors.selectedNumber(for: appearance)
+                                    : activeInk)
                                 : inactiveInk.opacity(0.75)
                         )
                         .lineLimit(1)
                         .saturation(saturation)
                 }
 
-                Text(tab.title)
-                    .font(.system(size: appearance.tabTitleFontSize, weight: isSelected ? .semibold : .regular))
+                TabTitleFont.text(tab.title, for: appearance, selected: isSelected)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .foregroundStyle(
@@ -1019,9 +1035,7 @@ struct TabItemView: View {
                         state: state,
                         appearance: appearance,
                         phaseId: tab.id,
-                        colorOverride: tab.activityPresentation?.colorOverrideHex
-                            .flatMap(NSColor.init(bonsplitHex:))
-                            .map(Color.init(nsColor:)),
+                        colorOverride: markColorOverride(for: state),
                         motion: resolvedActivityMotion(for: state),
                         alternateCoreColor: tab.activityPresentation?.alternateCoreColorHex
                             .flatMap(NSColor.init(bonsplitHex:))
@@ -1077,6 +1091,21 @@ struct TabItemView: View {
                     height: appearance.tabItemHeight
                 )
         }
+    }
+
+    /// The host's recolor (flag, cache, usage limit). On an inverted selected
+    /// tab every mark is checked against the fill and falls back to the ink.
+    private func markColorOverride(for state: BonsplitTabActivityState) -> Color? {
+        let override = tab.activityPresentation?.colorOverrideHex.flatMap(NSColor.init(bonsplitHex:))
+        guard isInverted, let ink = activeInkNSColor else {
+            return override.map(Color.init(nsColor:))
+        }
+        let mark = override ?? TabBarColors.nsColorActivity(state, for: appearance)
+        return Color(nsColor: TabItemStyling.markColorOnInvertedFill(
+            mark,
+            fill: TabBarColors.nsColorInvertedFill(for: appearance),
+            ink: ink
+        ))
     }
 
     private func updateActivityMarkVisibility(_ isVisible: Bool) {
@@ -1554,6 +1583,9 @@ struct TabItemView: View {
                         isSelected: isSelected,
                         isHovered: isHovered || isLinkedHover
                     ))
+            } else if isInverted {
+                Rectangle()
+                    .fill(Color(nsColor: TabBarColors.nsColorInvertedFill(for: appearance)))
             } else if isSelected {
                 Rectangle()
                     .fill(TabBarColors.activeTabBackground(for: appearance))
@@ -1567,11 +1599,26 @@ struct TabItemView: View {
                 Color.clear
             }
 
-            // Top accent indicator marks the selected tab, colored or not.
+            // The selection mark, colored tab or not: the top accent bar, a
+            // 2pt rule on top or bottom, or none (an inverted tab is its fill).
             if isSelected {
-                Rectangle()
-                    .fill(TabBarColors.activeIndicator(for: appearance))
-                    .frame(height: appearance.tabActiveIndicatorHeight)
+                switch appearance.tabSelectionStyle {
+                case .indicator:
+                    Rectangle()
+                        .fill(TabBarColors.activeIndicator(for: appearance))
+                        .frame(height: appearance.tabActiveIndicatorHeight)
+                case .overline:
+                    Rectangle()
+                        .fill(TabBarColors.activeIndicator(for: appearance))
+                        .frame(height: TabSelectionRuleMetrics.thickness)
+                case .underline:
+                    Rectangle()
+                        .fill(TabBarColors.activeIndicator(for: appearance))
+                        .frame(height: TabSelectionRuleMetrics.thickness)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                case .invert:
+                    EmptyView()
+                }
             }
 
             // Linked hover: a 2pt underline ties the tab to its sheet row.
@@ -1596,11 +1643,30 @@ struct TabItemView: View {
         TabItemStyling.customFill(tab.customColorHex)
     }
 
+    /// The selected tab is drawn inverted: the theme asked for it and the
+    /// host gave the tab no color of its own.
+    private var isInverted: Bool {
+        isSelected && appearance.tabSelectionStyle == .invert && customAccentNSColor() == nil
+    }
+
+    /// The inverted tab's ink: the theme's active text, else black or white
+    /// for the fill. Nil when the tab is not inverted.
+    private var activeInkNSColor: NSColor? {
+        guard isInverted else { return nil }
+        if let themed = appearance.tabTextColors.activeTextHex.flatMap(NSColor.init(bonsplitHex:)) {
+            return themed
+        }
+        return TabItemStyling.prefersLightInk(on: TabBarColors.nsColorInvertedFill(for: appearance)) ? .white : .black
+    }
+
     /// Text and glyph color at full emphasis: black or white for contrast
-    /// on a host-colored tab (as drawn over the bar), else the theme's
-    /// active text.
+    /// on a host-colored tab (as drawn over the bar), else the inverted
+    /// tab's ink, else the theme's selected or active text.
     private var activeInk: Color {
-        guard let fill = customAccentNSColor() else { return TabBarColors.activeText(for: appearance) }
+        guard let fill = customAccentNSColor() else {
+            if let inverted = activeInkNSColor { return Color(nsColor: inverted) }
+            return isSelected ? TabBarColors.selectedText(for: appearance) : TabBarColors.activeText(for: appearance)
+        }
         let opacity = TabItemStyling.customFillOpacity(
             isSelected: isSelected,
             isHovered: isHovered || isLinkedHover
@@ -1613,7 +1679,7 @@ struct TabItemView: View {
     }
 
     private var inactiveInk: Color {
-        guard customAccentNSColor() != nil else { return TabBarColors.inactiveText(for: appearance) }
+        guard customAccentNSColor() != nil || isInverted else { return TabBarColors.inactiveText(for: appearance) }
         return activeInk.opacity(0.78)
     }
 
@@ -1804,5 +1870,48 @@ private struct MiddleClickMonitorView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.view = nsView
         context.coordinator.onMiddleClick = onMiddleClick
+    }
+}
+
+/// Thickness of the overline and underline selection rules.
+enum TabSelectionRuleMetrics {
+    static let thickness: CGFloat = 2
+}
+
+/// Four L marks just inside a hovered tab's corners (Datasheet Mono). Drawn
+/// over the tab, never laid out, never hit-tested.
+struct TabHoverBrackets: View {
+    let ink: Color
+    let halo: Color
+
+    static let arm: CGFloat = 7
+    static let lineWidth: CGFloat = 1.5
+    static let inset = EdgeInsets(top: 3, leading: 2, bottom: 3, trailing: 2)
+
+    var body: some View {
+        ZStack {
+            BracketCorners(arm: Self.arm, inset: Self.inset)
+                .stroke(halo, lineWidth: Self.lineWidth + 2)
+            BracketCorners(arm: Self.arm, inset: Self.inset)
+                .stroke(ink, lineWidth: Self.lineWidth)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct BracketCorners: Shape {
+    let arm: CGFloat
+    let inset: EdgeInsets
+
+    func path(in rect: CGRect) -> Path {
+        let minX = rect.minX + inset.leading, maxX = rect.maxX - inset.trailing
+        let minY = rect.minY + inset.top, maxY = rect.maxY - inset.bottom
+        var path = Path()
+        path.move(to: CGPoint(x: minX, y: minY + arm)); path.addLine(to: CGPoint(x: minX, y: minY)); path.addLine(to: CGPoint(x: minX + arm, y: minY))
+        path.move(to: CGPoint(x: maxX - arm, y: minY)); path.addLine(to: CGPoint(x: maxX, y: minY)); path.addLine(to: CGPoint(x: maxX, y: minY + arm))
+        path.move(to: CGPoint(x: minX, y: maxY - arm)); path.addLine(to: CGPoint(x: minX, y: maxY)); path.addLine(to: CGPoint(x: minX + arm, y: maxY))
+        path.move(to: CGPoint(x: maxX - arm, y: maxY)); path.addLine(to: CGPoint(x: maxX, y: maxY)); path.addLine(to: CGPoint(x: maxX, y: maxY - arm))
+        return path
     }
 }
