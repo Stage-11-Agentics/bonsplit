@@ -1082,7 +1082,15 @@ struct TabBarView<TrailingAccessory: View>: View {
         pane.tabs.map {
             "\($0.id.uuidString)\u{1}\($0.numberLabel(showOrdinals: appearance.showTabOrdinals) ?? "")\u{1}\($0.title)\u{1}\($0.activityState?.rawValue ?? "-")"
         }
-            + ["sel:\(pane.selectedTabId?.uuidString ?? "-")"]
+            + ["sel:\(pane.selectedTabId?.uuidString ?? "-")", tabTextStyleSignature]
+    }
+
+    /// The tab type the fit decision measures with, so a theme switch re-fits.
+    private var tabTextStyleSignature: String {
+        let style = appearance.tabTextStyle
+        guard !style.isUnset else { return "style:-" }
+        return "style:\(style.familyName ?? "-")|\(style.scale.map { "\($0)" } ?? "-")|"
+            + "\(style.weight?.rawValue ?? "-")|\(style.uppercase)|\(style.trackingEm.map { "\($0)" } ?? "-")"
     }
 
     private var activeTab: TabItem? {

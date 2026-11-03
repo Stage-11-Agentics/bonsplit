@@ -1037,12 +1037,7 @@ struct TabItemView: View {
                         phaseId: tab.id,
                         colorOverride: markColorOverride(for: state),
                         motion: resolvedActivityMotion(for: state),
-                        alternateCoreColor: tab.activityPresentation?.alternateCoreColorHex
-                            .flatMap(NSColor.init(bonsplitHex:))
-                            .map(Color.init(nsColor:))
-                            ?? (tab.activityPresentation?.alternatesWithBaseColor == true
-                                ? TabBarColors.activity(state, for: appearance)
-                                : nil),
+                        alternateCoreColor: alternateCoreColor(for: state),
                         lineageDepth: tab.activityPresentation?.lineageDepth ?? 0
                     )
                     .background {
@@ -1076,7 +1071,7 @@ struct TabItemView: View {
             HStack(spacing: 0) {
                 Color.clear
                     .frame(width: TabActivityMarkMetrics.leadingEdgeInset(for: .idle))
-                TabKindGlyph(kind: glyph, appearance: appearance, ink: customAccentNSColor() == nil ? nil : activeInk)
+                TabKindGlyph(kind: glyph, appearance: appearance, ink: customAccentNSColor() == nil && !isInverted ? nil : activeInk)
                 Color.clear
                     .frame(width: TabActivityMarkMetrics.titleSpacing(for: .idle))
             }
@@ -1103,6 +1098,21 @@ struct TabItemView: View {
         let mark = override ?? TabBarColors.nsColorActivity(state, for: appearance)
         return Color(nsColor: TabItemStyling.markColorOnInvertedFill(
             mark,
+            fill: TabBarColors.nsColorInvertedFill(for: appearance),
+            ink: ink
+        ))
+    }
+
+    /// The flash's second core color, checked against an inverted tab's fill like the mark.
+    private func alternateCoreColor(for state: BonsplitTabActivityState) -> Color? {
+        let alternate = tab.activityPresentation?.alternateCoreColorHex.flatMap(NSColor.init(bonsplitHex:))
+            ?? (tab.activityPresentation?.alternatesWithBaseColor == true
+                ? TabBarColors.nsColorActivity(state, for: appearance)
+                : nil)
+        guard let alternate else { return nil }
+        guard isInverted, let ink = activeInkNSColor else { return Color(nsColor: alternate) }
+        return Color(nsColor: TabItemStyling.markColorOnInvertedFill(
+            alternate,
             fill: TabBarColors.nsColorInvertedFill(for: appearance),
             ink: ink
         ))
