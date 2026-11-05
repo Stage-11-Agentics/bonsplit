@@ -462,8 +462,15 @@ struct TabRailView: View {
 /// mouse-up backstop that clears stale drag state when a drag is dropped
 /// nowhere.
 enum TabDragSource {
+    /// The tab of the drag most recently started anywhere in this process, so
+    /// a drop target in another controller (another workspace or window) can
+    /// label its ghost slot. Display only; drops decide from the pasteboard.
+    @MainActor static var inFlightTab: TabItem?
+
     @MainActor
     static func makeItemProvider(for tab: TabItem, in paneId: PaneID, controller: SplitViewController) -> NSItemProvider {
+        inFlightTab = tab
+        BonsplitController.onAnyTabDragStarted?(TabID(id: tab.id))
         controller.dragGeneration += 1
         controller.draggingTab = tab
         controller.dragSourcePaneId = paneId
@@ -542,8 +549,9 @@ struct TabRailRowDropDelegate: DropDelegate {
     /// workspaces and windows have no local drag state to start it from).
     var onDragActive: () -> Void = {}
 
-    private var draggedTab: TabItem? { controller.activeDragTab ?? controller.draggingTab }
-    private var sourcePaneId: PaneID? { controller.activeDragSourcePaneId ?? controller.dragSourcePaneId }
+    /// This controller's own live drag; stale state from a tab that left is ignored.
+    private var draggedTab: TabItem? { controller.liveLocalDrag()?.tab }
+    private var sourcePaneId: PaneID? { controller.liveLocalDrag()?.sourcePaneId }
 
     private var sourceIndex: Int? {
         guard let draggedTab else { return nil }
@@ -600,10 +608,12 @@ struct TabRailRowDropDelegate: DropDelegate {
             dropIndex = nil
             dropOwner = nil
         }
-        guard let draggedTab, let sourcePaneId else {
+        let transfer = TabTransferDecoder.fromDragPasteboard()
+        guard let local = controller.liveLocalDrag(confirmedBy: transfer) else {
             // The drag began in another workspace or window: hand it to the
             // host, as the strip does.
-            guard let transfer = TabTransferDecoder.fromDragPasteboard(), transfer.isFromCurrentProcess else {
+            controller.clearDragState()
+            guard let transfer, transfer.isFromCurrentProcess else {
                 return false
             }
             let request = BonsplitController.ExternalTabDropRequest(
@@ -614,10 +624,10 @@ struct TabRailRowDropDelegate: DropDelegate {
             return bonsplitController.onExternalTabDrop?(request) ?? false
         }
         withTransaction(Transaction(animation: nil)) {
-            if sourcePaneId == pane.id {
+            if local.sourcePaneId == pane.id {
                 if let source = sourceIndex, !isNoop(target) { pane.moveTab(from: source, to: target) }
             } else {
-                _ = bonsplitController.moveTab(TabID(id: draggedTab.id), toPane: pane.id, atIndex: target)
+                _ = bonsplitController.moveTab(TabID(id: local.tab.id), toPane: pane.id, atIndex: target)
             }
         }
         controller.draggingTab = nil

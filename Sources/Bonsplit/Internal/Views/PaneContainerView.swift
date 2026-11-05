@@ -459,13 +459,12 @@ struct UnifiedPaneDropDelegate: DropDelegate {
 
     private func effectiveZone(for info: DropInfo) -> DropZone {
         let defaultZone = zoneForLocation(info.location)
-        guard let draggedTab = controller.activeDragTab ?? controller.draggingTab,
-              let sourcePaneId = controller.activeDragSourcePaneId ?? controller.dragSourcePaneId else {
+        guard let local = controller.liveLocalDrag() else {
             return defaultZone
         }
         guard let adjacentPaneMoveZone = adjacentPaneMoveZone(
-            for: draggedTab,
-            sourcePaneId: sourcePaneId,
+            for: local.tab,
+            sourcePaneId: local.sourcePaneId,
             defaultZone: defaultZone
         ) else {
             return defaultZone
@@ -513,11 +512,18 @@ struct UnifiedPaneDropDelegate: DropDelegate {
 #endif
 
         // Read from non-observable drag state — @Observable writes from createItemProvider
-        // may not have propagated yet when performDrop runs.
-        guard let draggedTab = controller.activeDragTab ?? controller.draggingTab,
-              let sourcePaneId = controller.activeDragSourcePaneId ?? controller.dragSourcePaneId else {
-            guard let transfer = decodeTransfer(from: info),
-                  transfer.isFromCurrentProcess else {
+        // may not have propagated yet when performDrop runs. A drag this
+        // controller started whose tab has since left (stale state) is not local.
+        let transfer = decodeTransfer(from: info)
+        guard let local = controller.liveLocalDrag(confirmedBy: transfer) else {
+            // Whatever happens, the zone overlay goes: a drop that fails must
+            // not leave it lit.
+            defer {
+                dropLifecycle = .idle
+                activeDropZone = nil
+            }
+            controller.clearDragState()
+            guard let transfer, transfer.isFromCurrentProcess else {
                 return false
             }
             let destination: BonsplitController.ExternalTabDropRequest.Destination
@@ -538,13 +544,10 @@ struct UnifiedPaneDropDelegate: DropDelegate {
                 sourcePaneId: PaneID(id: transfer.sourcePaneId),
                 destination: destination
             )
-            let handled = bonsplitController.onExternalTabDrop?(request) ?? false
-            if handled {
-                dropLifecycle = .idle
-                activeDropZone = nil
-            }
-            return handled
+            return bonsplitController.onExternalTabDrop?(request) ?? false
         }
+        let draggedTab = local.tab
+        let sourcePaneId = local.sourcePaneId
 
         // Clear both observable and non-observable drag state.
         dropLifecycle = .idle
@@ -642,7 +645,7 @@ struct UnifiedPaneDropDelegate: DropDelegate {
         guard hasType else { return false }
 
         // Local drags use in-memory state and are always same-process.
-        if controller.activeDragTab != nil || controller.draggingTab != nil {
+        if controller.liveLocalDrag() != nil {
             return true
         }
 

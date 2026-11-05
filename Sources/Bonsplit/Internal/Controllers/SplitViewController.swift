@@ -31,6 +31,37 @@ final class SplitViewController {
     @ObservationIgnored var activeDragTab: TabItem?
     @ObservationIgnored var activeDragSourcePaneId: PaneID?
 
+    /// The drag this controller started, while its tab still lives here. A tab
+    /// dropped into another controller (another workspace or window) leaves
+    /// this state behind, because the drag session swallows the mouse-up that
+    /// would clear it. Drop targets read this, so stale state is ignored and
+    /// a later drag into this controller takes the external path. Pass the
+    /// pasteboard's transfer when one was read: a different tab means the
+    /// drag in flight is not this one.
+    func liveLocalDrag(confirmedBy transfer: TabTransferData? = nil) -> (tab: TabItem, sourcePaneId: PaneID)? {
+        guard let tab = activeDragTab ?? draggingTab,
+              let sourcePaneId = activeDragSourcePaneId ?? dragSourcePaneId,
+              rootNode.allPanes.contains(where: { pane in pane.tabs.contains { $0.id == tab.id } }) else {
+            return nil
+        }
+        if let transfer, transfer.tab.id != tab.id { return nil }
+        return (tab, sourcePaneId)
+    }
+
+    /// Forget any drag this controller started.
+    func clearDragState() {
+        guard draggingTab != nil || dragSourcePaneId != nil || activeDragTab != nil || activeDragSourcePaneId != nil else {
+            return
+        }
+#if DEBUG
+        dlog("tab.dragState.clear tab=\((activeDragTab ?? draggingTab)?.id.uuidString.prefix(5) ?? "nil")")
+#endif
+        draggingTab = nil
+        dragSourcePaneId = nil
+        activeDragTab = nil
+        activeDragSourcePaneId = nil
+    }
+
     /// When false, drop delegates reject all drags and NSViews are hidden.
     /// Mirrors BonsplitController.isInteractive. Must be observable so
     /// updateNSView is called to toggle isHidden on the AppKit containers.

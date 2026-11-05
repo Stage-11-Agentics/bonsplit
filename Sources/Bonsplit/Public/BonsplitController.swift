@@ -339,6 +339,18 @@ public final class BonsplitController {
         }
     }
 
+    /// Called when a tab drag starts in any controller in this process, with
+    /// the dragged tab. The host can watch the drag from there (for example,
+    /// to open a tab released outside every window in a new one).
+    @MainActor public static var onAnyTabDragStarted: ((TabID) -> Void)?
+
+    /// End any tab drag this controller started. The host calls it after it
+    /// moves a dragged tab into another controller (`onExternalTabDrop`), so
+    /// nothing here still believes a drag is in flight.
+    public func endTabDrag() {
+        internalController.clearDragState()
+    }
+
     // MARK: - Tab Operations
 
     /// Create a new tab in the focused pane (or specified pane)

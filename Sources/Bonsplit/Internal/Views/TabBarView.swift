@@ -1259,6 +1259,13 @@ struct TabBarView<TrailingAccessory: View>: View {
         // background instead. Everything on the bar opens the sheet.
         .contentShape(Rectangle())
         .onTapGesture { toggleCountList() }
+        // A drag on the block drags the panel it shows, as its tab would in
+        // the full strip; a tap still opens the sheet.
+        .modifier(CollapsedBarDragSource(
+            tab: activeTab,
+            appearance: appearance,
+            makeProvider: createItemProvider(for:)
+        ))
         .onDrop(of: [.tabTransfer], delegate: TabDropDelegate(
             ownerId: "collapsed-bar",
             dropOwner: $dropOwner,
@@ -1326,7 +1333,9 @@ struct TabBarView<TrailingAccessory: View>: View {
         let ruleHeight = isFocused ? appearance.tabActiveIndicatorHeight : 1
         let blockHeight = max(0, appearance.tabBarHeight - ruleHeight)
         let gold = TabBarColors.activeIndicator(for: appearance)
-        let isDropHot = splitViewController.draggingTab != nil && dropTargetIndex == pane.tabs.count
+        // `dropTargetIndex` is set only while a tab drag hovers this bar, from
+        // this controller or another one (another workspace or window).
+        let isDropHot = dropTargetIndex == pane.tabs.count
         // A colored tab fills its title and close like the tab it stands for.
         let fill = TabItemStyling.customFill(activeTab?.customColorHex)
         let ink = fill.map(TabItemStyling.ink(on:))
@@ -1713,10 +1722,11 @@ struct TabBarView<TrailingAccessory: View>: View {
     // MARK: - Drop Indicator (ghost slot)
 
     /// The tab being dragged, for the ghost slot's label. Read from drag state
-    /// on the controller (never the pasteboard). A drag from another window's
-    /// controller has none, and the slot renders unlabeled.
+    /// (never the pasteboard): this controller's own, else the process-wide
+    /// record of the drag in flight, which a drag from another workspace or
+    /// window carries.
     private var ghostTab: TabItem? {
-        splitViewController.draggingTab ?? splitViewController.activeDragTab
+        splitViewController.draggingTab ?? splitViewController.activeDragTab ?? TabDragSource.inFlightTab
     }
 
     /// A tab-sized slot at the landing index: dashed gold border, gold wash,
@@ -2725,6 +2735,27 @@ enum TabDropLifecycle {
     case hovering
 }
 
+// MARK: - Folded bar drag source
+
+/// Makes the folded strip's block a drag source for the panel it shows.
+private struct CollapsedBarDragSource: ViewModifier {
+    let tab: TabItem?
+    let appearance: BonsplitConfiguration.Appearance
+    let makeProvider: (TabItem) -> NSItemProvider
+
+    func body(content: Content) -> some View {
+        if let tab {
+            content.onDrag {
+                makeProvider(tab)
+            } preview: {
+                TabDragPreview(tab: tab, appearance: appearance)
+            }
+        } else {
+            content
+        }
+    }
+}
+
 // MARK: - Tab Drop Delegate
 
 struct TabDropDelegate: DropDelegate {
@@ -2755,11 +2786,19 @@ struct TabDropDelegate: DropDelegate {
         }
 
         // Read from non-observable drag state — @Observable writes from createItemProvider
-        // may not have propagated yet when performDrop runs.
-        guard let draggedTab = controller.activeDragTab ?? controller.draggingTab,
-              let sourcePaneId = controller.activeDragSourcePaneId ?? controller.dragSourcePaneId else {
-            guard let transfer = decodeTransfer(from: info),
-                  transfer.isFromCurrentProcess else {
+        // may not have propagated yet when performDrop runs. A drag this
+        // controller started whose tab has since left (stale state) is not local.
+        let transfer = decodeTransfer(from: info)
+        guard let local = controller.liveLocalDrag(confirmedBy: transfer) else {
+            // Whatever happens, the ghost slot goes: a drop that fails must not
+            // leave it standing in the strip.
+            defer {
+                dropLifecycle = .idle
+                dropTargetIndex = nil
+                dropOwner?.wrappedValue = nil
+            }
+            controller.clearDragState()
+            guard let transfer, transfer.isFromCurrentProcess else {
                 return false
             }
             let request = BonsplitController.ExternalTabDropRequest(
@@ -2767,13 +2806,10 @@ struct TabDropDelegate: DropDelegate {
                 sourcePaneId: PaneID(id: transfer.sourcePaneId),
                 destination: .insert(targetPane: pane.id, targetIndex: targetIndex)
             )
-            let handled = bonsplitController.onExternalTabDrop?(request) ?? false
-            if handled {
-                dropLifecycle = .idle
-                dropTargetIndex = nil
-            }
-            return handled
+            return bonsplitController.onExternalTabDrop?(request) ?? false
         }
+        let draggedTab = local.tab
+        let sourcePaneId = local.sourcePaneId
 
         // Execute synchronously when possible so the dragged tab disappears immediately.
         let applyMove = {
@@ -2893,7 +2929,7 @@ struct TabDropDelegate: DropDelegate {
         guard hasType else { return false }
 
         // Local drags use in-memory state and are always same-process.
-        if controller.activeDragTab != nil || controller.draggingTab != nil {
+        if controller.liveLocalDrag() != nil {
             return true
         }
 
