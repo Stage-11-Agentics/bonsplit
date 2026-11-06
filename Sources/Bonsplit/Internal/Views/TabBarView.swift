@@ -2960,8 +2960,9 @@ struct TabDropDelegate: DropDelegate {
     /// the same bar (a jittery click) must not move it to the end of the area.
     /// Another panel of the area (a sheet row) still moves to the end.
     private func isFoldedBarSelfDrop(sourcePaneId: PaneID?, tabId: UUID?) -> Bool {
-        ownerId == "collapsed-bar" && sourcePaneId == pane.id && tabId != nil
-            && tabId == (pane.selectedTabId ?? pane.tabs.first?.id)
+        // The tab the bar shows: the selected one, else the first (as `activeTab`).
+        let shown = pane.tabs.first(where: { $0.id == pane.selectedTabId }) ?? pane.tabs.first
+        return ownerId == "collapsed-bar" && sourcePaneId == pane.id && tabId != nil && tabId == shown?.id
     }
 
     private func shouldSuppressIndicatorForNoopSamePaneDrop() -> Bool {
