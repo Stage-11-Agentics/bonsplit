@@ -457,9 +457,12 @@ struct UnifiedPaneDropDelegate: DropDelegate {
         }
     }
 
-    private func effectiveZone(for info: DropInfo) -> DropZone {
+    private func effectiveZone(
+        for info: DropInfo,
+        local: (tab: TabItem, sourcePaneId: PaneID)?? = nil
+    ) -> DropZone {
         let defaultZone = zoneForLocation(info.location)
-        guard let local = controller.liveLocalDrag() else {
+        guard let local = local ?? controller.liveLocalDrag() else {
             return defaultZone
         }
         guard let adjacentPaneMoveZone = adjacentPaneMoveZone(
@@ -501,7 +504,9 @@ struct UnifiedPaneDropDelegate: DropDelegate {
             }
         }
 
-        let zone = effectiveZone(for: info)
+        let transfer = decodeTransfer(from: info)
+        let confirmedLocal = controller.liveLocalDrag(confirmedBy: transfer)
+        let zone = effectiveZone(for: info, local: .some(confirmedLocal))
 #if DEBUG
         dlog(
             "pane.drop pane=\(pane.id.id.uuidString.prefix(5)) zone=\(zone) " +
@@ -514,8 +519,7 @@ struct UnifiedPaneDropDelegate: DropDelegate {
         // Read from non-observable drag state — @Observable writes from createItemProvider
         // may not have propagated yet when performDrop runs. A drag this
         // controller started whose tab has since left (stale state) is not local.
-        let transfer = decodeTransfer(from: info)
-        guard let local = controller.liveLocalDrag(confirmedBy: transfer) else {
+        guard let local = confirmedLocal else {
             // Whatever happens, the zone overlay goes: a drop that fails must
             // not leave it lit.
             defer {

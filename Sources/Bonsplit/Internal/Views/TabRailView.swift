@@ -470,9 +470,6 @@ enum TabDragSource {
     @MainActor
     static func makeItemProvider(for tab: TabItem, in paneId: PaneID, controller: SplitViewController) -> NSItemProvider {
         inFlightTab = tab
-        // A tab dragged out of a background window must not bring that window
-        // forward on release: it would cover the drop target and take the drop.
-        NSApp.preventWindowOrdering()
         BonsplitController.onAnyTabDragStarted?(TabID(id: tab.id))
         controller.dragGeneration += 1
         controller.draggingTab = tab

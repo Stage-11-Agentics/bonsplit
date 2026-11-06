@@ -2810,6 +2810,13 @@ struct TabDropDelegate: DropDelegate {
         }
         let draggedTab = local.tab
         let sourcePaneId = local.sourcePaneId
+        if isFoldedBarSelfDrop(sourcePaneId: sourcePaneId) {
+            dropLifecycle = .idle
+            dropTargetIndex = nil
+            dropOwner?.wrappedValue = nil
+            controller.clearDragState()
+            return true
+        }
 
         // Execute synchronously when possible so the dragged tab disappears immediately.
         let applyMove = {
@@ -2949,7 +2956,16 @@ struct TabDropDelegate: DropDelegate {
         return true
     }
 
+    /// The folded bar drags its own visible panel; dropping that back on the
+    /// same bar (a jittery click) must not move it to the end of the area.
+    private func isFoldedBarSelfDrop(sourcePaneId: PaneID?) -> Bool {
+        ownerId == "collapsed-bar" && sourcePaneId == pane.id
+    }
+
     private func shouldSuppressIndicatorForNoopSamePaneDrop() -> Bool {
+        if isFoldedBarSelfDrop(sourcePaneId: controller.activeDragSourcePaneId ?? controller.dragSourcePaneId) {
+            return true
+        }
         guard let draggedTab = controller.draggingTab,
               controller.dragSourcePaneId == pane.id,
               let sourceIndex = pane.tabs.firstIndex(where: { $0.id == draggedTab.id }) else {
