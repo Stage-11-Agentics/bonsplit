@@ -2810,7 +2810,7 @@ struct TabDropDelegate: DropDelegate {
         }
         let draggedTab = local.tab
         let sourcePaneId = local.sourcePaneId
-        if isFoldedBarSelfDrop(sourcePaneId: sourcePaneId) {
+        if isFoldedBarSelfDrop(sourcePaneId: sourcePaneId, tabId: draggedTab.id) {
             dropLifecycle = .idle
             dropTargetIndex = nil
             dropOwner?.wrappedValue = nil
@@ -2956,14 +2956,19 @@ struct TabDropDelegate: DropDelegate {
         return true
     }
 
-    /// The folded bar drags its own visible panel; dropping that back on the
-    /// same bar (a jittery click) must not move it to the end of the area.
-    private func isFoldedBarSelfDrop(sourcePaneId: PaneID?) -> Bool {
-        ownerId == "collapsed-bar" && sourcePaneId == pane.id
+    /// The folded bar drags its own visible panel; dropping that panel back on
+    /// the same bar (a jittery click) must not move it to the end of the area.
+    /// Another panel of the area (a sheet row) still moves to the end.
+    private func isFoldedBarSelfDrop(sourcePaneId: PaneID?, tabId: UUID?) -> Bool {
+        ownerId == "collapsed-bar" && sourcePaneId == pane.id && tabId != nil
+            && tabId == (pane.selectedTabId ?? pane.tabs.first?.id)
     }
 
     private func shouldSuppressIndicatorForNoopSamePaneDrop() -> Bool {
-        if isFoldedBarSelfDrop(sourcePaneId: controller.activeDragSourcePaneId ?? controller.dragSourcePaneId) {
+        if isFoldedBarSelfDrop(
+            sourcePaneId: controller.activeDragSourcePaneId ?? controller.dragSourcePaneId,
+            tabId: (controller.activeDragTab ?? controller.draggingTab)?.id
+        ) {
             return true
         }
         guard let draggedTab = controller.draggingTab,
