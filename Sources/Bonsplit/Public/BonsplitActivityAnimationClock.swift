@@ -261,6 +261,25 @@ public final class BonsplitActivityAnimationClock {
     private var handlers: [UUID: Handler] = [:]
     private var timer: Timer?
 
+    /// Host-owned: true while no window that can show a mark is visible.
+    /// Paused, the clock keeps its subscribers and runs no timer; resuming
+    /// publishes the current time once, so every mark shows its phase before
+    /// the next tick.
+    public var isPaused = false {
+        didSet {
+            guard isPaused != oldValue else { return }
+            if isPaused {
+                stopTimer()
+            } else if !handlers.isEmpty {
+                startTimerIfNeeded()
+                publish()
+            }
+        }
+    }
+
+    /// Whether the timer is running (for host diagnostics and tests).
+    public var isTicking: Bool { timer != nil }
+
     private init() {}
 
     deinit {
@@ -284,7 +303,7 @@ public final class BonsplitActivityAnimationClock {
     }
 
     private func startTimerIfNeeded() {
-        guard !handlers.isEmpty, timer == nil else { return }
+        guard !isPaused, !handlers.isEmpty, timer == nil else { return }
         let timer = Timer(
             timeInterval: BonsplitActivityMarkAnimation.clockInterval,
             repeats: true
