@@ -9,12 +9,16 @@ final class PaneState: Identifiable {
         didSet {
             let ids = tabs.map(\.id)
             if ids != tabIds { tabIds = ids }
+            let pinned = Set(tabs.lazy.filter(\.isPinned).map(\.id))
+            if pinned != pinnedTabIds { pinnedTabIds = pinned }
         }
     }
     /// The tabs' IDs in order. It changes only when tabs are added, removed or
     /// moved, so a reader that needs membership is not invalidated by a tab's
     /// title or activity mark changing, as a reader of `tabs` is.
     private(set) var tabIds: [UUID]
+    /// The pinned tabs' IDs. It changes only when a tab is pinned or unpinned.
+    private(set) var pinnedTabIds: Set<UUID>
     var selectedTabId: UUID?
 
     // Visual-only flash signal. Setting `flashTabId` and bumping `flashTabGeneration`
@@ -31,6 +35,7 @@ final class PaneState: Identifiable {
         self.id = id
         self.tabs = tabs
         self.tabIds = tabs.map(\.id)
+        self.pinnedTabIds = Set(tabs.lazy.filter(\.isPinned).map(\.id))
         self.selectedTabId = selectedTabId ?? tabs.first?.id
     }
 

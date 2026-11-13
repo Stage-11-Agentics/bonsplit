@@ -1073,6 +1073,15 @@ public final class BonsplitController {
         return pane.tabIds.map { TabID(id: $0) }
     }
 
+    /// The pane's pinned tab IDs, read without the tabs themselves: a SwiftUI
+    /// view that asks is invalidated only when a tab is pinned or unpinned.
+    public func pinnedTabIds(inPane paneId: PaneID) -> Set<TabID> {
+        guard let pane = internalController.rootNode.findPane(PaneID(id: paneId.id)) else {
+            return []
+        }
+        return Set(pane.pinnedTabIds.map { TabID(id: $0) })
+    }
+
     public func selectedTab(inPane paneId: PaneID) -> Tab? {
         guard let pane = internalController.rootNode.findPane(PaneID(id: paneId.id)),
               let selected = pane.selectedTab else {

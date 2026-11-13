@@ -309,7 +309,9 @@ public final class BonsplitActivityAnimationClock {
             repeats: true
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.publish()
+                // A tick already queued when the host paused must not publish.
+                guard let self, !self.isPaused, self.timer != nil else { return }
+                self.publish()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
