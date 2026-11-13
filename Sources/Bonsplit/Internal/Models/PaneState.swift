@@ -5,7 +5,16 @@ import SwiftUI
 @Observable
 final class PaneState: Identifiable {
     let id: PaneID
-    var tabs: [TabItem]
+    var tabs: [TabItem] {
+        didSet {
+            let ids = tabs.map(\.id)
+            if ids != tabIds { tabIds = ids }
+        }
+    }
+    /// The tabs' IDs in order. It changes only when tabs are added, removed or
+    /// moved, so a reader that needs membership is not invalidated by a tab's
+    /// title or activity mark changing, as a reader of `tabs` is.
+    private(set) var tabIds: [UUID]
     var selectedTabId: UUID?
 
     // Visual-only flash signal. Setting `flashTabId` and bumping `flashTabGeneration`
@@ -21,6 +30,7 @@ final class PaneState: Identifiable {
     ) {
         self.id = id
         self.tabs = tabs
+        self.tabIds = tabs.map(\.id)
         self.selectedTabId = selectedTabId ?? tabs.first?.id
     }
 

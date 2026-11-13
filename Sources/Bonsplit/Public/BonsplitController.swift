@@ -1064,6 +1064,15 @@ public final class BonsplitController {
         return TabID(id: selected)
     }
 
+    /// The pane's tab IDs in order, read without the tabs themselves: a SwiftUI
+    /// view that asks is invalidated only by membership or order changes.
+    public func tabIds(inPane paneId: PaneID) -> [TabID] {
+        guard let pane = internalController.rootNode.findPane(PaneID(id: paneId.id)) else {
+            return []
+        }
+        return pane.tabIds.map { TabID(id: $0) }
+    }
+
     public func selectedTab(inPane paneId: PaneID) -> Tab? {
         guard let pane = internalController.rootNode.findPane(PaneID(id: paneId.id)),
               let selected = pane.selectedTab else {
