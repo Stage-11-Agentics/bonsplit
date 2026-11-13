@@ -489,22 +489,9 @@ private struct TabActivityMarkLeaf: View {
             ZStack {
                 Rectangle()
                     .fill(color.opacity(0.25))
-                VStack(spacing: TabActivityMarkMetrics.workingDotSpacing) {
-                    ForEach(0..<rows, id: \.self) { row in
-                        HStack(spacing: TabActivityMarkMetrics.workingDotSpacing) {
-                            ForEach(0..<3, id: \.self) { column in
-                                let rank = (rows - 1 - row) * 3 + column
-                                Rectangle()
-                                    .fill(color)
-                                    .frame(
-                                        width: TabActivityMarkMetrics.workingDotSide,
-                                        height: TabActivityMarkMetrics.workingDotSide
-                                    )
-                                    .opacity(rank < visibleWorkingDots ? 1 : 0)
-                            }
-                        }
-                    }
-                }
+                BonsplitActivityMarkMotionOverlay(
+                    part: .workingDots(rows: rows), color: color, motion: motion, phaseId: phaseId
+                )
             }
 
         case .waiting:
@@ -515,16 +502,10 @@ private struct TabActivityMarkLeaf: View {
                         color,
                         lineWidth: TabActivityMarkMetrics.waitingFrameThickness
                     )
-                Rectangle()
-                    .fill(color)
-                    .frame(width: TabActivityMarkMetrics.waitingCoreSide, height: coreHeight)
-                    .opacity(motion == .binaryFlash ? 1 : waitingCoreOpacity)
-                if let alternateCoreColor {
-                    Rectangle()
-                        .fill(alternateCoreColor)
-                        .frame(width: TabActivityMarkMetrics.waitingCoreSide, height: coreHeight)
-                        .opacity(showsAlternateCore ? 1 : 0)
-                }
+                BonsplitActivityMarkMotionOverlay(
+                    part: .waitingCore(height: coreHeight), color: color,
+                    alternateColor: alternateCoreColor, motion: motion, phaseId: phaseId
+                )
             }
 
         case .idle:
@@ -550,22 +531,9 @@ private struct TabActivityMarkLeaf: View {
                         width: TabActivityMarkMetrics.cellSide,
                         height: TabActivityMarkMetrics.cellSide
                     )
-                VStack(spacing: TabActivityMarkMetrics.workingDotSpacing) {
-                    ForEach(0..<3, id: \.self) { row in
-                        HStack(spacing: TabActivityMarkMetrics.workingDotSpacing) {
-                            ForEach(0..<3, id: \.self) { column in
-                                let rank = (2 - row) * 3 + column
-                                Rectangle()
-                                    .fill(color)
-                                    .frame(
-                                        width: TabActivityMarkMetrics.workingDotSide,
-                                        height: TabActivityMarkMetrics.workingDotSide
-                                    )
-                                    .opacity(rank < visibleWorkingDots ? 1 : 0)
-                            }
-                        }
-                    }
-                }
+                BonsplitActivityMarkMotionOverlay(
+                    part: .workingDots(rows: 3), color: color, motion: motion, phaseId: phaseId
+                )
             }
             .frame(
                 width: TabActivityMarkMetrics.cellSide,
@@ -579,22 +547,10 @@ private struct TabActivityMarkLeaf: View {
                         color,
                         lineWidth: TabActivityMarkMetrics.waitingFrameThickness
                     )
-                Rectangle()
-                    .fill(color)
-                    .frame(
-                        width: TabActivityMarkMetrics.waitingCoreSide,
-                        height: TabActivityMarkMetrics.waitingCoreSide
-                    )
-                    .opacity(motion == .binaryFlash ? 1 : waitingCoreOpacity)
-                if let alternateCoreColor {
-                    Rectangle()
-                        .fill(alternateCoreColor)
-                        .frame(
-                            width: TabActivityMarkMetrics.waitingCoreSide,
-                            height: TabActivityMarkMetrics.waitingCoreSide
-                        )
-                        .opacity(showsAlternateCore ? 1 : 0)
-                }
+                BonsplitActivityMarkMotionOverlay(
+                    part: .waitingCore(height: TabActivityMarkMetrics.waitingCoreSide), color: color,
+                    alternateColor: alternateCoreColor, motion: motion, phaseId: phaseId
+                )
             }
             .frame(
                 width: TabActivityMarkMetrics.cellSide,
@@ -621,7 +577,10 @@ private struct TabActivityMarkLeaf: View {
 
     private func refreshClockSubscription() {
         unsubscribeFromClock()
-        guard let motion else {
+        // C11H-238: dots, cores and the flagged flash move in Core Animation
+        // (`BonsplitActivityMarkMotionOverlay`); only the whole-mark breathe
+        // still ticks here.
+        guard let motion, motion == .breathe else {
             resetToStaticState()
             return
         }

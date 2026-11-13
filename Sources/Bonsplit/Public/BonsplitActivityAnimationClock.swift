@@ -268,6 +268,7 @@ public final class BonsplitActivityAnimationClock {
     public var isPaused = false {
         didSet {
             guard isPaused != oldValue else { return }
+            for observer in pauseObservers.values { observer(isPaused) }
             if isPaused {
                 stopTimer()
             } else if !handlers.isEmpty {
@@ -279,6 +280,22 @@ public final class BonsplitActivityAnimationClock {
 
     /// Whether the timer is running (for host diagnostics and tests).
     public var isTicking: Bool { timer != nil }
+
+    private var pauseObservers: [UUID: @MainActor (Bool) -> Void] = [:]
+
+    /// Layer-driven marks (`BonsplitActivityMarkMotionOverlay`) follow the
+    /// host's pause without subscribing to ticks: they stop their animations
+    /// when paused and restart them at the current phase on resume.
+    @discardableResult
+    public func observePause(_ handler: @escaping @MainActor (Bool) -> Void) -> UUID {
+        let token = UUID()
+        pauseObservers[token] = handler
+        return token
+    }
+
+    public func removePauseObserver(_ token: UUID) {
+        pauseObservers.removeValue(forKey: token)
+    }
 
     private init() {}
 
