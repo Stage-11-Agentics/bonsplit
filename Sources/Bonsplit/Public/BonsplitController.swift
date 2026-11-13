@@ -1047,6 +1047,17 @@ public final class BonsplitController {
     }
 
     /// Get selected tab in a pane
+    /// The selected tab's ID in a pane. It reads only the pane's selection, so a
+    /// SwiftUI view that asks for it is not invalidated when a tab in the pane
+    /// changes (title, activity mark); `selectedTab(inPane:)` reads every tab.
+    public func selectedTabId(inPane paneId: PaneID) -> TabID? {
+        guard let pane = internalController.rootNode.findPane(PaneID(id: paneId.id)),
+              let selected = pane.selectedTabId else {
+            return nil
+        }
+        return TabID(id: selected)
+    }
+
     public func selectedTab(inPane paneId: PaneID) -> Tab? {
         guard let pane = internalController.rootNode.findPane(PaneID(id: paneId.id)),
               let selected = pane.selectedTab else {
