@@ -448,11 +448,7 @@ struct TabRailView: View {
     }
 
     private func select(_ tab: TabItem) {
-        withTransaction(Transaction(animation: nil)) {
-            pane.selectTab(tab.id)
-            controller.focusPane(pane.id)
-        }
-        controller.noteUserTabSelection(tab.id, inPane: pane.id)
+        controller.selectTabByUser(tab.id, in: pane)
     }
 }
 

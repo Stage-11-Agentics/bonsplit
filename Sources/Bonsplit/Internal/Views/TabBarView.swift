@@ -1574,11 +1574,7 @@ struct TabBarView<TrailingAccessory: View>: View {
 #if DEBUG
                 dlog("tab.select pane=\(pane.id.id.uuidString.prefix(5)) tab=\(tab.id.uuidString.prefix(5)) title=\"\(tab.title)\"")
 #endif
-                withTransaction(Transaction(animation: nil)) {
-                    pane.selectTab(tab.id)
-                    controller.focusPane(pane.id)
-                }
-                controller.noteUserTabSelection(tab.id, inPane: pane.id)
+                controller.selectTabByUser(tab.id, in: pane)
             },
             onClose: {
                 guard !tab.isPinned else { return }

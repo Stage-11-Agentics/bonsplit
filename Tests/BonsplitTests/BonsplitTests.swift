@@ -138,6 +138,32 @@ final class BonsplitTests: XCTestCase {
         }
     }
 
+    /// c11h C11H-246: a pointer selection (strip tab, sheet row, rail row)
+    /// selects the tab and reports it to the host, the tab already shown
+    /// included; programmatic selection never reports.
+    @MainActor
+    func testUserTabSelectionSelectsAndReportsEvenTheTabAlreadyShown() throws {
+        let controller = BonsplitController()
+        let first = try XCTUnwrap(controller.createTab(title: "A", icon: "doc"))
+        let second = try XCTUnwrap(controller.createTab(title: "B", icon: "doc"))
+        let paneId = try XCTUnwrap(controller.focusedPaneId)
+        let pane = try XCTUnwrap(controller.internalController.rootNode.findPane(paneId))
+        var reported: [TabID] = []
+        controller.onTabSelectedByUser = { tab, reportedPane in
+            XCTAssertEqual(reportedPane, paneId)
+            reported.append(tab)
+        }
+
+        controller.selectTabByUser(first.id, in: pane)
+        XCTAssertEqual(controller.selectedTab(inPane: paneId)?.id, first)
+        controller.selectTabByUser(first.id, in: pane)
+        XCTAssertEqual(reported, [first, first], "the tab already shown is reported too")
+
+        controller.selectTab(second)
+        XCTAssertEqual(controller.selectedTab(inPane: paneId)?.id, second)
+        XCTAssertEqual(reported, [first, first], "programmatic selection never reports")
+    }
+
     @MainActor
     func testControllerCreation() {
         let controller = BonsplitController()

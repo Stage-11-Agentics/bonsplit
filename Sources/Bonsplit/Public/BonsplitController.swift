@@ -61,9 +61,15 @@ public final class BonsplitController {
     /// host or keyboard drives (`selectTab`, `focusPane`) never calls it.
     @ObservationIgnored public var onTabSelectedByUser: ((_ tabId: TabID, _ paneId: PaneID) -> Void)?
 
-    /// The one place the user-selection views report a pointer selection.
-    func noteUserTabSelection(_ tabId: UUID, inPane paneId: PaneID) {
-        onTabSelectedByUser?(TabID(id: tabId), paneId)
+    /// The one pointer selection the strip tab, the collapsed sheet row and
+    /// the rail row perform: select the tab, focus its pane, then report the
+    /// user's selection to the host, the tab already shown included.
+    func selectTabByUser(_ tabId: UUID, in pane: PaneState) {
+        withTransaction(Transaction(animation: nil)) {
+            pane.selectTab(tabId)
+            focusPane(pane.id)
+        }
+        onTabSelectedByUser?(TabID(id: tabId), pane.id)
     }
 
     /// Host-supplied resolver for a tab's stable surface handle (e.g. the c11
