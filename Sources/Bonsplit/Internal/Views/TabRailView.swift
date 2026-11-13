@@ -452,6 +452,7 @@ struct TabRailView: View {
             pane.selectTab(tab.id)
             controller.focusPane(pane.id)
         }
+        controller.noteUserTabSelection(tab.id, inPane: pane.id)
     }
 }
 

@@ -56,6 +56,16 @@ public final class BonsplitController {
     /// Internal host-driven closes should not use this hook.
     @ObservationIgnored public var onTabCloseRequest: ((_ tabId: TabID, _ paneId: PaneID) -> Void)?
 
+    /// Called when the user selects a tab by pointer (a strip tab, a collapsed
+    /// sheet row or a rail row), including the tab already shown. Selection the
+    /// host or keyboard drives (`selectTab`, `focusPane`) never calls it.
+    @ObservationIgnored public var onTabSelectedByUser: ((_ tabId: TabID, _ paneId: PaneID) -> Void)?
+
+    /// The one place the user-selection views report a pointer selection.
+    func noteUserTabSelection(_ tabId: UUID, inPane paneId: PaneID) {
+        onTabSelectedByUser?(TabID(id: tabId), paneId)
+    }
+
     /// Host-supplied resolver for a tab's stable surface handle (e.g. the c11
     /// `surface:N` ref). Returns nil when the host has no handle for the tab.
     /// Used to label the tab context menu's copy-handle item; should be cheap

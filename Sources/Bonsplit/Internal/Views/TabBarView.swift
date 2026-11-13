@@ -1578,6 +1578,7 @@ struct TabBarView<TrailingAccessory: View>: View {
                     pane.selectTab(tab.id)
                     controller.focusPane(pane.id)
                 }
+                controller.noteUserTabSelection(tab.id, inPane: pane.id)
             },
             onClose: {
                 guard !tab.isPinned else { return }
