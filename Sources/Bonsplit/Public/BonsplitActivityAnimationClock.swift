@@ -281,6 +281,9 @@ public final class BonsplitActivityAnimationClock {
     /// Whether the timer is running (for host diagnostics and tests).
     public var isTicking: Bool { timer != nil }
 
+    /// Tick subscribers, any renderer (for host diagnostics).
+    public var subscriberCount: Int { handlers.count }
+
     private var pauseObservers: [UUID: @MainActor (Bool) -> Void] = [:]
 
     /// Layer-driven marks (`BonsplitActivityMarkMotionOverlay`) follow the
