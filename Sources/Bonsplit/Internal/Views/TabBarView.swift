@@ -2546,7 +2546,7 @@ private struct TabBarHostWindowReader: NSViewRepresentable {
 }
 
 @MainActor
-private final class TabControlShortcutKeyMonitor: ObservableObject {
+final class TabControlShortcutKeyMonitor: ObservableObject {
     @Published private(set) var isShortcutHintVisible = false
     @Published private(set) var shortcutModifierSymbol = "⌃"
 
@@ -2702,11 +2702,15 @@ private final class TabControlShortcutKeyMonitor: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + TabControlShortcutHintPolicy.intentionalHoldDelay, execute: workItem)
     }
 
-    private func cancelPendingHintShow(resetVisible: Bool) {
+    func cancelPendingHintShow(resetVisible: Bool) {
         pendingShowWorkItem?.cancel()
         pendingShowWorkItem = nil
         pendingModifier = nil
-        if resetVisible {
+        // A @Published set fires even when the value does not change. Resetting a hint that is
+        // already hidden invalidated every tab bar on each keystroke (the keyDown monitor) and in
+        // the middle of a workspace mount's render (start() from onAppear), forcing a nested
+        // synchronous graph flush (c11 C11H-293).
+        if resetVisible, isShortcutHintVisible {
             withAnimation(.easeInOut(duration: 0.14)) {
                 isShortcutHintVisible = false
             }

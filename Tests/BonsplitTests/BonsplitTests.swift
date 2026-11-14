@@ -2,6 +2,7 @@ import XCTest
 @testable import Bonsplit
 import AppKit
 import SwiftUI
+import Combine
 
 final class BonsplitTests: XCTestCase {
     @MainActor
@@ -1506,6 +1507,21 @@ final class BonsplitTests: XCTestCase {
         let existing = NSImage(size: NSSize(width: 16, height: 16))
         let resolved = TabItemStyling.resolvedFaviconImage(existing: existing, incomingData: nil)
         XCTAssertNil(resolved)
+    }
+
+    @MainActor
+    func testTabControlShortcutKeyMonitorDoesNotPublishWhenTheHintIsAlreadyHidden() {
+        let monitor = TabControlShortcutKeyMonitor()
+        var changes = 0
+        let subscription = monitor.objectWillChange.sink { changes += 1 }
+        defer { subscription.cancel() }
+
+        // What every keystroke and every tab bar mount does while no hint shows.
+        monitor.cancelPendingHintShow(resetVisible: true)
+        monitor.cancelPendingHintShow(resetVisible: true)
+
+        XCTAssertFalse(monitor.isShortcutHintVisible)
+        XCTAssertEqual(changes, 0, "resetting a hidden hint must not invalidate the tab bar")
     }
 
     func testTabControlShortcutHintPolicyMatchesConfiguredModifiers() {
