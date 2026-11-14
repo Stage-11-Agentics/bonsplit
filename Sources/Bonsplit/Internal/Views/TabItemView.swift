@@ -387,8 +387,8 @@ struct TabActivityMark: View {
     }
 }
 
-enum TabActivityMarkMotionPolicy {
-    static func defaultMotion(
+public enum TabActivityMarkMotionPolicy {
+    public static func defaultMotion(
         for state: BonsplitTabActivityState,
         isEnabled: Bool
     ) -> BonsplitActivityMarkMotion? {
@@ -402,7 +402,7 @@ enum TabActivityMarkMotionPolicy {
 
     /// Resolve host presentation without treating the mere presence of color
     /// or accessibility detail as an implicit request to freeze motion.
-    static func resolvedMotion(
+    public static func resolvedMotion(
         for state: BonsplitTabActivityState,
         defaultMotionEnabled: Bool,
         explicitMotionEnabled: Bool,
@@ -425,32 +425,26 @@ private struct TabActivityMarkLeaf: View {
     /// Displayed delegate depth (0, 1 or 2).
     let lineageDepth: Int
 
-    @State private var clockToken: UUID?
-    @State private var visibleWorkingDots = 9
-    @State private var waitingCoreOpacity = 1.0
-    @State private var showsAlternateCore = false
-    @State private var markOpacity = 1.0
-
-    private var motionSignature: Int {
-        switch motion {
-        case .steppedFill: return 1
-        case .easedDip: return 2
-        case .binaryFlash: return 3
-        case .breathe: return 4
-        case nil: return 0
-        }
+    /// Dots, cores and the flagged flash move in Core Animation
+    /// (`BonsplitActivityMarkMotionOverlay`); a breathing mark is hosted in
+    /// `BonsplitActivityMarkBreathe`. No tick writes this view's state.
+    private var partMotion: BonsplitActivityMarkMotion? {
+        motion == .breathe ? nil : motion
     }
 
     var body: some View {
         let size = TabActivityMarkMetrics.visibleSize(for: state)
-        markShape
-            .frame(width: size, height: size)
-            .opacity(markOpacity)
-            .accessibilityHidden(true)
-            .onAppear { refreshClockSubscription() }
-            .onChange(of: motionSignature) { _, _ in refreshClockSubscription() }
-            .onChange(of: phaseId) { _, _ in refreshClockSubscription() }
-            .onDisappear { unsubscribeFromClock() }
+        Group {
+            if motion == .breathe {
+                BonsplitActivityMarkBreathe(phaseId: phaseId) {
+                    markShape.frame(width: size, height: size)
+                }
+            } else {
+                markShape
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -490,7 +484,7 @@ private struct TabActivityMarkLeaf: View {
                 Rectangle()
                     .fill(color.opacity(0.25))
                 BonsplitActivityMarkMotionOverlay(
-                    part: .workingDots(rows: rows), color: color, motion: motion, phaseId: phaseId
+                    part: .workingDots(rows: rows), color: color, motion: partMotion, phaseId: phaseId
                 )
             }
 
@@ -504,7 +498,7 @@ private struct TabActivityMarkLeaf: View {
                     )
                 BonsplitActivityMarkMotionOverlay(
                     part: .waitingCore(height: coreHeight), color: color,
-                    alternateColor: alternateCoreColor, motion: motion, phaseId: phaseId
+                    alternateColor: alternateCoreColor, motion: partMotion, phaseId: phaseId
                 )
             }
 
@@ -532,7 +526,7 @@ private struct TabActivityMarkLeaf: View {
                         height: TabActivityMarkMetrics.cellSide
                     )
                 BonsplitActivityMarkMotionOverlay(
-                    part: .workingDots(rows: 3), color: color, motion: motion, phaseId: phaseId
+                    part: .workingDots(rows: 3), color: color, motion: partMotion, phaseId: phaseId
                 )
             }
             .frame(
@@ -549,7 +543,7 @@ private struct TabActivityMarkLeaf: View {
                     )
                 BonsplitActivityMarkMotionOverlay(
                     part: .waitingCore(height: TabActivityMarkMetrics.waitingCoreSide), color: color,
-                    alternateColor: alternateCoreColor, motion: motion, phaseId: phaseId
+                    alternateColor: alternateCoreColor, motion: partMotion, phaseId: phaseId
                 )
             }
             .frame(
@@ -572,83 +566,6 @@ private struct TabActivityMarkLeaf: View {
                     width: TabActivityMarkMetrics.cellSide,
                     height: TabActivityMarkMetrics.coldLineThickness
                 )
-        }
-    }
-
-    private func refreshClockSubscription() {
-        unsubscribeFromClock()
-        // C11H-238: dots, cores and the flagged flash move in Core Animation
-        // (`BonsplitActivityMarkMotionOverlay`); only the whole-mark breathe
-        // still ticks here.
-        guard let motion, motion == .breathe else {
-            resetToStaticState()
-            return
-        }
-        clockToken = BonsplitActivityAnimationClock.shared.subscribe { elapsed in
-            apply(elapsed: elapsed, motion: motion)
-        }
-    }
-
-    private func unsubscribeFromClock() {
-        guard let clockToken else { return }
-        BonsplitActivityAnimationClock.shared.unsubscribe(clockToken)
-        self.clockToken = nil
-    }
-
-    private func resetToStaticState() {
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            visibleWorkingDots = 9
-            waitingCoreOpacity = 1
-            showsAlternateCore = false
-            markOpacity = 1
-        }
-    }
-
-    private func apply(elapsed: TimeInterval, motion: BonsplitActivityMarkMotion) {
-        switch motion {
-        case .steppedFill:
-            let dots = BonsplitActivityMarkAnimation.visibleWorkingDots(
-                at: elapsed,
-                id: phaseId
-            )
-            guard dots != visibleWorkingDots else { return }
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                visibleWorkingDots = dots
-            }
-
-        case .easedDip:
-            let opacity = BonsplitActivityMarkAnimation.waitingCoreOpacity(
-                at: elapsed,
-                id: phaseId
-            )
-            withAnimation(.linear(duration: BonsplitActivityMarkAnimation.clockInterval)) {
-                waitingCoreOpacity = opacity
-            }
-
-        case .binaryFlash:
-            let showsAlternate = BonsplitActivityMarkAnimation.binaryFlashShowsAlternate(
-                at: elapsed,
-                id: phaseId
-            )
-            guard showsAlternate != showsAlternateCore else { return }
-            var transaction = Transaction(animation: nil)
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                showsAlternateCore = showsAlternate
-            }
-
-        case .breathe:
-            let opacity = BonsplitActivityMarkAnimation.breatheOpacity(
-                at: elapsed,
-                id: phaseId
-            )
-            withAnimation(.linear(duration: BonsplitActivityMarkAnimation.clockInterval)) {
-                markOpacity = opacity
-            }
         }
     }
 }

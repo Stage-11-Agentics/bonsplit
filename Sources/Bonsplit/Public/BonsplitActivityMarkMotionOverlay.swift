@@ -113,6 +113,7 @@ public struct BonsplitActivityMarkMotionOverlay: NSViewRepresentable {
 
         override public func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            needsLayout = true
             applyMotion()
         }
 
@@ -155,8 +156,8 @@ public struct BonsplitActivityMarkMotionOverlay: NSViewRepresentable {
                 let side = Metrics.workingDotSide, gap = Metrics.workingDotSpacing
                 let gridWidth = 3 * side + 2 * gap
                 let gridHeight = CGFloat(rows) * side + CGFloat(max(0, rows - 1)) * gap
-                let originX = ((bounds.width - gridWidth) / 2).rounded(.down)
-                let originY = ((bounds.height - gridHeight) / 2).rounded(.down)
+                let originX = Self.pixelAligned((bounds.width - gridWidth) / 2, scale: scale)
+                let originY = Self.pixelAligned((bounds.height - gridHeight) / 2, scale: scale)
                 for (rank, dot) in partLayers.enumerated() {
                     let column = rank % 3
                     let row = rows - 1 - rank / 3
@@ -164,18 +165,27 @@ public struct BonsplitActivityMarkMotionOverlay: NSViewRepresentable {
                                        y: originY + CGFloat(row) * (side + gap), width: side, height: side)
                 }
             case .waitingCore(let height):
-                let rect = CGRect(x: ((bounds.width - Metrics.waitingCoreSide) / 2).rounded(.down),
-                                  y: ((bounds.height - height) / 2).rounded(.down),
+                let rect = CGRect(x: Self.pixelAligned((bounds.width - Metrics.waitingCoreSide) / 2, scale: scale),
+                                  y: Self.pixelAligned((bounds.height - height) / 2, scale: scale),
                                   width: Metrics.waitingCoreSide, height: height)
                 partLayers.first?.frame = rect
                 alternateLayer?.frame = rect
             }
         }
 
-        /// Install or remove the animations for the current motion and pause state.
+        /// Centered SwiftUI layout lands on half points (a 9 pt cell, an 8 pt
+        /// grid); keep that, snapped to backing pixels rather than whole points.
+        static func pixelAligned(_ value: CGFloat, scale: CGFloat) -> CGFloat {
+            guard scale > 0 else { return value }
+            return (value * scale).rounded() / scale
+        }
+
+        /// Install or remove the animations for the current motion, attachment
+        /// and pause state. Detached from a window, a mark animates nothing.
         func applyMotion() {
             guard let configuration else { return }
-            let animate = configuration.motion != nil && !BonsplitActivityAnimationClock.shared.isPaused
+            let animate = configuration.motion != nil && (window != nil || attachedForTesting)
+                && !BonsplitActivityAnimationClock.shared.isPaused
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             for part in partLayers { part.removeAllAnimations(); part.opacity = 1 }
@@ -188,6 +198,7 @@ public struct BonsplitActivityMarkMotionOverlay: NSViewRepresentable {
         }
 
         private func install(_ motion: BonsplitActivityMarkMotion, phaseId: UUID) {
+            installCountForTesting += 1
             switch motion {
             case .steppedFill:
                 for (rank, dot) in partLayers.enumerated() {
@@ -205,10 +216,21 @@ public struct BonsplitActivityMarkMotionOverlay: NSViewRepresentable {
                                   forKey: "bonsplit.activity")
                 }
             case .breathe:
-                // Whole-mark motion stays with the SwiftUI leaf (rare: flagged
-                // marks that are not waiting).
+                // Whole-mark motion is `BonsplitActivityMarkBreathe`'s layer.
                 break
             }
+        }
+
+        /// Test seams: installs so far, and a stand-in for being in a window.
+        public private(set) var installCountForTesting = 0
+        public var attachedForTesting = false {
+            didSet { applyMotion() }
+        }
+
+        /// Test seam: each moving layer's frame, after layout.
+        public var partFramesForTesting: [CGRect] {
+            layoutParts()
+            return (partLayers + [alternateLayer].compactMap { $0 }).map(\.frame)
         }
 
         /// Test seam: the animation installed on each moving layer.
@@ -221,6 +243,94 @@ public struct BonsplitActivityMarkMotionOverlay: NSViewRepresentable {
         static let workingDotSide: CGFloat = 2
         static let workingDotSpacing: CGFloat = 1
         static let waitingCoreSide: CGFloat = 4
+    }
+}
+
+/// A flagged mark that is not waiting breathes as a whole: frame, cell, dots
+/// and lineage rules together. The mark's SwiftUI shape is hosted in a
+/// layer-backed view whose layer runs the 1.8 s breathe as a Core Animation
+/// opacity animation, so no tick writes SwiftUI state. It pauses and resumes
+/// with `BonsplitActivityAnimationClock` like the overlay.
+public struct BonsplitActivityMarkBreathe<Content: View>: NSViewRepresentable {
+    let phaseId: UUID
+    let content: Content
+
+    public init(phaseId: UUID, @ViewBuilder content: () -> Content) {
+        self.phaseId = phaseId
+        self.content = content()
+    }
+
+    public func makeNSView(context: Context) -> BreatheView<Content> {
+        BreatheView(rootView: content, phaseId: phaseId)
+    }
+
+    public func updateNSView(_ view: BreatheView<Content>, context: Context) {
+        view.update(rootView: content, phaseId: phaseId)
+    }
+
+    public final class BreatheView<Hosted: View>: NSView {
+        private let host: NSHostingView<Hosted>
+        private var phaseId: UUID
+        private var pauseToken: UUID?
+        public var attachedForTesting = false {
+            didSet { applyMotion() }
+        }
+
+        public init(rootView: Hosted, phaseId: UUID) {
+            host = NSHostingView(rootView: rootView)
+            self.phaseId = phaseId
+            super.init(frame: .zero)
+            wantsLayer = true
+            host.translatesAutoresizingMaskIntoConstraints = true
+            host.autoresizingMask = [.width, .height]
+            addSubview(host)
+            pauseToken = BonsplitActivityAnimationClock.shared.observePause { [weak self] _ in self?.applyMotion() }
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        deinit {
+            if let token = pauseToken {
+                Task { @MainActor in BonsplitActivityAnimationClock.shared.removePauseObserver(token) }
+            }
+        }
+
+        override public func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override public func layout() {
+            super.layout()
+            host.frame = bounds
+        }
+
+        override public func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            applyMotion()
+        }
+
+        func update(rootView: Hosted, phaseId: UUID) {
+            host.rootView = rootView
+            guard phaseId != self.phaseId else { return }
+            self.phaseId = phaseId
+            applyMotion()
+        }
+
+        func applyMotion() {
+            guard let layer else { return }
+            let animate = (window != nil || attachedForTesting) && !BonsplitActivityAnimationClock.shared.isPaused
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.removeAnimation(forKey: "bonsplit.breathe")
+            layer.opacity = 1
+            if animate {
+                layer.add(BonsplitActivityMarkKeyframes.breathe(phaseId: phaseId, layer: layer),
+                          forKey: "bonsplit.breathe")
+            }
+            CATransaction.commit()
+        }
+
+        /// Test seam: the breathe animation on the mark's layer, if running.
+        public var breatheAnimationForTesting: CAAnimation? { layer?.animation(forKey: "bonsplit.breathe") }
     }
 }
 
@@ -286,6 +396,23 @@ public enum BonsplitActivityMarkKeyframes {
         animation.keyTimes = [0, 0.5, 1]
         return repeating(animation, cycle: BonsplitActivityMarkAnimation.binaryFlashCycle, phaseId: phaseId,
                          layer: layer)
+    }
+
+    /// The whole-mark breathe: 0.65 -> 1 -> 0.65 over 1.8 s.
+    public static func breathe(phaseId: UUID, layer: CALayer? = nil) -> CAKeyframeAnimation {
+        let cycle = BonsplitActivityMarkAnimation.breatheCycle
+        let animation = CAKeyframeAnimation(keyPath: "opacity")
+        animation.calculationMode = .linear
+        var values: [NSNumber] = []
+        var keyTimes: [NSNumber] = []
+        for step in 0...waitingSamples {
+            let unit = Double(step) / Double(waitingSamples)
+            values.append(NSNumber(value: 0.65 + 0.35 * (0.5 - 0.5 * cos(2 * .pi * unit))))
+            keyTimes.append(NSNumber(value: unit))
+        }
+        animation.values = values
+        animation.keyTimes = keyTimes
+        return repeating(animation, cycle: cycle, phaseId: phaseId, layer: layer)
     }
 
     /// `waitingCoreOpacity` as a function of the unit phase.
