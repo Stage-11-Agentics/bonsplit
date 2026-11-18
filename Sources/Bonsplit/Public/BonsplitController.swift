@@ -740,6 +740,13 @@ public final class BonsplitController {
 
     // MARK: - Split Operations
 
+    /// The tab a split is moving, set only while the delegate's
+    /// `splitTabBar(_:shouldSplitPane:orientation:)` is asked about a move
+    /// (`splitPane(_:orientation:movingTab:insertFirst:)`, which a tab drag
+    /// to a pane's edge calls). Nil for a split that creates a new pane's
+    /// content, so the delegate can tell a move from a new split.
+    @ObservationIgnored public private(set) var splitMovingTab: TabID?
+
     /// Split the focused pane (or specified pane)
     /// - Parameters:
     ///   - paneId: Optional pane to split (defaults to focused pane)
@@ -895,8 +902,12 @@ public final class BonsplitController {
         // Default target to the tab's current pane to match edge-drop behavior on the source pane.
         let targetPaneId = paneId ?? sourcePane.id
 
-        // Check with delegate
-        if delegate?.splitTabBar(self, shouldSplitPane: targetPaneId, orientation: orientation) == false {
+        // Check with delegate, which can read `splitMovingTab` to see this is a move.
+        let previousMovingTab = splitMovingTab
+        splitMovingTab = tabId
+        let allowed = delegate?.splitTabBar(self, shouldSplitPane: targetPaneId, orientation: orientation) != false
+        splitMovingTab = previousMovingTab
+        if !allowed {
             return nil
         }
 
